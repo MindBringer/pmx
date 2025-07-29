@@ -175,9 +175,14 @@ EOF
     
     mkdir -p ./models
     
-    # Cluster erstellen
-    
-    kind create cluster --config kind-config.yaml --wait 300s
+    # Cluster erstellen, falls nicht bereits vorhanden
+    if kind get clusters | grep -q "^llm-cluster$"; then
+        warn "Kind Cluster 'llm-cluster' existiert bereits, überspringe Erzeugung"
+    else
+        # Stale Nodes bereinigen
+        kind delete cluster --name llm-cluster >/dev/null 2>&1 || true
+        kind create cluster --config kind-config.yaml --wait 300s
+    fi
     
     # NGINX Ingress Controller installieren
     
@@ -398,7 +403,7 @@ setup_open_webui() {
 log "Open WebUI wird installiert…"
 
 # Helm Repository hinzufügen
-helm repo add open-webui https://helm.openwebui.com/
+helm repo add open-webui https://helm.openwebui.com/ --force-update
 helm repo update
 
 # Namespace erstellen
@@ -633,7 +638,9 @@ kubectl get ingress --all-namespaces
 
 cleanup() {
 warn "Cleanup wird ausgeführt…"
-kind delete cluster -name llm-cluster 2>/dev/null || true
+if kind get clusters | grep -q "^llm-cluster$"; then
+    kind delete cluster --name llm-cluster
+fi
 rm -f kind-config.yaml vllm-*.yaml open-webui-*.yaml dashboard-admin.yaml 2>/dev/null || true
 }
 
