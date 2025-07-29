@@ -8,31 +8,30 @@ set -e
 
 # Farben für Output
 
-RED=’\033[0;31m’
-GREEN=’\033[0;32m’
-YELLOW=’\033[1;33m’
-BLUE=’\033[0;34m’
-NC=’\033[0m’ # No Color
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
 log() {
-echo -e “${GREEN}[$(date +’%Y-%m-%d %H:%M:%S’)] $1${NC}”
+echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
 }
 
 warn() {
-echo -e “${YELLOW}[WARNING] $1${NC}”
+echo -e "${YELLOW}[WARNING] $1${NC}"
 }
 
 error() {
-echo -e “${RED}[ERROR] $1${NC}”
+echo -e "${RED}[ERROR] $1${NC}"
 exit 1
 }
 
 # Überprüfung der Systemvoraussetzungen
 
 check_requirements() {
-log “Überprüfe Systemvoraussetzungen…”
+log "Überprüfe Systemvoraussetzungen…"
 
-```
 # Ubuntu Version prüfen
 if ! grep -q "24.04" /etc/os-release; then
     warn "Dieses Script ist für Ubuntu 24.04 LTS optimiert"
@@ -48,16 +47,14 @@ available_space=$(df / | awk 'NR==2 {print $4}')
 if [[ $available_space -lt 52428800 ]]; then
     warn "Weniger als 50GB freier Speicherplatz verfügbar. Empfohlen: mindestens 50GB"
 fi
-```
 
 }
 
 # System-Updates und Grundpakete
 
 install_basics() {
-log “System wird aktualisiert und Grundpakete installiert…”
+log "System wird aktualisiert und Grundpakete installiert…"
 
-```
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y \
@@ -74,16 +71,14 @@ sudo apt install -y \
     htop \
     nano \
     vim
-```
 
 }
 
 # Docker Installation
 
 install_docker() {
-log “Docker wird installiert…”
+log "Docker wird installiert…"
 
-```
 # Alte Docker-Versionen entfernen
 sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
 
@@ -107,16 +102,14 @@ sudo systemctl enable docker
 sudo systemctl start docker
 
 log "Docker erfolgreich installiert"
-```
 
 }
 
 # Kubernetes (kind) Installation
 
 install_kubernetes() {
-log “Kubernetes (kind) wird installiert…”
+log "Kubernetes (kind) wird installiert…"
 
-```
 # kubectl installieren
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl
@@ -134,19 +127,16 @@ sudo apt update
 sudo apt install -y helm
 
 log "Kubernetes Tools erfolgreich installiert"
-```
 
 }
 
 # Kind Cluster erstellen
 
 create_kind_cluster() {
-log “Kind Kubernetes Cluster wird erstellt…”
+log "Kind Kubernetes Cluster wird erstellt…"
 
-```
 # Kind Cluster Config
 cat > kind-config.yaml << EOF
-```
 
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -159,7 +149,7 @@ nodes:
     kind: InitConfiguration
     nodeRegistration:
     kubeletExtraArgs:
-    node-labels: “ingress-ready=true”
+    node-labels: "ingress-ready=true"
     extraPortMappings:
   - containerPort: 80
     hostPort: 80
@@ -180,7 +170,7 @@ nodes:
     readOnly: false
     selinuxRelabel: false
     propagation: None
-    EOF
+EOF
     
     # Models Verzeichnis erstellen
     
@@ -188,31 +178,29 @@ nodes:
     
     # Cluster erstellen
     
-    kind create cluster –config=kind-config.yaml –wait=300s
+    kind create cluster -config=kind-config.yaml -wait=300s
     
     # NGINX Ingress Controller installieren
     
     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-    kubectl wait –namespace ingress-nginx   
-    –for=condition=ready pod   
-    –selector=app.kubernetes.io/component=controller   
-    –timeout=90s
+    kubectl wait -namespace ingress-nginx   
+    -for=condition=ready pod   
+    -selector=app.kubernetes.io/component=controller   
+    -timeout=90s
     
-    log “Kind Cluster erfolgreich erstellt”
+    log "Kind Cluster erfolgreich erstellt"
     }
 
 # vLLM Setup
 
 setup_vllm() {
-log “vLLM wird konfiguriert…”
+log "vLLM wird konfiguriert…"
 
-```
 # Namespace erstellen
 kubectl create namespace vllm --dry-run=client -o yaml | kubectl apply -f -
 
 # PersistentVolume für Models
 cat > vllm-pv.yaml << EOF
-```
 
 ## apiVersion: v1
 kind: PersistentVolume
@@ -243,12 +231,10 @@ storage: 100Gi
 storageClassName: manual
 EOF
 
-```
 kubectl apply -f vllm-pv.yaml
 
 # vLLM Deployment mit mehreren Modellen
 cat > vllm-deployment.yaml << EOF
-```
 
 ## apiVersion: apps/v1
 kind: Deployment
@@ -272,30 +258,30 @@ ports:
 - containerPort: 8000
 env:
 - name: HUGGING_FACE_HUB_TOKEN
-value: “”  # Optional: HuggingFace Token hier einfügen
+value: ""  # Optional: HuggingFace Token hier einfügen
 command:
 - python3
 - -m
 - vllm.entrypoints.openai.api_server
-- –model
+- -model
 - meta-llama/Llama-3.2-3B-Instruct
-- –host
-- “0.0.0.0”
-- –port
-- “8000”
-- –served-model-name
+- -host
+- "0.0.0.0"
+- -port
+- "8000"
+- -served-model-name
 - llama-3.2-3b
-- –max-model-len
-- “4096”
-- –tensor-parallel-size
-- “1”
+- -max-model-len
+- "4096"
+- -tensor-parallel-size
+- "1"
 resources:
 requests:
-memory: “8Gi”
-cpu: “2”
+memory: "8Gi"
+cpu: "2"
 limits:
-memory: “16Gi”
-cpu: “4”
+memory: "16Gi"
+cpu: "4"
 volumeMounts:
 - name: model-storage
 mountPath: /root/.cache/huggingface
@@ -349,30 +335,30 @@ ports:
 - containerPort: 8001
 env:
 - name: HUGGING_FACE_HUB_TOKEN
-value: “”  # Optional: HuggingFace Token hier einfügen
+value: ""  # Optional: HuggingFace Token hier einfügen
 command:
 - python3
 - -m
 - vllm.entrypoints.openai.api_server
-- –model
+- -model
 - mistralai/Mistral-7B-Instruct-v0.3
-- –host
-- “0.0.0.0”
-- –port
-- “8001”
-- –served-model-name
+- -host
+- "0.0.0.0"
+- -port
+- "8001"
+- -served-model-name
 - mistral-7b
-- –max-model-len
-- “8192”
-- –tensor-parallel-size
-- “1”
+- -max-model-len
+- "8192"
+- -tensor-parallel-size
+- "1"
 resources:
 requests:
-memory: “8Gi”
-cpu: “2”
+memory: "8Gi"
+cpu: "2"
 limits:
-memory: “16Gi”
-cpu: “4”
+memory: "16Gi"
+cpu: "4"
 volumeMounts:
 - name: model-storage
 mountPath: /root/.cache/huggingface
@@ -401,19 +387,18 @@ ports:
   targetPort: 8001
   nodePort: 30081
   type: NodePort
-  EOF
+EOF
   
   kubectl apply -f vllm-deployment.yaml
   
-  log “vLLM Deployments erstellt”
+  log "vLLM Deployments erstellt"
   }
 
 # Open WebUI Setup
 
 setup_open_webui() {
-log “Open WebUI wird installiert…”
+log "Open WebUI wird installiert…"
 
-```
 # Helm Repository hinzufügen
 helm repo add open-webui https://helm.openwebui.com/
 helm repo update
@@ -423,7 +408,6 @@ kubectl create namespace open-webui --dry-run=client -o yaml | kubectl apply -f 
 
 # Open WebUI Values
 cat > open-webui-values.yaml << EOF
-```
 
 replicaCount: 1
 
@@ -439,7 +423,7 @@ nodePort: 30800
 
 ingress:
 enabled: true
-className: “nginx”
+className: "nginx"
 annotations:
 nginx.ingress.kubernetes.io/rewrite-target: /
 hosts:
@@ -450,7 +434,7 @@ pathType: Prefix
 
 persistence:
 enabled: true
-storageClass: “manual”
+storageClass: "manual"
 accessModes:
 - ReadWriteOnce
 size: 10Gi
@@ -458,11 +442,11 @@ size: 10Gi
 env:
 
 - name: WEBUI_NAME
-  value: “Local LLM Hub”
+  value: "Local LLM Hub"
 - name: OPENAI_API_BASE_URLS
-  value: “http://vllm-llama-3-8b-service.vllm.svc.cluster.local:8000/v1,http://vllm-mistral-7b-service.vllm.svc.cluster.local:8001/v1”
+  value: "http://vllm-llama-3-8b-service.vllm.svc.cluster.local:8000/v1,http://vllm-mistral-7b-service.vllm.svc.cluster.local:8001/v1"
 - name: OPENAI_API_KEYS
-  value: “sk-dummy-key,sk-dummy-key”
+  value: "sk-dummy-key,sk-dummy-key"
 
 resources:
 limits:
@@ -477,10 +461,8 @@ tolerations: []
 affinity: {}
 EOF
 
-```
 # PV für Open WebUI
 cat > open-webui-pv.yaml << EOF
-```
 
 apiVersion: v1
 kind: PersistentVolume
@@ -497,7 +479,6 @@ hostPath:
 path: /tmp/open-webui
 EOF
 
-```
 kubectl apply -f open-webui-pv.yaml
 
 # Open WebUI installieren
@@ -507,18 +488,15 @@ helm upgrade --install open-webui open-webui/open-webui \
     --wait
 
 log "Open WebUI erfolgreich installiert"
-```
 
 }
 
 # Model Download Script erstellen
 
 create_model_scripts() {
-log “Model Download Scripts werden erstellt…”
+log "Model Download Scripts werden erstellt…"
 
-```
 cat > download-models.sh << 'EOF'
-```
 
 #!/bin/bash
 
@@ -526,46 +504,44 @@ cat > download-models.sh << 'EOF'
 
 # Lädt empfohlene Modelle für lokale Nutzung herunter
 
-MODELS_DIR=”./models”
+MODELS_DIR="./models"
 mkdir -p $MODELS_DIR
 
-echo “Downloadging models to $MODELS_DIR…”
+echo "Downloadging models to $MODELS_DIR…"
 
 # Kleinere, lokale Modelle für CPU/kleine GPU
 
 models=(
-“microsoft/DialoGPT-medium”
-“microsoft/DialoGPT-small”
-“google/flan-t5-base”
-“google/flan-t5-small”
-“stabilityai/stablelm-3b-4e1t”
+"microsoft/DialoGPT-medium"
+"microsoft/DialoGPT-small"
+"google/flan-t5-base"
+"google/flan-t5-small"
+"stabilityai/stablelm-3b-4e1t"
 )
 
-for model in “${models[@]}”; do
-echo “Downloading $model…”
+for model in "${models[@]}"; do
+echo "Downloading $model…"
 cd $MODELS_DIR
 git lfs install
 git clone https://huggingface.co/$model
 cd ..
 done
 
-echo “Model download completed!”
+echo "Model download completed!"
 EOF
 
-```
 chmod +x download-models.sh
 
 # Cloud API Konfiguration
 cat > cloud-api-config.yaml << EOF
-```
 
 # Cloud API Konfiguration für Open WebUI
 
 # OpenAI Configuration
 
 openai:
-api_key: “your-openai-api-key”
-base_url: “https://api.openai.com/v1”
+api_key: "your-openai-api-key"
+base_url: "https://api.openai.com/v1"
 models:
 - gpt-4
 - gpt-3.5-turbo
@@ -573,8 +549,8 @@ models:
 # Anthropic Configuration
 
 anthropic:
-api_key: “your-anthropic-api-key”
-base_url: “https://api.anthropic.com”
+api_key: "your-anthropic-api-key"
+base_url: "https://api.anthropic.com"
 models:
 - claude-3-sonnet
 - claude-3-haiku
@@ -582,8 +558,8 @@ models:
 # Google Gemini Configuration
 
 google:
-api_key: “your-google-api-key”
-base_url: “https://generativelanguage.googleapis.com/v1beta”
+api_key: "your-google-api-key"
+base_url: "https://generativelanguage.googleapis.com/v1beta"
 models:
 - gemini-pro
 - gemini-pro-vision
@@ -592,24 +568,20 @@ models:
 
 EOF
 
-```
 log "Model Scripts erstellt"
-```
 
 }
 
 # Monitoring Setup
 
 setup_monitoring() {
-log “Monitoring wird eingerichtet…”
+log "Monitoring wird eingerichtet…"
 
-```
 # Kubernetes Dashboard (optional)
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
 
 # ServiceAccount für Dashboard
 cat > dashboard-admin.yaml << EOF
-```
 
 ## apiVersion: v1
 kind: ServiceAccount
@@ -630,19 +602,18 @@ subjects:
 - kind: ServiceAccount
   name: admin-user
   namespace: kubernetes-dashboard
-  EOF
+EOF
   
   kubectl apply -f dashboard-admin.yaml
   
-  log “Monitoring eingerichtet”
+  log "Monitoring eingerichtet"
   }
 
 # Status Check
 
 check_status() {
-log “Status wird überprüft…”
+log "Status wird überprüft…"
 
-```
 echo -e "\n${BLUE}=== Cluster Status ===${NC}"
 kubectl get nodes
 
@@ -657,24 +628,22 @@ kubectl get svc --all-namespaces | grep -E "(vllm|open-webui)"
 
 echo -e "\n${BLUE}=== Ingress ===${NC}"
 kubectl get ingress --all-namespaces
-```
 
 }
 
 # Cleanup Function
 
 cleanup() {
-warn “Cleanup wird ausgeführt…”
-kind delete cluster –name llm-cluster 2>/dev/null || true
+warn "Cleanup wird ausgeführt…"
+kind delete cluster -name llm-cluster 2>/dev/null || true
 rm -f kind-config.yaml vllm-*.yaml open-webui-*.yaml dashboard-admin.yaml 2>/dev/null || true
 }
 
 # Abschluss-Informationen
 
 print_info() {
-log “Setup abgeschlossen!”
+log "Setup abgeschlossen!"
 
-```
 echo -e "\n${GREEN}=== Zugriff auf die Services ===${NC}"
 echo -e "Open WebUI: http://localhost:30800"
 echo -e "vLLM Llama-3.2-3B: http://localhost:30080"  
@@ -696,16 +665,14 @@ echo -e "\n${YELLOW}Wichtige Hinweise:${NC}"
 echo -e "- Neu einloggen für Docker-Gruppenmitgliedschaft"
 echo -e "- Mindestens 16GB RAM für größere Modelle empfohlen"
 echo -e "- Für Produktionsumgebung: SSL-Zertifikate und Authentifizierung konfigurieren"
-```
 
 }
 
 # Main Execution
 
 main() {
-log “LLM Kubernetes Setup wird gestartet…”
+log "LLM Kubernetes Setup wird gestartet…"
 
-```
 check_requirements
 install_basics
 install_docker
@@ -728,24 +695,23 @@ check_status
 print_info
 
 log "Setup erfolgreich abgeschlossen!"
-```
 
 }
 
 # Script mit Parametern ausführen
 
-case “${1:-}” in
-“cleanup”)
+case "${1:-}" in
+"cleanup")
 cleanup
 ;;
-“status”)
+"status")
 check_status
 ;;
-“”)
+"")
 main
 ;;
 *)
-echo “Usage: $0 [cleanup|status]”
+echo "Usage: $0 [cleanup|status]"
 exit 1
 ;;
 esac
