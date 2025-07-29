@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ollama:
     image: ollama/ollama:latest
@@ -16,18 +14,23 @@ services:
       retries: 5
 
   vllm:
-    image: vllm/vllm-openai:latest
-    command: >
-      python3 -m vllm.entrypoints.openai.api_server \
-        --model ${VLLM_MODEL} \
-        --host 0.0.0.0 \
-        --port 8000
-    ports:
-      - "${VLLM_PORT}:8000"
-    volumes:
-      - ${VLLM_DATA}:/root/.cache/huggingface
+    image: vllm/vllm-openai-cpu:0.9.1
+    # kein build:‑Block nötig – wird vom install.sh vorher gebaut
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
+      - VLLM_CPU_KVCACHE_SPACE=12     # RAM‑Größe (GiB) anpassen
+      - VLLM_LOGGING_LEVEL=INFO
+    command: >
+      python -m vllm.entrypoints.openai.api_server
+        --model ${VLLM_MODEL}
+        --device cpu
+        --dtype bfloat16
+        --host 0.0.0.0
+        --port 8000
+    volumes:
+      - ${VLLM_DATA}:/root/.cache/huggingface
+    ports:
+      - "${VLLM_PORT}:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
