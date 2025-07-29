@@ -88,9 +88,6 @@ services:
       - LITELLM_MODEL_2_ENGINE=http://ollama:11434           # Ollama JSON Endpunkt
     depends_on:
       - ollama
-      # dynamische Abhängigkeit: einer von beiden existiert
-      - vllm
-      - tgi
 
 volumes:
   ollama_data:
