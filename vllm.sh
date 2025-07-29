@@ -200,34 +200,33 @@ kubectl create namespace vllm --dry-run=client -o yaml | kubectl apply -f -
 
 # PersistentVolume für Models
 cat > vllm-pv.yaml << EOF
-
-## apiVersion: v1
+apiVersion: v1
 kind: PersistentVolume
 metadata:
-name: model-storage
-namespace: vllm
+  name: model-storage
+  namespace: vllm
 spec:
-capacity:
-storage: 100Gi
-accessModes:
-- ReadWriteMany
-persistentVolumeReclaimPolicy: Retain
-storageClassName: manual
-hostPath:
-path: /models
-
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /models
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-name: model-storage-claim
-namespace: vllm
+  name: model-storage-claim
+  namespace: vllm
 spec:
-accessModes:
-- ReadWriteMany
-resources:
-requests:
-storage: 100Gi
-storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: manual
 EOF
 
 kubectl apply -f vllm-pv.yaml
