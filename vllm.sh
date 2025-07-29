@@ -209,7 +209,6 @@ apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: model-storage
-  namespace: vllm
 spec:
   capacity:
     storage: 100Gi
@@ -314,7 +313,7 @@ ports:
   nodePort: 30080
   type: NodePort
 
------
+---
 
 ## apiVersion: apps/v1
 kind: Deployment
@@ -470,16 +469,16 @@ cat > open-webui-pv.yaml << EOF
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-name: open-webui-storage
+  name: open-webui-storage
 spec:
-capacity:
-storage: 10Gi
-accessModes:
-- ReadWriteOnce
-persistentVolumeReclaimPolicy: Retain
-storageClassName: manual
-hostPath:
-path: /tmp/open-webui
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /tmp/open-webui
 EOF
 
 kubectl apply -f open-webui-pv.yaml
