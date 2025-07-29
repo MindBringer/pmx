@@ -1,60 +1,97 @@
 services:
+  # === 1. OLLAMA – immer aktiv ======================================
   ollama:
     image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
     ports:
-      - "${OLLAMA_PORT}:11434"
+      - "11434:11434"
     volumes:
-      - ${OLLAMA_DATA}:/root/.ollama
-    environment:
-      - OLLAMA_MODELS=${OLLAMA_MODELS}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+      - ollama_data:/root/.ollama
+    command: >
+      bash -c "
+        ollama serve &
+        sleep 5 &&
+        ollama pull mistral:7b-instruct &&
+        ollama pull llama3:8b-instruct &&
+        wait
+      "
 
+  # === 2. vLLM (nur GPU / AVX‑512) ==================================
   vllm:
-    image: vllm/vllm-openai-cpu:0.9.1
-    # kein build:‑Block nötig – wird vom install.sh vorher gebaut
+    profiles: ["vllm"]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:0.9.1}   # GPU‑Image default
+    runtime: ${VLLM_RUNTIME:-nvidia}               # wird ignoriert bei CPU‑Image
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
-      - VLLM_CPU_KVCACHE_SPACE=12     # RAM‑Größe (GiB) anpassen
       - VLLM_LOGGING_LEVEL=INFO
+      - VLLM_CPU_KVCACHE_SPACE=32
     command: >
       python -m vllm.entrypoints.openai.api_server
-        --model ${VLLM_MODEL}
-        --device cpu
-        --dtype bfloat16
-        --host 0.0.0.0
-        --port 8000
-    volumes:
-      - ${VLLM_DATA}:/root/.cache/huggingface
+        --model mistralai/Mistral-7B-Instruct-v0.2
+        --model meta-llama/Meta-Llama-3-8B-Instruct
+        --host 0.0.0.0 --port 8000
     ports:
-      - "${VLLM_PORT}:8000"
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
 
-  gateway:
-    build: ./gateway
+  # === 3. HF TGI (CPU‑Fallback) ======================================
+  tgi:
+    profiles: ["tgi"]
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    restart: unless-stopped
     ports:
-      - "${GATEWAY_PORT}:8000"
+      - "8000:80"                # angeglichen an vLLM‑Port
+    volumes:
+      - tgi_data:/data
     environment:
-      - OLLAMA_URL=http://ollama:11434
-      - VLLM_URL=http://vllm:8000
-    depends_on:
-      ollama:
-        condition: service_healthy
-      vllm:
-        condition: service_healthy
+      - MODEL_ID=mistralai/Mistral-7B-Instruct-v0.2
+      - SECONDARY_MODEL_ID=meta-llama/Meta-Llama-3-8B-Instruct
+      - NUM_SHARD=1
+      - MAX_BATCH_PREFILL_TOKENS=4096
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 5
 
+  # === 4. gateway_chatgpt – proxy zu OpenAI ==========================
+  gateway_chatgpt:
+    image: ghcr.io/berriai/litellm:main
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      - LITELLM_API_KEY=${OPENAI_API_KEY}
+      - LITELLM_MODEL_NAME_1=chatgpt
+      - LITELLM_MODEL_1_ENGINE=openai/gpt-4o
+      - LITELLM_PORT=8000
+      - LITELLM_DEFAULT_MODEL=chatgpt
+
+  # === 5. gateway_local – proxy zu lokalem Backend ===================
+  gateway_local:
+    image: ghcr.io/berriai/litellm:main
+    restart: unless-stopped
+    ports:
+      - "8090:8000"
+    environment:
+      - LITELLM_PORT=8000
+      - LITELLM_DEFAULT_MODEL=mistral-local
+      # → Ziel‑URL hängt davon ab, ob vLLM oder TGI aktiv ist:
+      - LITELLM_MODEL_NAME_1=mistral-local
+      - LITELLM_MODEL_1_ENGINE=http://vllm:8000/v1           # automatisch ok wenn Profil vllm
+      - LITELLM_MODEL_NAME_2=llama3-local
+      - LITELLM_MODEL_2_ENGINE=http://ollama:11434           # Ollama JSON Endpunkt
+    depends_on:
+      - ollama
+      # dynamische Abhängigkeit: einer von beiden existiert
+      - vllm
+      - tgi
+
 volumes:
   ollama_data:
-  vllm_data:
+  tgi_data:

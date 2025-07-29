@@ -65,38 +65,6 @@ else
     warn "Bitte einmal ab- und wieder anmelden, damit die Docker-Berechtigungen aktiv werden!"
 fi
 
-# ==== vLLM‑CPU‑IMAGE BAUEN ================================================
-VLLM_VERSION="0.9.1"                       # gleiche Version wie Git‑Tag
-VLLM_IMAGE="vllm/vllm-openai-cpu:${VLLM_VERSION}"
-
-if ! docker image inspect "$VLLM_IMAGE" >/dev/null 2>&1; then
-    log "Baue vLLM CPU‑Image ($VLLM_IMAGE) …"
-    WORKDIR=$(mktemp -d)
-    git clone --depth 1 --branch "v${VLLM_VERSION}" \
-        https://github.com/vllm-project/vllm.git "$WORKDIR" >>"$LOGFILE" 2>&1
-
-    # Wo liegt der Dockerfile?
-    if [ -f "$WORKDIR/docker/Dockerfile.cpu" ]; then
-        DOCKERFILE_PATH="$WORKDIR/docker/Dockerfile.cpu"
-    elif [ -f "$WORKDIR/Dockerfile.cpu" ]; then
-        DOCKERFILE_PATH="$WORKDIR/Dockerfile.cpu"
-    else
-        error "Konnte Dockerfile.cpu im vLLM‑Repo nicht finden!"
-    fi
-
-    docker build \
-        -f "$DOCKERFILE_PATH" \
-        --target vllm-openai \
-        -t "$VLLM_IMAGE" \
-        "$WORKDIR" >>"$LOGFILE" 2>&1
-
-    rm -rf "$WORKDIR"
-    log "vLLM CPU‑Image gebaut und getaggt als $VLLM_IMAGE"
-else
-    log "vLLM CPU‑Image $VLLM_IMAGE bereits vorhanden – überspringe Build."
-fi
-# ==========================================================================
-
 # ==== ENV FILE ====
 if [ ! -f .env ]; then
     if [ -f .env.example ]; then
@@ -108,6 +76,64 @@ if [ ! -f .env ]; then
 else
     log ".env bereits vorhanden."
 fi
+
+# ==== HARDWARE‑CHECK & COMPOSE‑PROFILES ==========================
+log "Ermittle Hardware‑Features …"
+GPU_PRESENT=0
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    GPU_PRESENT=1
+    log "NVIDIA‑GPU gefunden."
+else
+    log "Keine NVIDIA‑GPU gefunden."
+fi
+
+AVX512_PRESENT=0
+if grep -q avx512 /proc/cpuinfo; then
+    AVX512_PRESENT=1
+    log "AVX‑512 Feature erkannt."
+else
+    log "AVX‑512 nicht vorhanden."
+fi
+
+USE_VLLM=0
+USE_TGI=0
+if [[ $GPU_PRESENT -eq 1 || $AVX512_PRESENT -eq 1 ]]; then
+    USE_VLLM=1
+    export COMPOSE_PROFILES="vllm"
+    log "→ vLLM wird installiert (Profil vllm)."
+else
+    USE_TGI=1
+    export COMPOSE_PROFILES="tgi"
+    log "→ HF TGI wird installiert (Profil tgi)."
+fi
+export COMPOSE_PROFILES="${COMPOSE_PROFILES}"
+
+# ==== vLLM‑CPU‑BUILD (nur wenn AVX‑512 & keine GPU) ==============
+if [[ $USE_VLLM -eq 1 && $GPU_PRESENT -eq 0 && $AVX512_PRESENT -eq 1 ]]; then
+    VLLM_VERSION="0.9.1"
+    VLLM_IMAGE="vllm/vllm-openai-cpu:${VLLM_VERSION}"
+    if ! docker image inspect "$VLLM_IMAGE" >/dev/null 2>&1; then
+        log "Baue vLLM CPU‑Image ($VLLM_IMAGE) …"
+        WORKDIR=$(mktemp -d)
+        git clone --depth 1 --branch "v${VLLM_VERSION}" \
+            https://github.com/vllm-project/vllm.git "$WORKDIR" >>"$LOGFILE" 2>&1
+        DOCKERFILE_PATH=""
+        if [ -f "$WORKDIR/docker/Dockerfile.cpu" ]; then
+            DOCKERFILE_PATH="$WORKDIR/docker/Dockerfile.cpu"
+        elif [ -f "$WORKDIR/Dockerfile.cpu" ]; then
+            DOCKERFILE_PATH="$WORKDIR/Dockerfile.cpu"
+        else
+            error "Dockerfile.cpu nicht gefunden – Build abgebrochen."
+        fi
+        docker build -f "$DOCKERFILE_PATH" --target vllm-openai \
+            -t "$VLLM_IMAGE" "$WORKDIR" >>"$LOGFILE" 2>&1
+        rm -rf "$WORKDIR"
+        log "vLLM CPU‑Image erfolgreich gebaut."
+    else
+        log "vLLM CPU‑Image bereits vorhanden – überspringe Build."
+    fi
+fi
+# ================================================================
 
 # ==== CONTAINER STOPPEN & CLEANUP ====
 log "Prüfe laufende, alte oder fehlerhafte Container..."
