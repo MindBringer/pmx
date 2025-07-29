@@ -22,6 +22,19 @@ This repository provides a minimal yet production oriented setup for running loc
 
 This will start the services and verify that all containers become healthy.
 
+### Environment Variables
+
+The `.env` file controls all configuration and should hold any required tokens.
+Important variables include:
+
+- `HUGGINGFACE_TOKEN` – optional token for pulling models
+- `OPENAI_API_KEY` – if you want to connect OpenAI services
+- `ANTHROPIC_API_KEY` – used for Anthropic models
+- `GOOGLE_API_KEY` – used for Google Gemini
+- `OPENAI_API_KEYS` – comma separated keys for Open WebUI
+
+Never commit the real values of these variables to version control.
+
 ### Default Ports
 
 - Ollama: `${OLLAMA_PORT}` (default `11434`)

@@ -449,7 +449,7 @@ env:
 - name: OPENAI_API_BASE_URLS
   value: "http://vllm-llama-3-8b-service.vllm.svc.cluster.local:8000/v1,http://vllm-mistral-7b-service.vllm.svc.cluster.local:8001/v1"
 - name: OPENAI_API_KEYS
-  value: "sk-dummy-key,sk-dummy-key"
+  value: "${OPENAI_API_KEYS}"
 
 resources:
 limits:
@@ -543,7 +543,7 @@ cat > cloud-api-config.yaml << EOF
 # OpenAI Configuration
 
 openai:
-api_key: "your-openai-api-key"
+api_key: "${OPENAI_API_KEY}"
 base_url: "https://api.openai.com/v1"
 models:
 - gpt-4
@@ -552,7 +552,7 @@ models:
 # Anthropic Configuration
 
 anthropic:
-api_key: "your-anthropic-api-key"
+api_key: "${ANTHROPIC_API_KEY}"
 base_url: "https://api.anthropic.com"
 models:
 - claude-3-sonnet
@@ -561,7 +561,7 @@ models:
 # Google Gemini Configuration
 
 google:
-api_key: "your-google-api-key"
+api_key: "${GOOGLE_API_KEY}"
 base_url: "https://generativelanguage.googleapis.com/v1beta"
 models:
 - gemini-pro
