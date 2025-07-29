@@ -178,7 +178,7 @@ EOF
     
     # Cluster erstellen
     
-    kind create cluster -config=kind-config.yaml -wait=300s
+    kind create cluster --config kind-config.yaml --wait 300s
     
     # NGINX Ingress Controller installieren
     
