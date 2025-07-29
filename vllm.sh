@@ -175,9 +175,14 @@ EOF
     
     mkdir -p ./models
     
-    # Cluster erstellen
-    
-    kind create cluster --config kind-config.yaml --wait 300s
+    # Cluster erstellen, falls nicht bereits vorhanden
+    if kind get clusters | grep -q "^llm-cluster$"; then
+        warn "Kind Cluster 'llm-cluster' existiert bereits, überspringe Erzeugung"
+    else
+        # Stale Nodes bereinigen
+        kind delete cluster --name llm-cluster >/dev/null 2>&1 || true
+        kind create cluster --config kind-config.yaml --wait 300s
+    fi
     
     # NGINX Ingress Controller installieren
     
@@ -199,35 +204,33 @@ log "vLLM wird konfiguriert…"
 kubectl create namespace vllm --dry-run=client -o yaml | kubectl apply -f -
 
 # PersistentVolume für Models
-cat > vllm-pv.yaml << EOF
-
-## apiVersion: v1
+cat > vllm-pv.yaml <<'EOF'
+apiVersion: v1
 kind: PersistentVolume
 metadata:
-name: model-storage
-namespace: vllm
+  name: model-storage
 spec:
-capacity:
-storage: 100Gi
-accessModes:
-- ReadWriteMany
-persistentVolumeReclaimPolicy: Retain
-storageClassName: manual
-hostPath:
-path: /models
-
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /models
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-name: model-storage-claim
-namespace: vllm
+  name: model-storage-claim
+  namespace: vllm
 spec:
-accessModes:
-- ReadWriteMany
-resources:
-requests:
-storage: 100Gi
-storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: manual
 EOF
 
 kubectl apply -f vllm-pv.yaml
@@ -310,7 +313,7 @@ ports:
   nodePort: 30080
   type: NodePort
 
------
+---
 
 ## apiVersion: apps/v1
 kind: Deployment
@@ -399,7 +402,7 @@ setup_open_webui() {
 log "Open WebUI wird installiert…"
 
 # Helm Repository hinzufügen
-helm repo add open-webui https://helm.openwebui.com/
+helm repo add open-webui https://helm.openwebui.com/ --force-update
 helm repo update
 
 # Namespace erstellen
@@ -461,21 +464,21 @@ affinity: {}
 EOF
 
 # PV für Open WebUI
-cat > open-webui-pv.yaml << EOF
+cat > open-webui-pv.yaml <<'EOF'
 
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-name: open-webui-storage
+  name: open-webui-storage
 spec:
-capacity:
-storage: 10Gi
-accessModes:
-- ReadWriteOnce
-persistentVolumeReclaimPolicy: Retain
-storageClassName: manual
-hostPath:
-path: /tmp/open-webui
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /tmp/open-webui
 EOF
 
 kubectl apply -f open-webui-pv.yaml
@@ -634,7 +637,9 @@ kubectl get ingress --all-namespaces
 
 cleanup() {
 warn "Cleanup wird ausgeführt…"
-kind delete cluster -name llm-cluster 2>/dev/null || true
+if kind get clusters | grep -q "^llm-cluster$"; then
+    kind delete cluster --name llm-cluster
+fi
 rm -f kind-config.yaml vllm-*.yaml open-webui-*.yaml dashboard-admin.yaml 2>/dev/null || true
 }
 
