@@ -66,9 +66,6 @@ else
 fi
 
 # ==== vLLM‑CPU‑IMAGE BAUEN ================================================
-# Falls du eine NVIDIA‑GPU hast und CUDA nutzen willst, diesen Block überspringen
-# und einfach das fertige CUDA‑Image in der compose lassen.
-# ---------------------------------------------------------------------------
 VLLM_VERSION="0.9.1"                       # gleiche Version wie Git‑Tag
 VLLM_IMAGE="vllm/vllm-openai-cpu:${VLLM_VERSION}"
 
@@ -77,17 +74,28 @@ if ! docker image inspect "$VLLM_IMAGE" >/dev/null 2>&1; then
     WORKDIR=$(mktemp -d)
     git clone --depth 1 --branch "v${VLLM_VERSION}" \
         https://github.com/vllm-project/vllm.git "$WORKDIR" >>"$LOGFILE" 2>&1
+
+    # Wo liegt der Dockerfile?
+    if [ -f "$WORKDIR/docker/Dockerfile.cpu" ]; then
+        DOCKERFILE_PATH="$WORKDIR/docker/Dockerfile.cpu"
+    elif [ -f "$WORKDIR/Dockerfile.cpu" ]; then
+        DOCKERFILE_PATH="$WORKDIR/Dockerfile.cpu"
+    else
+        error "Konnte Dockerfile.cpu im vLLM‑Repo nicht finden!"
+    fi
+
     docker build \
-        -f docker/Dockerfile.cpu \
+        -f "$DOCKERFILE_PATH" \
         --target vllm-openai \
         -t "$VLLM_IMAGE" \
         "$WORKDIR" >>"$LOGFILE" 2>&1
+
     rm -rf "$WORKDIR"
     log "vLLM CPU‑Image gebaut und getaggt als $VLLM_IMAGE"
 else
     log "vLLM CPU‑Image $VLLM_IMAGE bereits vorhanden – überspringe Build."
 fi
-# ========================================================================== 
+# ==========================================================================
 
 # ==== ENV FILE ====
 if [ ! -f .env ]; then
