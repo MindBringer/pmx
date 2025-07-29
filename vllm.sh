@@ -175,9 +175,14 @@ EOF
     
     mkdir -p ./models
     
-    # Cluster erstellen
-    
-    kind create cluster --config kind-config.yaml --wait 300s
+    # Cluster erstellen, falls nicht bereits vorhanden
+    if kind get clusters | grep -q "^llm-cluster$"; then
+        warn "Kind Cluster 'llm-cluster' existiert bereits, überspringe Erzeugung"
+    else
+        # Stale Nodes bereinigen
+        kind delete cluster --name llm-cluster >/dev/null 2>&1 || true
+        kind create cluster --config kind-config.yaml --wait 300s
+    fi
     
     # NGINX Ingress Controller installieren
     
@@ -200,34 +205,33 @@ kubectl create namespace vllm --dry-run=client -o yaml | kubectl apply -f -
 
 # PersistentVolume für Models
 cat > vllm-pv.yaml << EOF
-
-## apiVersion: v1
+apiVersion: v1
 kind: PersistentVolume
 metadata:
-name: model-storage
-namespace: vllm
+  name: model-storage
+  namespace: vllm
 spec:
-capacity:
-storage: 100Gi
-accessModes:
-- ReadWriteMany
-persistentVolumeReclaimPolicy: Retain
-storageClassName: manual
-hostPath:
-path: /models
-
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /models
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-name: model-storage-claim
-namespace: vllm
+  name: model-storage-claim
+  namespace: vllm
 spec:
-accessModes:
-- ReadWriteMany
-resources:
-requests:
-storage: 100Gi
-storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: manual
 EOF
 
 kubectl apply -f vllm-pv.yaml
@@ -399,7 +403,7 @@ setup_open_webui() {
 log "Open WebUI wird installiert…"
 
 # Helm Repository hinzufügen
-helm repo add open-webui https://helm.openwebui.com/
+helm repo add open-webui https://helm.openwebui.com/ --force-update
 helm repo update
 
 # Namespace erstellen
@@ -634,7 +638,9 @@ kubectl get ingress --all-namespaces
 
 cleanup() {
 warn "Cleanup wird ausgeführt…"
-kind delete cluster -name llm-cluster 2>/dev/null || true
+if kind get clusters | grep -q "^llm-cluster$"; then
+    kind delete cluster --name llm-cluster
+fi
 rm -f kind-config.yaml vllm-*.yaml open-webui-*.yaml dashboard-admin.yaml 2>/dev/null || true
 }
 
