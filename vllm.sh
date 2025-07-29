@@ -136,40 +136,39 @@ create_kind_cluster() {
 log "Kind Kubernetes Cluster wird erstellt…"
 
 # Kind Cluster Config
-cat > kind-config.yaml << EOF
+cat > kind-config.yaml << 'EOF'
 
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: llm-cluster
 nodes:
-
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-    kubeletExtraArgs:
-    node-labels: "ingress-ready=true"
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
     extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-  - containerPort: 30080
-    hostPort: 30080
-    protocol: TCP
-  - containerPort: 30081
-    hostPort: 30081
-    protocol: TCP
-- role: worker
-  extraMounts:
-  - hostPath: ./models
-    containerPath: /models
-    readOnly: false
-    selinuxRelabel: false
-    propagation: None
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+      - containerPort: 30081
+        hostPort: 30081
+        protocol: TCP
+  - role: worker
+    extraMounts:
+      - hostPath: ./models
+        containerPath: /models
+        readOnly: false
+        selinuxRelabel: false
+        propagation: None
 EOF
     
     # Models Verzeichnis erstellen
@@ -183,10 +182,10 @@ EOF
     # NGINX Ingress Controller installieren
     
     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-    kubectl wait -namespace ingress-nginx   
-    -for=condition=ready pod   
-    -selector=app.kubernetes.io/component=controller   
-    -timeout=90s
+    kubectl wait --namespace ingress-nginx \
+      --for=condition=ready pod \
+      --selector=app.kubernetes.io/component=controller \
+      --timeout=90s
     
     log "Kind Cluster erfolgreich erstellt"
     }
