@@ -8,14 +8,7 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    command: >
-      bash -c "
-        ollama serve &
-        sleep 5 &&
-        ollama pull mistral:7b-instruct &&
-        ollama pull llama3:8b-instruct &&
-        wait
-      "
+    command: serve
 
   # === 2. vLLM (nur GPU / AVX‑512) ==================================
   vllm:
