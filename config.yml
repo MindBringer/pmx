@@ -1,0 +1,9 @@
+model_list:
+  - model_name: chatgpt
+    litellm_params:
+      model: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+      api_base: https://api.openai.com/v1
+      api_version: null
+      model_config:
+        protected_namespaces: []  # <- optional: Warnung unterdrücken

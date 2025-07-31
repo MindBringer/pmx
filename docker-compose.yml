@@ -64,6 +64,8 @@ services:
       - LITELLM_MODEL_1_ENGINE=openai/gpt-4o
       - LITELLM_PORT=8000
       - LITELLM_DEFAULT_MODEL=chatgpt
+    volumes:
+      - ./config-openai.yaml:/app/config.yaml
 
   # === 5. gateway_local – proxy zu lokalem Backend ===================
   gateway_local:
