@@ -1,4 +1,3 @@
-
 {
   "name": "Prompt-Routing",
   "nodes": [
@@ -36,17 +35,11 @@
         "url": "https://api.openai.com/v1/chat/completions",
         "jsonParameters": true,
         "options": {},
-        "bodyParametersJson": "{\"model\": \"gpt-4\", \"messages\": [{\"role\": \"user\", \"content\": \"={{$json[\"prompt\"]}}\"}]}"
+        "bodyParametersJson": "{\"model\": \"gpt-4\", \"messages\": [{\"role\": \"user\", \"content\": \"={{$json.prompt}}\"}]}"
       },
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "openai",
-          "name": "openai"
-        }
-      },
       "position": [700, 200]
     },
     {
@@ -55,7 +48,7 @@
         "url": "http://ollama:11434/api/generate",
         "jsonParameters": true,
         "options": {},
-        "bodyParametersJson": "{ \"model\": \"mistral\", \"prompt\": \"={{$json[\"prompt\"]}}\" }"
+        "bodyParametersJson": "{ \"model\": \"mistral\", \"prompt\": \"={{$json.prompt}}\" }"
       },
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
@@ -73,15 +66,26 @@
     }
   ],
   "connections": {
-    "Webhook": { "main": [[{ "node": "Input Check", "type": "main", "index": 0 }]] },
-    "Input Check": { "main": [[{ "node": "Router", "type": "main", "index": 0 }]] },
+    "Webhook": {
+      "main": [[{ "node": "Input Check", "type": "main", "index": 0 }]]
+    },
+    "Input Check": {
+      "main": [[{ "node": "Router", "type": "main", "index": 0 }]]
+    },
     "Router": {
       "main": [
         [{ "node": "Call OpenAI", "type": "main", "index": 0 }],
         [{ "node": "Call Ollama", "type": "main", "index": 0 }]
       ]
     },
-    "Call OpenAI": { "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]] },
-    "Call Ollama": { "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]] }
-  }
+    "Call OpenAI": {
+      "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]]
+    },
+    "Call Ollama": {
+      "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "v1"
 }
