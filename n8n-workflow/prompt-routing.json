@@ -1,0 +1,93 @@
+
+---
+
+### 📁 `n8n-workflow/prompt-routing.json`
+Ein n8n-Workflow (im JSON-Format) zum Importieren via UI oder API:
+
+```json
+{
+  "name": "Prompt-Routing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prompt"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const { prompt, model, openai_api_key } = items[0].json;\nif (!prompt || !model) throw new Error('prompt and model required');\nreturn [{ json: { prompt, model, openai_api_key } }];"
+      },
+      "name": "Input Check",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [\n  items[0].json.model === 'openai' ? { json: items[0].json } : null,\n  items[0].json.model === 'ollama' ? { json: items[0].json } : null\n];"
+      },
+      "name": "Router",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{\"model\": \"gpt-4\", \"messages\": [{\"role\": \"user\", \"content\": \"={{$json[\"prompt\"]}}\"}]}"
+      },
+      "name": "Call OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "openai",
+          "name": "openai"
+        }
+      },
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{ \"model\": \"mistral\", \"prompt\": \"={{$json[\"prompt\"]}}\" }"
+      },
+      "name": "Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{ json: { result: $json } }];"
+      },
+      "name": "Wrap Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Input Check", "type": "main", "index": 0 }]] },
+    "Input Check": { "main": [[{ "node": "Router", "type": "main", "index": 0 }]] },
+    "Router": {
+      "main": [
+        [{ "node": "Call OpenAI", "type": "main", "index": 0 }],
+        [{ "node": "Call Ollama", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call OpenAI": { "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]] },
+    "Call Ollama": { "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]] }
+  }
+}
