@@ -1,10 +1,4 @@
 
----
-
-### 📁 `n8n-workflow/prompt-routing.json`
-Ein n8n-Workflow (im JSON-Format) zum Importieren via UI oder API:
-
-```json
 {
   "name": "Prompt-Routing",
   "nodes": [
