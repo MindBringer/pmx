@@ -22,6 +22,7 @@ services:
       - N8N_BASIC_AUTH_USER=${N8N_USER}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASS}
       - GENERIC_TIMEZONE=Europe/Berlin
+      - N8N_SECURE_COOKIE=${N8N_SECURE_COOKIE}
     volumes:
       - n8n-data:/home/node/.n8n
     depends_on:
