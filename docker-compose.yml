@@ -60,12 +60,11 @@ services:
       - "8080:8000"
     environment:
       - LITELLM_API_KEY=${OPENAI_API_KEY}
-      - LITELLM_MODEL_NAME_1=chatgpt
-      - LITELLM_MODEL_1_ENGINE=openai/gpt-4o
-      - LITELLM_PORT=8000
       - LITELLM_DEFAULT_MODEL=chatgpt
+      - LITELLM_PORT=8000
+      - LITELLM_CONFIG_PATH=/app/config.yaml
     volumes:
-      - ./config-openai.yaml:/app/config.yaml
+      - ./config.yaml:/app/config.yaml
 
   # === 5. gateway_local – proxy zu lokalem Backend ===================
   gateway_local:
@@ -74,13 +73,11 @@ services:
     ports:
       - "8090:8000"
     environment:
+      - LITELLM_DEFAULT_MODEL=mistral-vllm
       - LITELLM_PORT=8000
-      - LITELLM_DEFAULT_MODEL=mistral-local
-      # → Ziel‑URL hängt davon ab, ob vLLM oder TGI aktiv ist:
-      - LITELLM_MODEL_NAME_1=mistral-local
-      - LITELLM_MODEL_1_ENGINE=http://vllm:8000/v1           # automatisch ok wenn Profil vllm
-      - LITELLM_MODEL_NAME_2=llama3-local
-      - LITELLM_MODEL_2_ENGINE=http://ollama:11434           # Ollama JSON Endpunkt
+      - LITELLM_CONFIG_PATH=/app/config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml
     depends_on:
       - ollama
 
