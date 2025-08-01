@@ -8,7 +8,7 @@ sudo apt update && sudo apt upgrade -y
 
 echo "🐳 Prüfe Docker und Docker Compose Plugin..."
 
-# Docker-Repository hinzufügen (falls nötig)
+# Docker-Repository hinzufügen (falls noch nicht vorhanden)
 if ! apt-cache policy | grep -q "download.docker.com"; then
   echo "🔧 Füge offizielles Docker-Repository hinzu..."
   sudo apt install -y ca-certificates curl gnupg lsb-release
@@ -22,20 +22,30 @@ if ! apt-cache policy | grep -q "download.docker.com"; then
   sudo apt update
 fi
 
-# Docker installieren (nur wenn nicht vorhanden)
+# Docker installieren, falls noch nicht vorhanden
 if ! command -v docker >/dev/null 2>&1; then
-  echo "📦 Installiere Docker Engine + Plugins..."
-  sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  echo "📥 Installiere Docker Engine..."
+  sudo apt install -y docker-ce docker-ce-cli containerd.io
 else
   echo "✅ Docker ist bereits installiert"
 fi
 
-# Docker Compose Plugin prüfen/installieren
-if ! docker compose version >/dev/null 2>&1; then
-  echo "📦 Installiere Compose Plugin..."
-  sudo apt install -y docker-compose-plugin
+# Konfliktvermeidung: Ubuntu-Version von docker-buildx entfernen
+if dpkg -l | grep -q docker-buildx; then
+  echo "⚠️ Entferne vorhandenes docker-buildx (Ubuntu-Version)..."
+  sudo apt remove -y docker-buildx
+fi
+
+# Docker Compose & Buildx Plugin installieren
+echo "📥 Installiere Compose & Buildx Plugin..."
+sudo apt install -y docker-buildx-plugin docker-compose-plugin
+
+# Docker Compose testen
+if docker compose version >/dev/null 2>&1; then
+  echo "✅ Docker Compose Plugin erfolgreich installiert"
 else
-  echo "✅ Docker Compose Plugin ist installiert"
+  echo "❌ Fehler bei Installation des Compose Plugins"
+  exit 1
 fi
 
 # Docker-Gruppe freischalten
@@ -61,4 +71,3 @@ IP=$(hostname -I | awk '{print $1}')
 
 echo "✅ Setup abgeschlossen!"
 echo "🔗 n8n erreichbar unter: http://$IP:${N8N_PORT:-5678}"
-
