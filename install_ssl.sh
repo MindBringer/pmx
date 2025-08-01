@@ -5,6 +5,8 @@ DOMAIN="ai.steinicke-gmbh.de"
 EMAIL="admin@$DOMAIN"
 WEBROOT="/var/www/certbot"
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
+IP=$(hostname -I | awk '{print $1}')
+SELF_DIR="/etc/ssl/selfsigned"
 
 # 1. Voraussetzungen installieren
 sudo apt update
@@ -36,18 +38,49 @@ if sudo certbot certonly --webroot -w $WEBROOT -d $DOMAIN --email $EMAIL --agree
     LE_SUCCESS=true
 fi
 
-# 5. Fallback: Self-signed Zertifikat erzeugen, wenn Let's Encrypt fehlschlägt
+# 5. Fallback: Self-signed Zertifikate erzeugen, wenn Let's Encrypt fehlschlägt
 if [ "$LE_SUCCESS" = false ]; then
-    echo "⚠️ Let's Encrypt fehlgeschlagen – erstelle Self-Signed Zertifikat als Fallback"
-    CERT_DIR="/etc/ssl/selfsigned/$DOMAIN"
-    sudo mkdir -p $CERT_DIR
+    echo "⚠️ Let's Encrypt fehlgeschlagen – erstelle Self-Signed Zertifikate"
+    CERT_DIR="$SELF_DIR/$DOMAIN"
+    sudo mkdir -p "$CERT_DIR"
     sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout "$CERT_DIR/privkey.pem" \
         -out "$CERT_DIR/fullchain.pem" \
         -subj "/CN=$DOMAIN"
+
+    # Zusätzliches Zertifikat für IP-Adresse
+    IP_DIR="$SELF_DIR/$IP"
+    sudo mkdir -p "$IP_DIR"
+    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$IP_DIR/privkey.pem" \
+        -out "$IP_DIR/fullchain.pem" \
+        -subj "/CN=$IP" \
+        -addext "subjectAltName=IP:$IP"
+
+    # Zusätzliche nginx-Config für Zugriff via IP
+    NGINX_IP_CONF="/etc/nginx/sites-available/$IP"
+    sudo tee $NGINX_IP_CONF > /dev/null <<EOC
+server {
+    listen 443 ssl;
+    server_name $IP;
+
+    ssl_certificate $IP_DIR/fullchain.pem;
+    ssl_certificate_key $IP_DIR/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://localhost:5678;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOC
+    sudo ln -sf $NGINX_IP_CONF /etc/nginx/sites-enabled/
 fi
 
-# 6. HTTPS-konforme Nginx-Proxy-Konfiguration für n8n erzeugen
+# 6. HTTPS-konforme Nginx-Proxy-Konfiguration für Domain erzeugen
 sudo tee $NGINX_CONF > /dev/null <<EOF
 server {
     listen 80;
@@ -75,7 +108,7 @@ EOF
 
 sudo nginx -t && sudo systemctl reload nginx
 
-# 7. Zertifikatserneuerung als Cronjob einrichten (nur für Let's Encrypt)
+# 7. Zertifikatserneuerung als Cronjob einrichten (nur bei Let's Encrypt)
 if [ "$LE_SUCCESS" = true ]; then
     sudo bash -c 'echo "0 3 * * * certbot renew --post-hook \"systemctl reload nginx\"" > /etc/cron.d/letsencrypt-renew'
 fi
@@ -90,5 +123,5 @@ fi
 # 9. Docker neu starten
 docker compose down && docker compose up -d
 
-echo "✅ SSL (Let's Encrypt oder Fallback) eingerichtet."
-echo "🌐 Zugriff jetzt über: https://$DOMAIN"
+echo "✅ SSL (Let's Encrypt oder Self-Signed + IP-Fallback) eingerichtet."
+echo "🌐 Zugriff jetzt über: https://$DOMAIN oder https://$IP"
