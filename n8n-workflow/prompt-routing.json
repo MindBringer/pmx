@@ -6,6 +6,7 @@
         "httpMethod": "POST",
         "path": "prompt"
       },
+      "id": "Webhook",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
@@ -13,8 +14,9 @@
     },
     {
       "parameters": {
-        "functionCode": "const { prompt, model, openai_api_key } = items[0].json;\nif (!prompt || !model) throw new Error('prompt and model required');\nreturn [{ json: { prompt, model, openai_api_key } }];"
+        "functionCode": "const body = items[0].body;\nconst prompt = body.prompt;\nconst model = body.model;\nconst openai_api_key = body.openai_api_key || null;\n\nif (!prompt || !model) {\n  throw new Error('prompt and model required');\n}\n\nreturn [{ json: { prompt, model, openai_api_key } }];"
       },
+      "id": "InputCheck",
       "name": "Input Check",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
@@ -24,6 +26,7 @@
       "parameters": {
         "functionCode": "return [\n  items[0].json.model === 'openai' ? { json: items[0].json } : null,\n  items[0].json.model === 'ollama' ? { json: items[0].json } : null\n];"
       },
+      "id": "Router",
       "name": "Router",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
@@ -34,9 +37,17 @@
         "requestMethod": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
         "jsonParameters": true,
-        "options": {},
+        "options": {
+          "headers": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$json.openai_api_key}}"
+            }
+          ]
+        },
         "bodyParametersJson": "{\"model\": \"gpt-4\", \"messages\": [{\"role\": \"user\", \"content\": \"={{$json.prompt}}\"}]}"
       },
+      "id": "CallOpenAI",
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
@@ -47,9 +58,9 @@
         "requestMethod": "POST",
         "url": "http://ollama:11434/api/generate",
         "jsonParameters": true,
-        "options": {},
         "bodyParametersJson": "{ \"model\": \"mistral\", \"prompt\": \"={{$json.prompt}}\" }"
       },
+      "id": "CallOllama",
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
@@ -59,6 +70,7 @@
       "parameters": {
         "functionCode": "return [{ json: { result: $json } }];"
       },
+      "id": "WrapResponse",
       "name": "Wrap Response",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
@@ -85,7 +97,7 @@
       "main": [[{ "node": "Wrap Response", "type": "main", "index": 0 }]]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {},
   "versionId": "v1"
 }
