@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const { prompt, model, openai_api_key = null } = $input.json;\n\nif (!prompt || !model) {\n  throw new Error('prompt and model are required');\n}\n\nreturn {\n  prompt,\n  model,\n  openai_api_key\n};"
+        "jsCode": "// Debug: Schaue was tatsächlich ankommt\nconsole.log('Input data:', JSON.stringify($input.all(), null, 2));\n\nconst items = $input.all();\nif (!items || items.length === 0) {\n  throw new Error('No input data received');\n}\n\nconst inputData = items[0].json;\nconsole.log('First item JSON:', JSON.stringify(inputData, null, 2));\n\n// Versuche verschiedene Pfade für die Daten\nlet prompt = inputData.prompt || inputData.body?.prompt || inputData.query?.prompt;\nlet model = inputData.model || inputData.body?.model || inputData.query?.model;\nlet openai_api_key = inputData.openai_api_key || inputData.body?.openai_api_key || inputData.query?.openai_api_key || null;\n\nconsole.log('Extracted values:', { prompt, model, openai_api_key });\n\nif (!prompt || !model) {\n  throw new Error(`Missing required fields. Received: prompt='${prompt}', model='${model}'. Full data: ${JSON.stringify(inputData)}`);\n}\n\nreturn {\n  prompt: prompt,\n  model: model,\n  openai_api_key: openai_api_key\n};"
       },
       "id": "input-check-node",
       "name": "Input Check",
