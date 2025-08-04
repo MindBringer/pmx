@@ -10,6 +10,8 @@ services:
     restart: unless-stopped
     environment:
       - OLLAMA_MODELS=mistral
+    networks:
+      - ai-net
 
   n8n:
     image: n8nio/n8n
@@ -27,7 +29,12 @@ services:
       - n8n-data:/home/node/.n8n
     depends_on:
       - ollama
+    networks:
+      - ai-net
 
 volumes:
   ollama-data:
   n8n-data:
+
+networks:
+  ai-net:
