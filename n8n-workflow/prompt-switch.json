@@ -1,28 +1,57 @@
 {
-  "name": "LLM Router with Respond",
+  "name": "My workflow 3",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "llm",
-        "responseMode": "responseNode"
+        "responseMode": "responseNode",
+        "options": {}
       },
-      "id": "webhook-node",
+      "id": "19b91971-984a-4602-b7a3-73bc3adc1188",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [100, 300],
+      "position": [
+        -976,
+        -80
+      ],
       "webhookId": "llm-router"
     },
     {
       "parameters": {
-        "jsCode": "// Debug: Schaue was tatsächlich ankommt\nconsole.log('Input data:', JSON.stringify($input.all(), null, 2));\n\nconst items = $input.all();\nif (!items || items.length === 0) {\n  throw new Error('No input data received');\n}\n\nconst inputData = items[0].json;\nconsole.log('First item JSON:', JSON.stringify(inputData, null, 2));\n\n// Versuche verschiedene Pfade für die Daten\nlet prompt = inputData.prompt || inputData.body?.prompt || inputData.query?.prompt;\nlet model = inputData.model || inputData.body?.model || inputData.query?.model;\nlet openai_api_key = inputData.openai_api_key || inputData.body?.openai_api_key || inputData.query?.openai_api_key || null;\n\nconsole.log('Extracted values:', { prompt, model, openai_api_key });\n\nif (!prompt || !model) {\n  throw new Error(`Missing required fields. Received: prompt='${prompt}', model='${model}'. Full data: ${JSON.stringify(inputData)}`);\n}\n\nreturn {\n  prompt: prompt,\n  model: model,\n  openai_api_key: openai_api_key\n};"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "816db0b7-19ca-4398-a0bb-c82f8d880e09",
+              "name": "prompt",
+              "value": "={{ $json.body.prompt || $json.prompt }}",
+              "type": "string"
+            },
+            {
+              "id": "2f19d467-4bc9-41ed-90c0-3d60b1d98c98",
+              "name": "model",
+              "value": "={{ $json.body.model || $json.model }}",
+              "type": "string"
+            },
+            {
+              "id": "86fd715e-31bc-4e68-9a7d-39d912f0eb57",
+              "name": "openai_api_key",
+              "value": "={{ $json.body.openai_api_key || $json.openai_api_key }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "input-check-node",
-      "name": "Input Check",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [300, 300]
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -816,
+        -80
+      ],
+      "id": "53d25a33-77e5-4f6e-a1f0-a0e23881a804",
+      "name": "Edit Fields"
     },
     {
       "parameters": {
@@ -30,7 +59,8 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -41,25 +71,20 @@
                 "type": "string",
                 "operation": "equals"
               }
-            },
-            {
-              "id": "ollama-condition", 
-              "leftValue": "={{ $json.model }}",
-              "rightValue": "ollama",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
             }
-          ]
+          ],
+          "combinator": "and"
         },
         "options": {}
       },
-      "id": "model-switch-node",
+      "id": "c8c41ff5-0d8d-4ece-837e-e780cb3b9c66",
       "name": "Model Switch",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [500, 300]
+      "position": [
+        -576,
+        -80
+      ]
     },
     {
       "parameters": {
@@ -75,7 +100,7 @@
               "value": "Bearer {{ $json.openai_api_key }}"
             },
             {
-              "name": "Content-Type", 
+              "name": "Content-Type",
               "value": "application/json"
             }
           ]
@@ -100,11 +125,20 @@
         },
         "options": {}
       },
-      "id": "openai-node",
+      "id": "9b16468c-deee-4068-bc5c-728af4f8e0bd",
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [700, 200]
+      "position": [
+        -368,
+        -176
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "UoTVV4HZD6kkivqi",
+          "name": "Header Auth account"
+        }
+      }
     },
     {
       "parameters": {
@@ -129,32 +163,42 @@
         },
         "options": {}
       },
-      "id": "ollama-node", 
+      "id": "b99abca1-0c34-47a5-ba0d-c5b1c818df57",
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [700, 400]
+      "position": [
+        -368,
+        32
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Extrahiere die Antwort je nach API\nconst data = $input.json;\n\nlet result;\nif (data.choices && data.choices[0] && data.choices[0].message) {\n  // OpenAI Format\n  result = data.choices[0].message.content;\n} else if (data.response) {\n  // Ollama Format\n  result = data.response;\n} else {\n  // Fallback\n  result = JSON.stringify(data);\n}\n\nreturn {\n  result: result,\n  status: 'success'\n};"
+        "jsCode": "// Extrahiere die Antwort je nach API\nconst data = $input.first().json;\n\nlet result;\n\n// OpenAI Format prüfen\nif (data && data.choices && data.choices[0] && data.choices[0].message) {\n  result = data.choices[0].message.content;\n} \n// Ollama Format prüfen\nelse if (data && data.response) {\n  result = data.response;\n}\n// Ollama alternatives Format (manchmal ist es in 'message')\nelse if (data && data.message) {\n  result = data.message;\n}\n// Ollama streaming Format (manchmal 'content')\nelse if (data && data.content) {\n  result = data.content;\n}\n// Fallback - ganze Antwort als String\nelse {\n  result = JSON.stringify(data);\n}\n\nreturn {\n  result: result,\n  status: 'success',\n  raw_response: data\n};"
       },
-      "id": "format-node",
+      "id": "660a96ab-a63f-4b3b-aba7-657299a39548",
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        -176,
+        -80
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ $json }}"
+        "responseBody": "={{ $json }}",
+        "options": {}
       },
-      "id": "respond-node",
+      "id": "f18b540a-5804-489a-95af-be77a3eef8eb",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1100, 300]
+      "position": [
+        32,
+        -80
+      ]
     }
   ],
   "connections": {
@@ -162,14 +206,14 @@
       "main": [
         [
           {
-            "node": "Input Check",
+            "node": "Edit Fields",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Input Check": {
+    "Edit Fields": {
       "main": [
         [
           {
@@ -225,7 +269,7 @@
         [
           {
             "node": "Respond to Webhook",
-            "type": "main", 
+            "type": "main",
             "index": 0
           }
         ]
@@ -236,10 +280,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "1",
+  "versionId": "b8e9c88c-988d-40a6-b4ed-311cae28c74e",
   "meta": {
-    "templateCredsSetupCompleted": true
+    "instanceId": "30444c4554305610e68ba60c6b73ce53f99b718ba25dfadc743e41cecea4e148"
   },
-  "id": "llm-router-workflow",
+  "id": "FeCWSJLLfuV4gxW4",
   "tags": []
 }
