@@ -1,28 +1,33 @@
 {
   "nodes": [
     {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "llm",
-        "responseMode": "lastNode"
-      },
       "id": "Webhook",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [100, 300]
+      "position": [100, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "llm",
+        "responseMode": "lastNode"
+      }
     },
     {
-      "parameters": {
-        "code": "const { prompt, model, openai_api_key = null } = $json;\n\nif (!prompt || !model) {\n  throw new Error('prompt and model required');\n}\n\nreturn [{\n  json: {\n    prompt,\n    model,\n    openai_api_key\n  }\n}];"
-      },
       "id": "Input Check",
       "name": "Input Check",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [300, 300]
+      "position": [300, 300],
+      "parameters": {
+        "code": "const { prompt, model, openai_api_key = null } = $json;\n\nif (!prompt || !model) {\n  throw new Error('prompt and model required');\n}\n\nreturn [{\n  json: {\n    prompt,\n    model,\n    openai_api_key\n  }\n}];"
+      }
     },
     {
+      "id": "Switch",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [500, 300],
       "parameters": {
         "value1": "={{ $json.model }}",
         "rules": [
@@ -35,60 +40,48 @@
             "value2": "ollama"
           }
         ]
-      },
-      "id": "Switch Model",
-      "name": "Switch Model",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 1,
-      "position": [500, 300]
+      }
     },
     {
-      "parameters": {
-        "url": "https://api.openai.com/v1/chat/completions",
-        "method": "POST",
-        "authentication": "none",
-        "jsonParameters": true,
-        "responseFormat": "json",
-        "bodyParametersJson": "={\n  \"model\": \"gpt-4\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"{{$json.prompt}}\" }\n  ]\n}",
-        "headerParametersJson": "={\n  \"Authorization\": \"Bearer {{$json.openai_api_key}}\",\n  \"Content-Type\": \"application/json\"\n}"
-      },
       "id": "Call OpenAI",
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [700, 200]
+      "position": [700, 200],
+      "parameters": {
+        "authentication": "none",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "method": "POST",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"{{$json.prompt}}\" }\n  ]\n}",
+        "headerParametersJson": "={\n  \"Authorization\": \"Bearer {{$json.openai_api_key}}\",\n  \"Content-Type\": \"application/json\"\n}"
+      }
     },
     {
-      "parameters": {
-        "url": "http://ollama:11434/api/generate",
-        "method": "POST",
-        "jsonParameters": true,
-        "responseFormat": "json",
-        "bodyParametersJson": "={\n  \"model\": \"mistral\",\n  \"prompt\": \"{{$json.prompt}}\"\n}"
-      },
       "id": "Call Ollama",
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [700, 400]
+      "position": [700, 400],
+      "parameters": {
+        "authentication": "none",
+        "url": "http://localhost:11434/api/generate",
+        "method": "POST",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\n  \"model\": \"mistral\",\n  \"prompt\": \"{{$json.prompt}}\"\n}"
+      }
     },
     {
-      "parameters": {
-        "code": "return [\n  {\n    json: {\n      response: $json.choices?.[0]?.message?.content || $json.response || $json.output || $json,\n      model: $json.model || (typeof $json.choices !== 'undefined' ? 'openai' : 'ollama')\n    }\n  }\n];"
-      },
-      "id": "Wrap Response",
+      "id": "Wrap",
       "name": "Wrap Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
-      "position": [900, 300]
-    },
-    {
-      "parameters": {},
-      "id": "Respond to Webhook",
-      "name": "Respond to Webhook",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [1100, 300]
+      "position": [900, 300],
+      "parameters": {
+        "code": "return [\n  {\n    json: {\n      response: $json.choices?.[0]?.message?.content || $json.response || $json.output || $json,\n      source: $json.model || (typeof $json.choices !== 'undefined' ? 'openai' : 'ollama')\n    }\n  }\n];"
+      }
     }
   ],
   "connections": {
@@ -96,25 +89,24 @@
       "main": [["Input Check"]]
     },
     "Input Check": {
-      "main": [["Switch Model"]]
+      "main": [["Switch"]]
     },
-    "Switch Model": {
+    "Switch": {
       "main": [
-        ["Call OpenAI"],
-        ["Call Ollama"]
+        ["Call OpenAI"],  // Output 0
+        ["Call Ollama"]   // Output 1
       ]
     },
     "Call OpenAI": {
-      "main": [["Wrap Response"]]
+      "main": [["Wrap"]]
     },
     "Call Ollama": {
-      "main": [["Wrap Response"]]
+      "main": [["Wrap"]]
     },
-    "Wrap Response": {
-      "main": [["Respond to Webhook"]]
+    "Wrap": {
+      "main": []
     }
   },
   "active": false,
-  "settings": {},
-  "name": "LLM Router"
+  "name": "LLM Router Clean"
 }
