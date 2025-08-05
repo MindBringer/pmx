@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Web UI</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <h1>🧠 AI Prompt Interface</h1>
+    <form id="prompt-form">
+      <label for="model">Modell:</label>
+      <select id="model">
+        <option value="llama3">llama3</option>
+        <option value="mistral">mistral</option>
+        <option value="phi3">phi3</option>
+        <option value="openai">openai</option>
+      </select>
+      <textarea id="prompt" placeholder="Deine Frage..."></textarea>
+      <button type="submit">Senden</button>
+    </form>
+    <pre id="response"></pre>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

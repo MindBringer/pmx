@@ -12,7 +12,7 @@ pmx/
 ├── n8n (https://ai.steinicke-gmbh.de)
 ├── install.sh
 ├── install_ssl.sh
-└── n8n-workflow/prompt-routing.json
+└── n8n-workflow/prompting_wf.json
 ```
 
 ---
@@ -71,7 +71,6 @@ curl -X POST https://ai.steinicke-gmbh.de/webhook/prompt \
 ### Benötigte Parameter:
 - `prompt` – Eingabetext
 - `model` – `openai` oder `ollama`
-- `openai_api_key` – nur für `openai` notwendig
 
 ---
 
@@ -112,6 +111,12 @@ Der Stack ist nach Installation über TLS verfügbar:
 
 ```
 https://ai.domain.de
+https://ai.local
 ```
 
 Login: Benutzer/Passwort aus `.env`
+
+curl --no-progress-meter --max-time 60 --retry 2 --retry-delay 3 \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Gib mir ein Beispiel für einen HTTP POST mit curl", "model": "ollama"}' \
+  https://ai.local/webhook/llm
