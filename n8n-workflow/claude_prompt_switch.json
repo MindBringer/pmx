@@ -1,5 +1,5 @@
 {
-  "name": "LLM Router with Rate Limiting",
+  "name": "Extended LLM Router",
   "nodes": [
     {
       "parameters": {
@@ -12,7 +12,7 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [100, 300],
+      "position": [100, 400],
       "webhookId": "llm-router"
     },
     {
@@ -32,9 +32,9 @@
               "type": "string"
             },
             {
-              "id": "api-key-assignment",
-              "name": "openai_api_key",
-              "value": "={{ $json.body.openai_api_key || $json.openai_api_key }}",
+              "id": "hf-model-assignment",
+              "name": "hf_model",
+              "value": "={{ $json.body.hf_model || $json.hf_model || 'microsoft/DialoGPT-medium' }}",
               "type": "string"
             }
           ]
@@ -45,37 +45,109 @@
       "name": "Edit Fields",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [300, 300]
+      "position": [300, 400]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
+        "values": {
+          "string": [
             {
-              "id": "openai-condition",
-              "leftValue": "={{ $json.model }}",
-              "rightValue": "openai",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.model }}",
+                    "rightValue": "openai",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "openai"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.model }}",
+                    "rightValue": "anthropic",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "anthropic"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.model }}",
+                    "rightValue": "huggingface",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "huggingface"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.model }}",
+                    "rightValue": "ollama",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ollama"
             }
-          ],
-          "combinator": "and"
+          ]
         },
         "options": {}
       },
       "id": "model-switch-node",
       "name": "Model Switch",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [500, 300]
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [500, 400]
     },
     {
       "parameters": {
@@ -83,7 +155,7 @@
         "unit": "seconds"
       },
       "id": "wait-openai-node",
-      "name": "Wait (Rate Limit)",
+      "name": "Wait OpenAI",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [650, 200]
@@ -92,37 +164,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "Bearer {{ $json.openai_api_key }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gpt-3.5-turbo"
-            },
-            {
-              "name": "messages",
-              "value": [
-                {
-                  "role": "user",
-                  "content": "={{ $json.prompt }}"
-                }
-              ]
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.prompt }}\"\n    }\n  ]\n}",
         "options": {
           "retry": {
             "enabled": true,
@@ -136,6 +182,86 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [800, 200]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-claude-node",
+      "name": "Wait Claude",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [650, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"claude-3-sonnet-20240229\",\n  \"max_tokens\": 1000,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.prompt }}\"\n    }\n  ]\n}",
+        "options": {
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "waitBetween": 2000
+          }
+        }
+      },
+      "id": "claude-node",
+      "name": "Call Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 320],
+      "credentials": {
+        "anthropicApi": {
+          "id": "claude-credentials",
+          "name": "Claude API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "wait-hf-node",
+      "name": "Wait HF",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [650, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-inference.huggingface.co/models/{{ $json.hf_model }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "huggingFaceApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"inputs\": \"{{ $json.prompt }}\",\n  \"parameters\": {\n    \"max_length\": 500,\n    \"temperature\": 0.7,\n    \"do_sample\": true\n  }\n}",
+        "options": {
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetween": 3000
+          }
+        }
+      },
+      "id": "huggingface-node",
+      "name": "Call Hugging Face",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 440],
+      "credentials": {
+        "huggingFaceApi": {
+          "id": "hf-credentials",
+          "name": "Hugging Face API"
+        }
+      }
     },
     {
       "parameters": {
@@ -170,17 +296,17 @@
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [700, 400]
+      "position": [700, 560]
     },
     {
       "parameters": {
-        "jsCode": "// Extrahiere die Antwort je nach API\nconst data = $input.first().json;\n\nlet result;\n\n// OpenAI Format prüfen\nif (data && data.choices && data.choices[0] && data.choices[0].message) {\n  result = data.choices[0].message.content;\n} \n// Ollama Format prüfen\nelse if (data && data.response) {\n  result = data.response;\n}\n// Ollama alternatives Format\nelse if (data && data.message) {\n  result = data.message;\n}\n// Ollama streaming Format\nelse if (data && data.content) {\n  result = data.content;\n}\n// Fallback\nelse {\n  result = JSON.stringify(data);\n}\n\nreturn {\n  result: result,\n  status: 'success',\n  model_used: $('Model Switch').first().json.model,\n  timestamp: new Date().toISOString()\n};"
+        "jsCode": "// Extrahiere die Antwort je nach API\nconst data = $input.first().json;\nconst modelUsed = $('Edit Fields').first().json.model;\n\nlet result;\nlet provider;\n\n// OpenAI Format\nif (data && data.choices && data.choices[0] && data.choices[0].message) {\n  result = data.choices[0].message.content;\n  provider = 'OpenAI';\n} \n// Claude/Anthropic Format\nelse if (data && data.content && Array.isArray(data.content) && data.content[0]) {\n  result = data.content[0].text || data.content[0].content;\n  provider = 'Claude/Anthropic';\n}\n// Hugging Face Format (Array response)\nelse if (Array.isArray(data) && data[0] && data[0].generated_text) {\n  result = data[0].generated_text;\n  provider = 'Hugging Face';\n}\n// Hugging Face Format (Single object)\nelse if (data && data.generated_text) {\n  result = data.generated_text;\n  provider = 'Hugging Face';\n}\n// Ollama Format\nelse if (data && data.response) {\n  result = data.response;\n  provider = 'Ollama';\n}\n// Ollama alternative Formate\nelse if (data && data.message) {\n  result = data.message;\n  provider = 'Ollama';\n}\n// Fallback\nelse {\n  result = JSON.stringify(data);\n  provider = 'Unknown';\n}\n\n// Bereinige die Antwort (entferne Input-Prompt bei HF wenn vorhanden)\nif (provider === 'Hugging Face' && result) {\n  const originalPrompt = $('Edit Fields').first().json.prompt;\n  if (result.startsWith(originalPrompt)) {\n    result = result.substring(originalPrompt.length).trim();\n  }\n}\n\nreturn {\n  result: result,\n  status: 'success',\n  provider: provider,\n  model_requested: modelUsed,\n  timestamp: new Date().toISOString(),\n  raw_response: data\n};"
       },
       "id": "format-node",
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1000, 300]
+      "position": [1000, 400]
     },
     {
       "parameters": {
@@ -192,7 +318,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1200, 300]
+      "position": [1200, 400]
     }
   ],
   "connections": {
@@ -222,7 +348,21 @@
       "main": [
         [
           {
-            "node": "Wait (Rate Limit)",
+            "node": "Wait OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait Claude",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait HF",
             "type": "main",
             "index": 0
           }
@@ -236,7 +376,7 @@
         ]
       ]
     },
-    "Wait (Rate Limit)": {
+    "Wait OpenAI": {
       "main": [
         [
           {
@@ -247,7 +387,51 @@
         ]
       ]
     },
+    "Wait Claude": {
+      "main": [
+        [
+          {
+            "node": "Call Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait HF": {
+      "main": [
+        [
+          {
+            "node": "Call Hugging Face",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Call OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Hugging Face": {
       "main": [
         [
           {
@@ -285,10 +469,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "1.0",
+  "versionId": "2.0",
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "llm-router-with-rate-limiting",
+  "id": "extended-llm-router",
   "tags": []
 }
