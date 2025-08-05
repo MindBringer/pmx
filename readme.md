@@ -120,3 +120,8 @@ curl --no-progress-meter --max-time 60 --retry 2 --retry-delay 3 \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Gib mir ein Beispiel für einen HTTP POST mit curl", "model": "ollama"}' \
   https://ai.local/webhook/llm
+
+  SETUP frontend:
+  bash /frontend/install.sh, nginx anpassen sudo nano /etc/nginx/sites-available/ai.local
+  neustarten:
+  sudo nginx -t && sudo systemctl reload nginx

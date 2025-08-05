@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-APP_NAME="ai-ui"
+APP_NAME="ui"
 TARGET_DIR="/var/www/$APP_NAME"
 
 echo "📁 Kopiere Web-UI nach $TARGET_DIR"
@@ -15,4 +15,16 @@ echo "📌 Ergänze jetzt deine NGINX-Konfiguration für Zugriff über Subdomain
 #    root /var/www/;
 #    index index.html;
 #    try_files $uri $uri/ /ui/index.html;
+#}
+#location /webhook/ {
+#    proxy_pass http://localhost:5678/webhook/;
+#    proxy_set_header Host $host;
+#    proxy_set_header X-Real-IP $remote_addr;
+#    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Optional für WebSocket
+#    proxy_http_version 1.1;
+#    proxy_set_header Upgrade $http_upgrade;
+#    proxy_set_header Connection "upgrade";
 #}

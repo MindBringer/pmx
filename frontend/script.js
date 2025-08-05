@@ -1,22 +1,49 @@
-document.getElementById('prompt-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const model = document.getElementById('model').value;
-  const prompt = document.getElementById('prompt').value;
-  const responseBox = document.getElementById('response');
-  responseBox.textContent = "⏳ Anfrage wird gesendet...";
+window.addEventListener("DOMContentLoaded", function () {
+  const form = document.getElementById("prompt-form");
+  const resultDiv = document.getElementById("result");
 
-  try {
-    const res = await fetch('/webhook/prompt', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + btoa('admin:supersecure'),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ prompt, model })
-    });
-    const data = await res.json();
-    responseBox.textContent = JSON.stringify(data, null, 2);
-  } catch (err) {
-    responseBox.textContent = "❌ Fehler: " + err.message;
+  if (!form || !resultDiv) {
+    console.error("❌ Form oder Ergebnis-DIV nicht gefunden!");
+    return;
   }
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const prompt = document.getElementById("prompt").value.trim();
+    const model = document.getElementById("model").value;
+
+    if (!prompt) {
+      resultDiv.textContent = "⚠️ Bitte gib einen Prompt ein.";
+      return;
+    }
+
+    resultDiv.textContent = "⏳ Anfrage wird verarbeitet...";
+
+    try {
+      const response = await fetch("/webhook/llm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ prompt, model })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Fehler ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Versuche sinnvoll zu parsen
+      const output =
+        data?.raw_response?.response ||
+        data?.result ||
+        JSON.stringify(data, null, 2);
+
+      resultDiv.textContent = output;
+    } catch (error) {
+      resultDiv.textContent = `❌ Fehler: ${error.message}`;
+    }
+  });
 });
