@@ -1,9 +1,10 @@
 window.addEventListener("DOMContentLoaded", function () {
   const form = document.getElementById("prompt-form");
   const resultDiv = document.getElementById("result");
+  const spinner = document.getElementById("spinner");
 
-  if (!form || !resultDiv) {
-    console.error("❌ Form oder Ergebnis-DIV nicht gefunden!");
+  if (!form || !resultDiv || !spinner) {
+    console.error("❌ UI-Elemente nicht gefunden");
     return;
   }
 
@@ -18,14 +19,13 @@ window.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    resultDiv.textContent = "⏳ Anfrage wird verarbeitet...";
+    resultDiv.textContent = "";
+    spinner.style.display = "block";
 
     try {
       const response = await fetch("/webhook/llm", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, model })
       });
 
@@ -34,8 +34,6 @@ window.addEventListener("DOMContentLoaded", function () {
       }
 
       const data = await response.json();
-
-      // Versuche sinnvoll zu parsen
       const output =
         data?.raw_response?.response ||
         data?.result ||
@@ -44,6 +42,8 @@ window.addEventListener("DOMContentLoaded", function () {
       resultDiv.textContent = output;
     } catch (error) {
       resultDiv.textContent = `❌ Fehler: ${error.message}`;
+    } finally {
+      spinner.style.display = "none";
     }
   });
 });

@@ -27,4 +27,9 @@ echo "📌 Ergänze jetzt deine NGINX-Konfiguration für Zugriff über Subdomain
 #    proxy_http_version 1.1;
 #    proxy_set_header Upgrade $http_upgrade;
 #    proxy_set_header Connection "upgrade";
+
+    # 👇 Timeout-Werte erhöhen
+#    proxy_read_timeout 300;
+#    proxy_connect_timeout 300;
+#    proxy_send_timeout 300;
 #}
