@@ -13,6 +13,19 @@ services:
     networks:
       - ai-net
 
+  ollama-llama3:
+    image: ollama/ollama
+    container_name: ollama-llama3
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama-llama3-data:/root/.ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_MODELS=llama3
+    networks:
+      - ai-net
+
   n8n:
     image: n8nio/n8n
     container_name: n8n
@@ -34,6 +47,7 @@ services:
 
 volumes:
   ollama-data:
+  ollama-llama3-data:
   n8n-data:
 
 networks:
