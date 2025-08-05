@@ -1,0 +1,294 @@
+{
+  "name": "LLM Router with Rate Limiting",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "llm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "webhookId": "llm-router"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prompt-assignment",
+              "name": "prompt",
+              "value": "={{ $json.body.prompt || $json.prompt }}",
+              "type": "string"
+            },
+            {
+              "id": "model-assignment",
+              "name": "model",
+              "value": "={{ $json.body.model || $json.model }}",
+              "type": "string"
+            },
+            {
+              "id": "api-key-assignment",
+              "name": "openai_api_key",
+              "value": "={{ $json.body.openai_api_key || $json.openai_api_key }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "edit-fields-node",
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "openai-condition",
+              "leftValue": "={{ $json.model }}",
+              "rightValue": "openai",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "model-switch-node",
+      "name": "Model Switch",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "seconds"
+      },
+      "id": "wait-openai-node",
+      "name": "Wait (Rate Limit)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $json.openai_api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-3.5-turbo"
+            },
+            {
+              "name": "messages",
+              "value": [
+                {
+                  "role": "user",
+                  "content": "={{ $json.prompt }}"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "waitBetween": 2000
+          }
+        }
+      },
+      "id": "openai-node",
+      "name": "Call OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [800, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "mistral"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $json.prompt }}"
+            },
+            {
+              "name": "stream",
+              "value": false
+            }
+          ]
+        },
+        "options": {
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetween": 1000
+          }
+        }
+      },
+      "id": "ollama-node",
+      "name": "Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrahiere die Antwort je nach API\nconst data = $input.first().json;\n\nlet result;\n\n// OpenAI Format prüfen\nif (data && data.choices && data.choices[0] && data.choices[0].message) {\n  result = data.choices[0].message.content;\n} \n// Ollama Format prüfen\nelse if (data && data.response) {\n  result = data.response;\n}\n// Ollama alternatives Format\nelse if (data && data.message) {\n  result = data.message;\n}\n// Ollama streaming Format\nelse if (data && data.content) {\n  result = data.content;\n}\n// Fallback\nelse {\n  result = JSON.stringify(data);\n}\n\nreturn {\n  result: result,\n  status: 'success',\n  model_used: $('Model Switch').first().json.model,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "format-node",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-node",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1200, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Model Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Switch": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate Limit)": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "llm-router-with-rate-limiting",
+  "tags": []
+}
