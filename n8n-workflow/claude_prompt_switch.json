@@ -1,5 +1,5 @@
 {
-  "name": "Extended LLM Router",
+  "name": "LLM Router with IF Chain",
   "nodes": [
     {
       "parameters": {
@@ -49,105 +49,90 @@
     },
     {
       "parameters": {
-        "values": {
-          "string": [
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
             {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.model }}",
-                    "rightValue": "openai",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "openai"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.model }}",
-                    "rightValue": "anthropic",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "anthropic"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.model }}",
-                    "rightValue": "huggingface",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "huggingface"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.model }}",
-                    "rightValue": "ollama",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "ollama"
+              "id": "openai-condition",
+              "leftValue": "={{ $json.model }}",
+              "rightValue": "openai",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
-          ]
+          ],
+          "combinator": "and"
         },
         "options": {}
       },
-      "id": "model-switch-node",
-      "name": "Model Switch",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
+      "id": "check-openai",
+      "name": "Is OpenAI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "claude-condition",
+              "leftValue": "={{ $json.model }}",
+              "rightValue": "anthropic",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-claude",
+      "name": "Is Claude?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [500, 550]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "hf-condition",
+              "leftValue": "={{ $json.model }}",
+              "rightValue": "huggingface",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-hf",
+      "name": "Is HuggingFace?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [500, 700]
     },
     {
       "parameters": {
@@ -158,7 +143,7 @@
       "name": "Wait OpenAI",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [650, 200]
+      "position": [700, 300]
     },
     {
       "parameters": {
@@ -181,7 +166,13 @@
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [800, 200]
+      "position": [900, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
     },
     {
       "parameters": {
@@ -192,7 +183,7 @@
       "name": "Wait Claude",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [650, 320]
+      "position": [700, 450]
     },
     {
       "parameters": {
@@ -215,7 +206,7 @@
       "name": "Call Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [800, 320],
+      "position": [900, 450],
       "credentials": {
         "anthropicApi": {
           "id": "claude-credentials",
@@ -232,7 +223,7 @@
       "name": "Wait HF",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [650, 440]
+      "position": [700, 600]
     },
     {
       "parameters": {
@@ -255,7 +246,7 @@
       "name": "Call Hugging Face",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [800, 440],
+      "position": [900, 600],
       "credentials": {
         "huggingFaceApi": {
           "id": "hf-credentials",
@@ -268,22 +259,8 @@
         "method": "POST",
         "url": "http://ollama:11434/api/generate",
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "mistral"
-            },
-            {
-              "name": "prompt",
-              "value": "={{ $json.prompt }}"
-            },
-            {
-              "name": "stream",
-              "value": false
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"mistral\",\n  \"prompt\": \"{{ $json.prompt }}\",\n  \"stream\": false\n}",
         "options": {
           "retry": {
             "enabled": true,
@@ -293,10 +270,10 @@
         }
       },
       "id": "ollama-node",
-      "name": "Call Ollama",
+      "name": "Call Ollama (Default)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [700, 560]
+      "position": [700, 750]
     },
     {
       "parameters": {
@@ -306,7 +283,7 @@
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1000, 400]
+      "position": [1100, 450]
     },
     {
       "parameters": {
@@ -318,7 +295,7 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1200, 400]
+      "position": [1300, 450]
     }
   ],
   "connections": {
@@ -337,14 +314,14 @@
       "main": [
         [
           {
-            "node": "Model Switch",
+            "node": "Is OpenAI?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Model Switch": {
+    "Is OpenAI?": {
       "main": [
         [
           {
@@ -355,11 +332,33 @@
         ],
         [
           {
+            "node": "Is Claude?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Claude?": {
+      "main": [
+        [
+          {
             "node": "Wait Claude",
             "type": "main",
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Is HuggingFace?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is HuggingFace?": {
+      "main": [
         [
           {
             "node": "Wait HF",
@@ -369,7 +368,7 @@
         ],
         [
           {
-            "node": "Call Ollama",
+            "node": "Call Ollama (Default)",
             "type": "main",
             "index": 0
           }
@@ -442,7 +441,7 @@
         ]
       ]
     },
-    "Call Ollama": {
+    "Call Ollama (Default)": {
       "main": [
         [
           {
@@ -469,10 +468,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "2.0",
+  "versionId": "3.0",
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "id": "extended-llm-router",
+  "id": "llm-router-if-chain",
   "tags": []
 }
