@@ -125,3 +125,15 @@ curl --no-progress-meter --max-time 60 --retry 2 --retry-delay 3 \
   bash /frontend/install.sh, nginx anpassen sudo nano /etc/nginx/sites-available/ai.local
   neustarten:
   sudo nginx -t && sudo systemctl reload nginx
+
+setup RAG:
+  bash install_rag.sh
+
+  docker-compose ergänzen:
+    rag-backend:
+    build: ./rag-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./rag-backend/documents:/app/documents
+      - ./rag-backend/storage:/app/storage
