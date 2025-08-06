@@ -130,10 +130,18 @@ setup RAG:
   bash install_rag.sh
 
   docker-compose ergänzen:
-    rag-backend:
+   rag-backend:
     build: ./rag-backend
+    container_name: rag-backend
     ports:
       - "8000:8000"
     volumes:
       - ./rag-backend/documents:/app/documents
       - ./rag-backend/storage:/app/storage
+    restart: unless-stopped
+    networks:
+      - ai-net
+
+volumes:
+  rag_documents:
+  rag_storage:
