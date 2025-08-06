@@ -13,6 +13,7 @@ window.addEventListener("DOMContentLoaded", function () {
 
     const prompt = document.getElementById("prompt").value.trim();
     const model = document.getElementById("model").value;
+    const system = document.getElementById('system').value.trim();
 
     if (!prompt) {
       resultDiv.textContent = "⚠️ Bitte gib einen Prompt ein.";

@@ -49,12 +49,17 @@
     <select id="model">
       <option value="llama3">llama3</option>
       <option value="mistral">mistral</option>
-      <option value="phi3">phi3</option>
-      <option value="openai">openai</option>
+      <option value="mistralapi">Codestral API</option>
+      <option value="openai">OpenAI API</option>
+      <option value="huggingface">Hugging Face API</option>
+      <option value="anthropic">Claude API</option>
     </select>
 
     <label for="prompt">Frage / Prompt:</label>
     <textarea id="prompt" placeholder="Stell eine Frage an das Modell..."></textarea>
+
+    <label for="system">Anweisungen für Systemverhalten (optional):</label>
+    <textarea id="system" placeholder="sei ein hilfsbereiter Spezialist..."></textarea>
 
     <button type="submit">Senden</button>
   </form>
