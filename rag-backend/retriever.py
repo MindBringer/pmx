@@ -1,9 +1,8 @@
 import os
-from llama_index.storage.storage_context import StorageContext
-from llama_index.indices.vector_store import VectorStoreIndex
-from llama_index.indices.utils import load_index_from_storage
-from llama_index.readers import SimpleDirectoryReader
-from llama_index.embeddings import OllamaEmbedding
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+from llama_index.core.storage.storage_context import StorageContext
+from llama_index.core.indices.loading import load_index_from_storage
+from llama_index.embeddings.ollama import OllamaEmbedding  # lokal via Ollama
 
 STORAGE_DIR = "./storage"
 DOCS_DIR = "./documents"
@@ -19,7 +18,9 @@ def build_or_load_index():
         return load_index_from_storage(storage_context=storage_context)
     else:
         documents = SimpleDirectoryReader(DOCS_DIR).load_data()
-        index = VectorStoreIndex.from_documents(documents, embed_model=embed_model)
+        index = VectorStoreIndex.from_documents(
+            documents, embed_model=embed_model
+        )
         index.storage_context.persist(persist_dir=STORAGE_DIR)
         return index
 
