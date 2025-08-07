@@ -11,13 +11,16 @@ def build_or_load_index():
     embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
     llm_model = Ollama(model="llama3", host="http://ollama-llama3:11434")
 
-    ServiceContext.from_defaults(embed_model=embed_model, llm=llm_model)
+    service_context = ServiceContext.from_defaults(
+        embed_model=embed_model,
+        llm=llm_model
+    )
 
     if os.path.exists(STORAGE_DIR) and os.listdir(STORAGE_DIR):
-        index = VectorStoreIndex.load_from_disk(STORAGE_DIR)
+        index = VectorStoreIndex.load_from_disk(STORAGE_DIR, service_context=service_context)
     else:
         documents = SimpleDirectoryReader(DOCS_DIR).load_data()
-        index = VectorStoreIndex.from_documents(documents)
+        index = VectorStoreIndex.from_documents(documents, service_context=service_context)
         index.save_to_disk(STORAGE_DIR)
     return index
 
