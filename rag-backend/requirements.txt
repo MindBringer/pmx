@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 llama-index
+llama-index-embeddings-huggingface
+llama-index-llms-ollama
 pypdf
 python-multipart
 aiofiles
