@@ -49,7 +49,9 @@ else
 fi
 
 # Docker-Gruppe freischalten
+sudo groupadd docker
 sudo usermod -aG docker "$USER"
+ echo "✅ Docker Gruppe angelegt, bei Bedarf "newgrp docker" für Aktivierung!"
 
 # Projektverzeichnis vorbereiten
 cd ~

@@ -35,7 +35,7 @@ chmod +x install.sh
 chmod +x install_ssl.sh
 sudo ./install_ssl.sh
 ```
-> Voraussetzung: Domain `ai.steinicke-gmbh.de` zeigt per DNS auf die öffentliche IP des Servers (A-Record).
+> Voraussetzung: Domain `ai.domain.de` zeigt per DNS auf die öffentliche IP des Servers (A-Record).
 
 
 ---
@@ -145,3 +145,19 @@ setup RAG:
 volumes:
   rag_documents:
   rag_storage:
+
+Nach Installation aller install-scripte:
+
+nginx 
+sudo nano /etc/nginx/sites-enabled/ai.local/domain.de
+CAT aus install_ssl.sh prüfen, aus frontend/install.sh ergänzen - local erstellen bei Bedarf!
+starten:
+sudo systemctl start nginx
+
+cert für ai.local erstellen:
+sudo mkdir -p /etc/ssl/selfsigned
+
+sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
+  -keyout /etc/ssl/selfsigned/ai.local.key \
+  -out /etc/ssl/selfsigned/ai.local.crt \
+  -subj "/CN=ai.local"
