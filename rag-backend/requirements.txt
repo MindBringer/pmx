@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+llama-index
+pypdf
+python-multipart
+aiofiles
+sentence-transformers
+transformers
+torch
