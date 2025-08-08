@@ -1,4 +1,4 @@
-farm-haystack[faiss]==1.22.0
+farm-haystack==1.22.0
 qdrant-client==1.8.0
 uvicorn
 fastapi
