@@ -1,11 +1,5 @@
-fastapi
+farm-haystack[faiss]==1.22.0
+qdrant-client==1.8.0
 uvicorn
-llama-index
-llama-index-embeddings-huggingface
-llama-index-llms-ollama
-pypdf
-python-multipart
-aiofiles
-sentence-transformers
-transformers
-torch
+fastapi
+python-dotenv

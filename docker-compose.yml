@@ -46,14 +46,27 @@ services:
       - ai-net
 
   rag-backend:
-    build: ./rag-backend
+    build:
+      context: ./rag-backend
     container_name: rag-backend
     ports:
-      - "8000:8000"
+      - "8001:8001"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=mistral
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      - qdrant
+    networks:
+      - ai-net
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
     volumes:
-      - ./rag-backend/documents:/app/documents
-      - ./rag-backend/storage:/app/storage
-    restart: unless-stopped
+      - qdrant_data:/qdrant/storage
     networks:
       - ai-net
 
@@ -63,6 +76,7 @@ volumes:
   n8n-data:
   rag_documents:
   rag_storage:
+  qdrant_data:
 
 networks:
   ai-net:
