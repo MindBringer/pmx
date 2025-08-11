@@ -15,8 +15,20 @@ GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "llama3")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "pmx_docs")
 
+# NEU: Embedding-Dimension konfigurieren (mxbai-embed-large = 1024)
+EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))
+# Optional: einmalige Neuerstellung per ENV steuerbar
+QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
+
 def get_document_store() -> QdrantDocumentStore:
-    return QdrantDocumentStore(url=QDRANT_URL, index=QDRANT_COLLECTION, recreate_index=False)
+    return QdrantDocumentStore(
+        url=QDRANT_URL,
+        index=QDRANT_COLLECTION,
+        embedding_dim=EMBED_DIM,   # <<< WICHTIG
+        recreate_index=QDRANT_RECREATE,
+        # optional, aber üblich:
+        # similarity="cosine",
+    )
 
 # NEU: Für Indexierung (Documents -> embeddings)
 def get_doc_embedder() -> OllamaDocumentEmbedder:
