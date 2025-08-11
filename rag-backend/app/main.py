@@ -111,38 +111,38 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
-ret = pipe.run({
-    "embed_query": {"text": payload.query},
-    "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
-    "prompt_builder": {"query": payload.query},
-    "generate": {}
-})
+    ret = pipe.run({
+        "embed_query": {"text": payload.query},
+        "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
+        "prompt_builder": {"query": payload.query},
+        "generate": {}
+    })
 
 # Robust auslesen, egal was die Pipeline an Keys zurückliefert
-gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
-answer_list = gen_out.get("replies") or []
-answer = answer_list[0] if answer_list else ""
+    gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
+    answer_list = gen_out.get("replies") or []
+    answer = answer_list[0] if answer_list else ""
 
 # Dokumente versuchen von 'retrieve', sonst (Fallback) von 'generate'
-docs = []
-if isinstance(ret, dict):
-    docs = (ret.get("retrieve", {}) or {}).get("documents") or \
-        (ret.get("generate", {}) or {}).get("documents") or []
+    docs = []
+    if isinstance(ret, dict):
+        docs = (ret.get("retrieve", {}) or {}).get("documents") or \
+            (ret.get("generate", {}) or {}).get("documents") or []
 
 # Quellen zusammenfassen
-srcs = [
-    {
-        "id": getattr(d, "id", None),
-        "score": getattr(d, "score", None),
-        "tags": (getattr(d, "meta", None) or {}).get("tags"),
-        "meta": getattr(d, "meta", None),
-        "snippet": (getattr(d, "content", "") or "")[:350],
-    }
-    for d in (docs or [])
-]
-used_tags = sorted({t for d in (docs or []) for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
+    srcs = [
+        {
+            "id": getattr(d, "id", None),
+            "score": getattr(d, "score", None),
+            "tags": (getattr(d, "meta", None) or {}).get("tags"),
+            "meta": getattr(d, "meta", None),
+            "snippet": (getattr(d, "content", "") or "")[:350],
+        }
+        for d in (docs or [])
+    ]
+    used_tags = sorted({t for d in (docs or []) for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
 
-return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
+    return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
 
 
 # -----------------------------
