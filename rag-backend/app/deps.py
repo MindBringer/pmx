@@ -13,7 +13,7 @@ GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", LLM_MODEL)
 EMBED_MODEL = os.getenv("EMBED_MODEL", "mxbai-embed-large")
 
 def get_document_store() -> QdrantDocumentStore:
-    return QdrantDocumentStore(url=QDRANT_URL, collection_name=QDRANT_COLLECTION, recreate_index=False)
+    return QdrantDocumentStore(url=QDRANT_URL, index=QDRANT_COLLECTION, recreate_index=False)
 
 def get_embedder() -> OllamaTextEmbedder:
     return OllamaTextEmbedder(model=EMBED_MODEL, url=OLLAMA_BASE_URL)
