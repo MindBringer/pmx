@@ -59,8 +59,6 @@ services:
     build:
       context: ./rag-backend
       dockerfile: ./rag-backend/Dockerfile
-    # Du kannst die Zeile "image:" weglassen; mit build erstellt Compose lokal ein Image
-    image: pmx/rag-backend:latest
     pull_policy: build
     container_name: rag-backend
     env_file:
