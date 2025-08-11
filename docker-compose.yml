@@ -45,21 +45,6 @@ services:
     networks:
       - ai-net
 
-  rag-backend:
-    build:
-      context: ./rag-backend
-    container_name: rag-backend
-    ports:
-      - "8001:8001"
-    environment:
-      - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=mistral
-      - QDRANT_URL=http://qdrant:6333
-    depends_on:
-      - qdrant
-    networks:
-      - ai-net
-
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
