@@ -5,6 +5,7 @@ import os
 import io
 import re
 
+from .deps import get_document_store, get_doc_embedder, get_text_embedder, get_retriever, get_generator
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
@@ -211,29 +212,25 @@ def convert_bytes_to_documents(filename: str, mime: str, data: bytes, default_me
 # -------------------------------
 
 def build_index_pipeline():
-    """
-    Indexing-Pipeline:
-      Documents (bereits konvertiert) -> Cleaner -> Splitter -> Embedder -> Writer
-    """
     store = get_document_store()
-    embedder = get_embedder()
+    embedder = get_doc_embedder()           # <— DOKUMENT-Embedder
     writer = DocumentWriter(document_store=store)
 
     cleaner = DocumentCleaner()
     splitter = DocumentSplitter(
-        split_by="word",                 # gültig: function, page, passage, period, word, line, sentence
-        split_length=int_env("CHUNK_SIZE", 200),      # praxisnaher Default
+        split_by="word",                    # token ist in HS2 nicht erlaubt
+        split_length=int_env("CHUNK_SIZE", 200),
         split_overlap=int_env("CHUNK_OVERLAP", 20),
     )
 
     pipe = Pipeline()
     pipe.add_component("clean", cleaner)
     pipe.add_component("split", splitter)
-    pipe.add_component("embed", embedder)
+    pipe.add_component("embed", embedder)   # erwartet documents
     pipe.add_component("write", writer)
 
     pipe.connect("clean.documents", "split.documents")
-    pipe.connect("split.documents", "embed.documents")
+    pipe.connect("split.documents", "embed.documents")   # passt jetzt
     pipe.connect("embed.documents", "write.documents")
     return pipe, store
 
@@ -250,23 +247,19 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
         d.meta = meta
     return docs
 
-
 def build_query_pipeline(store=None):
     store = store or get_document_store()
     retriever = get_retriever(store)
     gen = get_generator()
-    qembed = get_embedder()  # OllamaTextEmbedder für die Query
+    qembed = get_text_embedder()            # <— TEXT-Embedder für die Query
 
+    from haystack.components.builders import PromptBuilder
     template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
-Gib keine Inhalte wieder, die nicht im Kontext stehen.
-
 Kontext:
 {% for d in documents %}
 - {{ d.content | truncate(600) }}
 {% endfor %}
-
-Frage: {{ query }}
-"""
+Frage: {{ query }}"""
 
     pipe = Pipeline()
     pipe.add_component("embed_query", qembed)
@@ -274,12 +267,8 @@ Frage: {{ query }}
     pipe.add_component("prompt_builder", PromptBuilder(template=template))
     pipe.add_component("generate", gen)
 
-    # Verbindungen:
-    # Query-Text -> Embedder -> Retriever
     pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-    # Retriever-Dokumente -> PromptBuilder -> Generator
     pipe.connect("retrieve.documents", "prompt_builder.documents")
     pipe.connect("prompt_builder.prompt", "generate.prompt")
-
     return pipe
 
