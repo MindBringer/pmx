@@ -221,9 +221,9 @@ def build_index_pipeline():
 
     cleaner = DocumentCleaner()
     splitter = DocumentSplitter(
-        split_by="token",
-        split_length=int_env("CHUNK_SIZE", 1200),
-        split_overlap=int_env("CHUNK_OVERLAP", 120),
+        split_by="word",                 # gültig: function, page, passage, period, word, line, sentence
+        split_length=int_env("CHUNK_SIZE", 200),      # praxisnaher Default
+        split_overlap=int_env("CHUNK_OVERLAP", 20),
     )
 
     pipe = Pipeline()
