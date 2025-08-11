@@ -8,6 +8,7 @@ import re
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
+from haystack.components.builders import PromptBuilder
 
 # Built-in Haystack converters (nutzen wir, wo vorhanden/stabil)
 from haystack.components.converters import (
@@ -255,9 +256,25 @@ def build_query_pipeline(store=None):
     retriever = get_retriever(store)
     gen = get_generator()
 
+    # Prompt-Vorlage: Dokumente werden in Bulletpoints eingefügt
+    template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
+Gib keine Inhalte wieder, die nicht im Kontext stehen.
+
+Kontext:
+{% for d in documents %}
+- {{ d.content | truncate(600) }}
+{% endfor %}
+
+Frage: {{ query }}
+"""
+
     pipe = Pipeline()
     pipe.add_component("retrieve", retriever)
+    pipe.add_component("prompt_builder", PromptBuilder(template=template))
     pipe.add_component("generate", gen)
-    pipe.connect("retrieve", "generate.documents")
+
+    # Retriever -> PromptBuilder -> Generator
+    pipe.connect("retrieve.documents", "prompt_builder.documents")
+    pipe.connect("prompt_builder.prompt", "generate.prompt")
     return pipe
 

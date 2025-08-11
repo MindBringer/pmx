@@ -111,21 +111,13 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
-    ret = pipe.run(
-        {
-            "retrieve": {"query": payload.query, "filters": flt, "top_k": payload.top_k},
-            "generate": {
-                "prompt": (
-                    "Beantworte prägnant und korrekt. "
-                    "Nutze die gegebenen Dokumente als Quelle und gib keine Halluzinationen aus.\n"
-                    f"Frage: {payload.query}"
-                )
-            },
-        }
-    )
-
+    ret = pipe.run({
+        "retrieve": {"query": payload.query, "filters": flt, "top_k": payload.top_k},
+        "prompt_builder": {"query": payload.query},
+        "generate": {}
+    })
     answer = ret["generate"]["replies"][0]
-    docs = ret["generate"]["documents"] or []
+    docs = ret["retrieve"]["documents"] or []
 
     # Quellen zusammenfassen
     srcs = [
