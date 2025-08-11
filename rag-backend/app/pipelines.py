@@ -4,6 +4,8 @@ from typing import List, Optional, Dict, Any, Iterable
 import os
 import io
 import re
+import tempfile
+import pathlib
 
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
@@ -27,7 +29,13 @@ from odf import text as odf_text
 from openpyxl import load_workbook                              # openpyxl
 import mailparser                                               # mail-parser
 
-from .deps import get_document_store, get_doc_embedder, get_text_embedder, get_retriever, get_generator
+from .deps import (
+    get_document_store,
+    get_doc_embedder,
+    get_text_embedder,
+    get_retriever,
+    get_generator,
+)
 from .tagging import extract_tags
 
 
@@ -156,7 +164,31 @@ def _convert_eml(data: bytes, meta: Dict[str, Any]) -> List[Document]:
     return [_doc_from_text("\n".join(content), meta_all)]
 
 
-def convert_bytes_to_documents(filename: str, mime: str, data: bytes, default_meta: Optional[Dict[str, Any]] = None) -> List[Document]:
+def _run_converter_with_tempfile(converter, suffix: str, data: bytes) -> List[Document]:
+    """
+    Schreibt die Bytes in eine Temp-Datei und ruft den Haystack-Converter mit Pfad auf.
+    Das ist am robustesten, weil einige Converter Pfade bevorzugen.
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+    try:
+        # Converter erwarten usually "sources=[pfad]"
+        out = converter.run(sources=[tmp_path])["documents"]
+        return out
+    finally:
+        try:
+            pathlib.Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def convert_bytes_to_documents(
+    filename: str,
+    mime: str,
+    data: bytes,
+    default_meta: Optional[Dict[str, Any]] = None
+) -> List[Document]:
     """
     Universeller Konverter: Datei-Bytes -> Haystack Documents
     Unterstützte Typen: txt, md, pdf, html, docx, odt, xlsx, eml
@@ -169,36 +201,46 @@ def convert_bytes_to_documents(filename: str, mime: str, data: bytes, default_me
 
     try:
         if mime == "application/pdf" or filename.lower().endswith(".pdf"):
-            return _PDF.run(sources=[io.BytesIO(data)])["documents"]
+            docs = _run_converter_with_tempfile(_PDF, ".pdf", data)
 
-        if mime in ("text/markdown",) or filename.lower().endswith(".md"):
-            return _MD.run(sources=[io.BytesIO(data)])["documents"]
+        elif mime in ("text/markdown",) or filename.lower().endswith(".md"):
+            docs = _run_converter_with_tempfile(_MD, ".md", data)
 
-        if mime in ("text/html", "application/xhtml+xml") or filename.lower().endswith((".htm", ".html")):
-            return _HTML.run(sources=[io.BytesIO(data)])["documents"]
+        elif mime in ("text/html", "application/xhtml+xml") or filename.lower().endswith((".htm", ".html")):
+            docs = _run_converter_with_tempfile(_HTML, ".html", data)
 
-        if mime in ("text/plain",) or filename.lower().endswith(".txt"):
-            # TextFileToDocument erwartet Dateien/Sources; wir nutzen BytesIO
-            return _TXT.run(sources=[io.BytesIO(data)])["documents"]
+        elif mime in ("text/plain",) or filename.lower().endswith(".txt"):
+            # Einheitlich auch via Tempfile + TextFileToDocument
+            docs = _run_converter_with_tempfile(_TXT, ".txt", data)
 
-        if mime in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",) or filename.lower().endswith(".docx"):
-            return _convert_docx(data, meta)
+        elif mime in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",) or filename.lower().endswith(".docx"):
+            docs = _convert_docx(data, meta)
 
-        if mime in ("application/vnd.oasis.opendocument.text", "application/odt") or filename.lower().endswith(".odt"):
-            return _convert_odt(data, meta)
+        elif mime in ("application/vnd.oasis.opendocument.text", "application/odt") or filename.lower().endswith(".odt"):
+            docs = _convert_odt(data, meta)
 
-        if mime in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",) or filename.lower().endswith(".xlsx"):
-            return _convert_xlsx(data, meta)
+        elif mime in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",) or filename.lower().endswith(".xlsx"):
+            docs = _convert_xlsx(data, meta)
 
-        if mime in ("message/rfc822", "application/eml") or filename.lower().endswith(".eml"):
-            return _convert_eml(data, meta)
+        elif mime in ("message/rfc822", "application/eml") or filename.lower().endswith(".eml"):
+            docs = _convert_eml(data, meta)
 
-        # Fallback: als Text behandeln
-        try:
-            text = data.decode("utf-8", errors="ignore")
-        except Exception:
-            text = ""
-        return [_doc_from_text(text, meta)] if text.strip() else []
+        else:
+            # Fallback: als Text behandeln
+            try:
+                text = data.decode("utf-8", errors="ignore")
+            except Exception:
+                text = ""
+            docs = [_doc_from_text(text, meta)] if text.strip() else []
+
+        # Meta anreichern (z. B. filename/mime in Dokumente übernehmen)
+        for d in docs:
+            m = dict(d.meta or {})
+            m.setdefault("filename", filename)
+            m.setdefault("mime", mime)
+            d.meta = m
+
+        return docs
 
     except Exception as e:
         # Defensive: nie komplett scheitern lassen
@@ -212,12 +254,12 @@ def convert_bytes_to_documents(filename: str, mime: str, data: bytes, default_me
 
 def build_index_pipeline():
     store = get_document_store()
-    embedder = get_doc_embedder()           # <— DOKUMENT-Embedder
+    embedder = get_doc_embedder()           # DOKUMENT-Embedder
     writer = DocumentWriter(document_store=store)
 
     cleaner = DocumentCleaner()
     splitter = DocumentSplitter(
-        split_by="word",                    # token ist in HS2 nicht erlaubt
+        split_by="word",                    # gültig: function, page, passage, period, word, line, sentence
         split_length=int_env("CHUNK_SIZE", 200),
         split_overlap=int_env("CHUNK_OVERLAP", 20),
     )
@@ -229,7 +271,7 @@ def build_index_pipeline():
     pipe.add_component("write", writer)
 
     pipe.connect("clean.documents", "split.documents")
-    pipe.connect("split.documents", "embed.documents")   # passt jetzt
+    pipe.connect("split.documents", "embed.documents")
     pipe.connect("embed.documents", "write.documents")
     return pipe, store
 
@@ -246,19 +288,23 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
         d.meta = meta
     return docs
 
+
 def build_query_pipeline(store=None):
     store = store or get_document_store()
     retriever = get_retriever(store)
     gen = get_generator()
-    qembed = get_text_embedder()            # <— TEXT-Embedder für die Query
+    qembed = get_text_embedder()            # TEXT-Embedder für die Query
 
-    from haystack.components.builders import PromptBuilder
     template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
+Gib keine Inhalte wieder, die nicht im Kontext stehen.
+
 Kontext:
 {% for d in documents %}
 - {{ d.content | truncate(600) }}
 {% endfor %}
-Frage: {{ query }}"""
+
+Frage: {{ query }}
+"""
 
     pipe = Pipeline()
     pipe.add_component("embed_query", qembed)
@@ -266,8 +312,9 @@ Frage: {{ query }}"""
     pipe.add_component("prompt_builder", PromptBuilder(template=template))
     pipe.add_component("generate", gen)
 
+    # Query-Text -> Embedder -> Retriever
     pipe.connect("embed_query.embedding", "retrieve.query_embedding")
+    # Retriever-Dokumente -> PromptBuilder -> Generator
     pipe.connect("retrieve.documents", "prompt_builder.documents")
     pipe.connect("prompt_builder.prompt", "generate.prompt")
     return pipe
-
