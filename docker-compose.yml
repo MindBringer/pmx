@@ -13,18 +13,18 @@ services:
     networks:
       - ai-net
 
-  ollama-llama3:
-    image: ollama/ollama
-    container_name: ollama-llama3
-    ports:
-      - "11435:11434"
-    volumes:
-      - ollama-llama3-data:/root/.ollama
-    restart: unless-stopped
-    environment:
-      - OLLAMA_MODELS=llama3
-    networks:
-      - ai-net
+  #ollama-llama3:
+  #  image: ollama/ollama
+  #  container_name: ollama-llama3
+  #  ports:
+  #    - "11435:11434"
+  #  volumes:
+  #    - ollama-llama3-data:/root/.ollama
+  #  restart: unless-stopped
+  #  environment:
+  #    - OLLAMA_MODELS=llama3
+  #  networks:
+  #    - ai-net
 
   n8n:
     image: n8nio/n8n
@@ -52,6 +52,38 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    networks:
+      - ai-net
+
+  rag-backend:
+    build:
+      context: ./rag-backend
+      dockerfile: ./rag-backend/Dockerfile
+    # Du kannst die Zeile "image:" weglassen; mit build erstellt Compose lokal ein Image
+    image: pmx/rag-backend:latest
+    pull_policy: build
+    container_name: rag-backend
+    env_file:
+      - ./rag-backend/.env
+    environment:
+      # Fallbacks, falls in .env nicht gesetzt
+      RAG_BASE_PATH: /rag
+      OLLAMA_BASE_URL: http://ollama:11434
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./rag-backend/documents:/app/documents
+      - ./rag-backend/storage:/app/storage
+    depends_on:
+      - ollama
+      - qdrant
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/rag/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
     networks:
       - ai-net
 
