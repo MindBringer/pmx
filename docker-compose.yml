@@ -58,7 +58,7 @@ services:
   rag-backend:
     build:
       context: ./rag-backend
-      dockerfile: ./rag-backend/Dockerfile
+      dockerfile: ./Dockerfile
     pull_policy: build
     container_name: rag-backend
     env_file:
