@@ -255,8 +255,8 @@ def build_query_pipeline(store=None):
     store = store or get_document_store()
     retriever = get_retriever(store)
     gen = get_generator()
+    qembed = get_embedder()  # OllamaTextEmbedder für die Query
 
-    # Prompt-Vorlage: Dokumente werden in Bulletpoints eingefügt
     template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
 Gib keine Inhalte wieder, die nicht im Kontext stehen.
 
@@ -269,12 +269,17 @@ Frage: {{ query }}
 """
 
     pipe = Pipeline()
+    pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
     pipe.add_component("prompt_builder", PromptBuilder(template=template))
     pipe.add_component("generate", gen)
 
-    # Retriever -> PromptBuilder -> Generator
+    # Verbindungen:
+    # Query-Text -> Embedder -> Retriever
+    pipe.connect("embed_query.embedding", "retrieve.query_embedding")
+    # Retriever-Dokumente -> PromptBuilder -> Generator
     pipe.connect("retrieve.documents", "prompt_builder.documents")
     pipe.connect("prompt_builder.prompt", "generate.prompt")
+
     return pipe
 

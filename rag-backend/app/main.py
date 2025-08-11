@@ -112,10 +112,12 @@ def query(payload: QueryRequest):
             )
 
     ret = pipe.run({
-        "retrieve": {"query": payload.query, "filters": flt, "top_k": payload.top_k},
+        "embed_query": {"text": payload.query},               # <— NEU: Query-Text einbetten
+        "retrieve":    {"filters": flt, "top_k": payload.top_k},
         "prompt_builder": {"query": payload.query},
         "generate": {}
     })
+
     answer = ret["generate"]["replies"][0]
     docs = ret["retrieve"]["documents"] or []
 
