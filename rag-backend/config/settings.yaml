@@ -1,0 +1,4 @@
+# reserviert für spätere erweiterungen (Logging, Pipelines, Limits)
+app:
+  max_upload_mb: 100
+  default_top_k: 5
