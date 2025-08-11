@@ -1,12 +1,12 @@
 services:
   rag-backend:
     build:
-      context: ./rag-backend
-      dockerfile: ./rag-backend/Dockerfile
+      context: .
+      dockerfile: ./Dockerfile
     image: pmx/rag-backend:latest
     pull_policy: build        # <- wichtig: nicht aus Registry ziehen
     env_file:
-      - ./rag-backend/.env    # <- .env-Pfad relativ zum Repo-Root
+      - ./.env    # <- .env-Pfad relativ zum Repo-Root
     networks:
       - ai-net
     ports:
