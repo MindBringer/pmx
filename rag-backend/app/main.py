@@ -111,30 +111,38 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
-    ret = pipe.run({
-        "embed_query": {"text": payload.query},               # <— NEU: Query-Text einbetten
-        "retrieve":    {"filters": flt, "top_k": payload.top_k},
-        "prompt_builder": {"query": payload.query},
-        "generate": {}
-    })
+ret = pipe.run({
+    "embed_query": {"text": payload.query},
+    "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
+    "prompt_builder": {"query": payload.query},
+    "generate": {}
+})
 
-    answer = ret["generate"]["replies"][0]
-    docs = ret["retrieve"]["documents"] or []
+# Robust auslesen, egal was die Pipeline an Keys zurückliefert
+gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
+answer_list = gen_out.get("replies") or []
+answer = answer_list[0] if answer_list else ""
 
-    # Quellen zusammenfassen
-    srcs = [
-        {
-            "id": d.id,
-            "score": getattr(d, "score", None),
-            "tags": (d.meta or {}).get("tags"),
-            "meta": d.meta,
-            "snippet": (d.content or "")[:350],
-        }
-        for d in docs
-    ]
-    used_tags = sorted({t for d in docs for t in (d.meta or {}).get("tags", [])})
+# Dokumente versuchen von 'retrieve', sonst (Fallback) von 'generate'
+docs = []
+if isinstance(ret, dict):
+    docs = (ret.get("retrieve", {}) or {}).get("documents") or \
+        (ret.get("generate", {}) or {}).get("documents") or []
 
-    return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
+# Quellen zusammenfassen
+srcs = [
+    {
+        "id": getattr(d, "id", None),
+        "score": getattr(d, "score", None),
+        "tags": (getattr(d, "meta", None) or {}).get("tags"),
+        "meta": getattr(d, "meta", None),
+        "snippet": (getattr(d, "content", "") or "")[:350],
+    }
+    for d in (docs or [])
+]
+used_tags = sorted({t for d in (docs or []) for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
+
+return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
 
 
 # -----------------------------

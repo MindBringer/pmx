@@ -88,6 +88,7 @@ docker compose up -d
 # Zentralen Ollama-Container verwenden
 docker exec -it ollama sh -lc "ollama pull llama3"              # 8B instruct
 docker exec -it ollama sh -lc "ollama pull mxbai-embed-large"   # Embeddings
+docker exec -it ollama sh -lc "ollama pull mistral"             # LLM
 docker exec -it ollama sh -lc "ollama list"
 ```
 
