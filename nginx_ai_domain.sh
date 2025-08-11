@@ -60,7 +60,7 @@ server {
     proxy_send_timeout 600s;
   }
   location /rag/ {
-    proxy_pass http://localhost:8000/;
+    proxy_pass http://localhost:8082/;
     proxy_http_version 1.1;
 
     proxy_set_header Host $host;
