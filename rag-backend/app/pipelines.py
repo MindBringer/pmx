@@ -1,59 +1,246 @@
-from typing import List, Optional
+# rag-backend/app/pipelines.py
+
+from typing import List, Optional, Dict, Any, Iterable
+import os
+import io
+import re
+
 from haystack import Pipeline, Document
-from haystack.components.routers import FileTypeRouter
-from haystack.components.converters import PyPDFToDocument, TextFileToDocument, MarkdownToDocument, HTMLToDocument
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
+
+# Built-in Haystack converters (nutzen wir, wo vorhanden/stabil)
+from haystack.components.converters import (
+    PyPDFToDocument,
+    TextFileToDocument,
+    MarkdownToDocument,
+    HTMLToDocument,
+)
+
+# Unsere Abhängigkeiten für zusätzliche Formate:
+# docx, odt, xlsx, eml
+from bs4 import BeautifulSoup
+from docx import Document as DocxDocument  # python-docx
+from odf.opendocument import load as odf_load                  # odfpy
+from odf import text as odf_text
+from openpyxl import load_workbook                              # openpyxl
+import mailparser                                               # mail-parser
+
 from .deps import get_document_store, get_embedder, get_retriever, get_generator
 from .tagging import extract_tags
-import os
 
-def int_env(k, d):
-    try: return int(os.getenv(k, d))
-    except: return d
+
+def int_env(k: str, d: int) -> int:
+    try:
+        return int(os.getenv(k, d))
+    except Exception:
+        return d
+
+
+# -------------------------------
+# Konvertierung: Bytes -> Documents
+# -------------------------------
+
+_PDF = PyPDFToDocument()
+_TXT = TextFileToDocument()
+_MD = MarkdownToDocument()
+_HTML = HTMLToDocument()
+
+
+def _doc_from_text(text: str, meta: Optional[Dict[str, Any]] = None) -> Document:
+    # Normiere Zeilenenden & trimme überschüssige Leerzeichen
+    cleaned = re.sub(r"\r\n?", "\n", text or "").strip()
+    return Document(content=cleaned, meta=meta or {})
+
+
+def _convert_docx(data: bytes, meta: Dict[str, Any]) -> List[Document]:
+    f = io.BytesIO(data)
+    doc = DocxDocument(f)
+    # Absätze zusammentragen
+    parts = []
+    for p in doc.paragraphs:
+        parts.append(p.text)
+    # Tabellen auch berücksichtigen (einfacher Join)
+    for table in getattr(doc, "tables", []):
+        for row in table.rows:
+            cells = [c.text for c in row.cells]
+            parts.append("\t".join(cells))
+    text = "\n".join([p for p in parts if p])
+    return [_doc_from_text(text, meta)] if text.strip() else []
+
+
+def _extract_odf_text(elem) -> Iterable[str]:
+    # ODT: hole alle Text-Elemente (Absätze, Zeilenumbrüche, Listen)
+    for node in elem.childNodes:
+        if isinstance(node, odf_text.P) or isinstance(node, odf_text.H):
+            yield "".join(t.data for t in node.childNodes if hasattr(t, "data"))
+        elif isinstance(node, odf_text.List) or isinstance(node, odf_text.ListItem):
+            yield from _extract_odf_text(node)
+        else:
+            # Rekursiv durchgehen; Text-Span etc.
+            if hasattr(node, "childNodes"):
+                yield from _extract_odf_text(node)
+
+
+def _convert_odt(data: bytes, meta: Dict[str, Any]) -> List[Document]:
+    # ODT via odfpy
+    f = io.BytesIO(data)
+    odoc = odf_load(f)
+    texts = []
+    for body in odoc.getElementsByType(odf_text.P):
+        texts.append("".join(t.data for t in body.childNodes if hasattr(t, "data")))
+    if not texts:
+        # Als Fallback alles aus dem Text-Baum holen
+        try:
+            body = odoc.text
+            texts = list(_extract_odf_text(body))
+        except Exception:
+            texts = []
+    text = "\n".join([t for t in texts if t])
+    return [_doc_from_text(text, meta)] if text.strip() else []
+
+
+def _convert_xlsx(data: bytes, meta: Dict[str, Any]) -> List[Document]:
+    f = io.BytesIO(data)
+    wb = load_workbook(f, read_only=True, data_only=True)
+    docs: List[Document] = []
+    for ws in wb.worksheets:
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            # Repräsentiere jede Zeile als tab-getrennte Werte
+            vals = ["" if v is None else str(v) for v in row]
+            rows.append("\t".join(vals))
+        text = "\n".join(rows).strip()
+        if text:
+            m = dict(meta)
+            m["sheet_name"] = ws.title
+            docs.append(_doc_from_text(text, m))
+    return docs
+
+
+def _convert_eml(data: bytes, meta: Dict[str, Any]) -> List[Document]:
+    # E-Mail inkl. Header + Body (Text bevorzugt, HTML als Plain extrahiert)
+    mail = mailparser.parse_from_bytes(data)
+    headers = {
+        "from": (mail.from_[0][1] if mail.from_ else None),
+        "to": [r[1] for r in (mail.to or [])],
+        "subject": mail.subject,
+        "date": str(mail.date) if mail.date else None,
+        "message_id": mail.message_id,
+    }
+    # Body
+    body_text = ""
+    if mail.text_plain:
+        body_text = "\n\n".join(mail.text_plain)
+    elif mail.text_html:
+        # HTML -> Plain
+        texts = []
+        for html in mail.text_html:
+            soup = BeautifulSoup(html, "lxml")
+            texts.append(soup.get_text(separator="\n"))
+        body_text = "\n\n".join(texts)
+    # Anhänge werden hier ignoriert (kann später ergänzt werden)
+    content = []
+    content.append(f"Subject: {headers.get('subject') or ''}")
+    if headers.get("from"):
+        content.append(f"From: {headers['from']}")
+    if headers.get("to"):
+        content.append(f"To: {', '.join(headers['to'])}")
+    if headers.get("date"):
+        content.append(f"Date: {headers['date']}")
+    content.append("")
+    content.append(body_text or "")
+    meta_all = dict(meta)
+    meta_all.update({"email_headers": headers})
+    return [_doc_from_text("\n".join(content), meta_all)]
+
+
+def convert_bytes_to_documents(filename: str, mime: str, data: bytes, default_meta: Optional[Dict[str, Any]] = None) -> List[Document]:
+    """
+    Universeller Konverter: Datei-Bytes -> Haystack Documents
+    Unterstützte Typen: txt, md, pdf, html, docx, odt, xlsx, eml
+    """
+    meta = dict(default_meta or {})
+    meta.update({"filename": filename, "mime": mime})
+
+    # Normalisiere MIME
+    mime = (mime or "").lower()
+
+    try:
+        if mime == "application/pdf" or filename.lower().endswith(".pdf"):
+            return _PDF.run(sources=[io.BytesIO(data)])["documents"]
+
+        if mime in ("text/markdown",) or filename.lower().endswith(".md"):
+            return _MD.run(sources=[io.BytesIO(data)])["documents"]
+
+        if mime in ("text/html", "application/xhtml+xml") or filename.lower().endswith((".htm", ".html")):
+            return _HTML.run(sources=[io.BytesIO(data)])["documents"]
+
+        if mime in ("text/plain",) or filename.lower().endswith(".txt"):
+            # TextFileToDocument erwartet Dateien/Sources; wir nutzen BytesIO
+            return _TXT.run(sources=[io.BytesIO(data)])["documents"]
+
+        if mime in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",) or filename.lower().endswith(".docx"):
+            return _convert_docx(data, meta)
+
+        if mime in ("application/vnd.oasis.opendocument.text", "application/odt") or filename.lower().endswith(".odt"):
+            return _convert_odt(data, meta)
+
+        if mime in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",) or filename.lower().endswith(".xlsx"):
+            return _convert_xlsx(data, meta)
+
+        if mime in ("message/rfc822", "application/eml") or filename.lower().endswith(".eml"):
+            return _convert_eml(data, meta)
+
+        # Fallback: als Text behandeln
+        try:
+            text = data.decode("utf-8", errors="ignore")
+        except Exception:
+            text = ""
+        return [_doc_from_text(text, meta)] if text.strip() else []
+
+    except Exception as e:
+        # Defensive: nie komplett scheitern lassen
+        fallback = f"[Konvertierung fehlgeschlagen: {type(e).__name__}: {e}]"
+        return [_doc_from_text(fallback, meta)]
+
+
+# -------------------------------
+# Pipelines
+# -------------------------------
 
 def build_index_pipeline():
+    """
+    Indexing-Pipeline:
+      Documents (bereits konvertiert) -> Cleaner -> Splitter -> Embedder -> Writer
+    """
     store = get_document_store()
     embedder = get_embedder()
     writer = DocumentWriter(document_store=store)
 
-    router = FileTypeRouter(mime_types={
-        "application/pdf": "pdf",
-        "text/plain": "txt",
-        "text/markdown": "md",
-        "text/html": "html",
-    })
-    pdf = PyPDFToDocument()
-    txt = TextFileToDocument()
-    md  = MarkdownToDocument()
-    htm = HTMLToDocument()
-
     cleaner = DocumentCleaner()
-    splitter = DocumentSplitter(split_by="token", split_length=int_env("CHUNK_SIZE", 1200),
-                                split_overlap=int_env("CHUNK_OVERLAP", 120))
+    splitter = DocumentSplitter(
+        split_by="token",
+        split_length=int_env("CHUNK_SIZE", 1200),
+        split_overlap=int_env("CHUNK_OVERLAP", 120),
+    )
 
     pipe = Pipeline()
-    pipe.add_component("router", router)
-    pipe.add_component("pdf", pdf); pipe.add_component("txt", txt)
-    pipe.add_component("md", md);   pipe.add_component("html", htm)
     pipe.add_component("clean", cleaner)
     pipe.add_component("split", splitter)
     pipe.add_component("embed", embedder)
     pipe.add_component("write", writer)
 
-    pipe.connect("router.pdf", "pdf.sources")
-    pipe.connect("router.txt", "txt.sources")
-    pipe.connect("router.md",  "md.sources")
-    pipe.connect("router.html","html.sources")
-
-    for n in ("pdf", "txt", "md", "html"):
-        pipe.connect(f"{n}.documents", "clean.documents")
     pipe.connect("clean.documents", "split.documents")
     pipe.connect("split.documents", "embed.documents")
     pipe.connect("embed.documents", "write.documents")
     return pipe, store
 
+
 def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List[str]]):
+    """
+    Auto-Tagging auf Chunk-Ebene: nutzt Llama3 (OllamaGenerator) und ergänzt um default_tags.
+    """
     for d in docs:
         auto = extract_tags(gen, d.content)[:8]
         meta = d.meta or {}
@@ -61,6 +248,7 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
         meta["tags"] = tags
         d.meta = meta
     return docs
+
 
 def build_query_pipeline(store=None):
     store = store or get_document_store()
@@ -72,3 +260,4 @@ def build_query_pipeline(store=None):
     pipe.add_component("generate", gen)
     pipe.connect("retrieve", "generate.documents")
     return pipe
+

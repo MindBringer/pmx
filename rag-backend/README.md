@@ -11,7 +11,7 @@ cd rag-backend
 cp .env.example .env
 
 # Modelle auf dem Host laden (Ollama)
-ollama pull llama3:8b-instruct
+ollama pull llama3
 ollama pull mxbai-embed-large
 
 # Build & Run
