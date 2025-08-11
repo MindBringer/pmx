@@ -5,7 +5,6 @@ import os
 import io
 import re
 
-from .deps import get_document_store, get_doc_embedder, get_text_embedder, get_retriever, get_generator
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
@@ -28,7 +27,7 @@ from odf import text as odf_text
 from openpyxl import load_workbook                              # openpyxl
 import mailparser                                               # mail-parser
 
-from .deps import get_document_store, get_embedder, get_retriever, get_generator
+from .deps import get_document_store, get_doc_embedder, get_text_embedder, get_retriever, get_generator
 from .tagging import extract_tags
 
 
