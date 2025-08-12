@@ -2,7 +2,7 @@
 
 import os
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException
+from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
 
 from haystack import Document
 
@@ -20,6 +20,7 @@ from .pipelines import (
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
 BASE_PATH = os.getenv("RAG_BASE_PATH", "/rag")
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0", root_path=BASE_PATH)
 
@@ -47,12 +48,8 @@ def health():
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
     files: List[UploadFile] = File(default=[]),
-    payload: IndexRequest = Depends(IndexRequest),
+    tags: Optional[List[str]] = Form(default=None),   # <— NEU
 ):
-    """
-    Nimmt Uploads entgegen, konvertiert sie in Haystack-Documents,
-    ergänzt Auto-Tags, schreibt Embeddings & speichert in Qdrant.
-    """
     # Pipeline-Komponenten
     pipe, _store = build_index_pipeline()
     gen = get_generator()
@@ -69,20 +66,16 @@ async def index(
             data=data,
             default_meta={"source": "upload"},
         )
-        # Auto-Tagging auf Chunk-Basis + Default-Tags aus Request
-        docs = postprocess_with_tags(gen, docs, payload.tags or [])
+        # Auto-Tagging auf Chunk-Basis + Form-Tags
+        docs = postprocess_with_tags(gen, docs, tags or [])
         all_docs.extend(docs)
         file_stats.append({"filename": f.filename, "chunks": len(docs)})
 
     if not all_docs:
-        # kein harter Fehler; gibt nur Info zurück
         return {"indexed": 0, "files": file_stats}
 
-    # Cleaner -> Splitter -> Embedder -> Writer
     _ = pipe.run({"clean": {"documents": all_docs}})
-
     return {"indexed": len(all_docs), "files": file_stats}
-
 
 # -----------------------------
 # Query
@@ -118,12 +111,12 @@ def query(payload: QueryRequest):
         "generate": {}
     })
 
-# Ergebnis der Pipeline (Antwort-Text)
+# Antwort aus der Pipeline
     gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-# --- Quellen separat holen: Text -> Embedding -> Retriever ---
+# Quellen separat via Direkt-Retrieval (robust, unabhängig von Pipeline-Outputs)
     store = get_document_store()
     retriever = get_retriever(store)
     qembed = get_text_embedder()
@@ -133,21 +126,32 @@ def query(payload: QueryRequest):
         query_embedding=emb,
         filters=flt,
         top_k=payload.top_k or 5,
+        score_threshold=(SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else None),
     )
     docs = ret_docs.get("documents", []) or []
 
 # Quellen zusammenfassen
-    srcs = [
-        {
+    srcs = []
+    for d in docs:
+        meta = getattr(d, "meta", {}) or {}
+        srcs.append({
             "id": getattr(d, "id", None),
             "score": getattr(d, "score", None),
-            "tags": (getattr(d, "meta", None) or {}).get("tags"),
-            "meta": getattr(d, "meta", None),
+            "tags": meta.get("tags"),
+            "meta": meta,
             "snippet": (getattr(d, "content", "") or "")[:350],
-        }
-        for d in docs
-    ]
+        })
+
     used_tags = sorted({t for d in docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
+
+# Antworttext um kompakte Quellenliste ergänzen
+    if srcs:
+        lines = []
+        for s in srcs[:5]:
+            fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s["id"]
+            sc = s.get("score")
+            lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
+        answer = f"{answer}\n\nQuellen:\n" + "\n".join(lines)
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
 
