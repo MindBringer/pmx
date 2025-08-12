@@ -16,14 +16,24 @@
       padding:24px;max-width:860px;width:100%;backdrop-filter:blur(10px)
     }
     h2{color:#333;margin-bottom:18px;text-align:center;font-size:28px;font-weight:300}
+
+    /* Tabs */
     .tabs{display:flex;width:100%;margin-bottom:16px}
     .tab{
-      flex:1;padding:10px 14px;border-radius:10px 10px 0 0;border:2px solid #e0e0e0;
-      background:#fff;cursor:pointer;font-weight:500;color:#444;transition:.2s;text-align:center
+      flex:1;
+      padding:10px 14px;
+      border-radius:10px 10px 0 0;
+      border:2px solid #e0e0e0;
+      background:#fff;
+      cursor:pointer;
+      font-weight:500;color:#444;transition:.2s;text-align:center
     }
     .tab.active{border-color:#667eea;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
-    .panel{display:none}
+
+    /* Panels (wichtig: unsichtbar wenn inaktiv) */
+    .panel{display:none;position:relative}
     .panel.active{display:block}
+
     .form-group{margin-bottom:16px}
     label{display:block;margin-bottom:8px;color:#555;font-weight:500;font-size:14px}
     select,textarea,input[type="text"],input[type="file"],input[type="password"]{
@@ -35,16 +45,21 @@
     textarea{min-height:120px;resize:vertical}
     .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
     .row .col{flex:1 1 240px}
+
     button{
       width:100%;padding:14px 24px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
       color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;transition:.2s;margin:8px 0 18px
     }
     button:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 5px 15px rgba(102,126,234,.4)}
     button:disabled{opacity:.7;cursor:not-allowed;transform:none}
+
     #result,#upload-result{
       background:#f8f9fa;border-radius:10px;padding:16px;min-height:90px;white-space:pre-wrap;color:#333;line-height:1.6;border:2px solid #e0e0e0;position:relative
     }
-    .loading-container{display:none;flex-direction:column;align-items:center;justify-content:center;padding:32px;position:absolute;inset:0;background:rgba(248,249,250,.95);border-radius:10px}
+    .loading-container{
+      display:none;flex-direction:column;align-items:center;justify-content:center;
+      padding:32px;position:absolute;inset:0;background:rgba(248,249,250,.95);border-radius:10px;z-index:10
+    }
     .loading-container.active{display:flex}
     .spinner{width:40px;height:40px;position:relative}
     .spinner::before{content:'';position:absolute;inset:0;border:4px solid #e0e0e0;border-radius:50%;border-top-color:#667eea;animation:spin 1s linear infinite}
@@ -60,17 +75,25 @@
     .choice{padding:8px 12px;border:2px solid #e0e0e0;border-radius:999px;cursor:pointer;user-select:none}
     .choice input{display:none}
     .choice.active{border-color:#667eea;background:#eef1ff}
+
+    /* kleine Helfer */
+    .muted{color:#666}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    ul.sources{margin-top:10px;padding-left:18px}
+    ul.sources li{margin:4px 0}
   </style>
 </head>
 <body>
   <div class="container">
     <h2>🧠 AI Prompt Interface</h2>
+
+    <!-- Tabs -->
     <div class="tabs">
       <button class="tab active" data-target="tab-prompt">Prompt</button>
       <button class="tab" data-target="tab-docs">Dokumente</button>
     </div>
 
-    <!-- Prompt Panel -->
+    <!-- Panel: Prompt -->
     <div class="panel active" id="tab-prompt">
       <form id="prompt-form">
         <div class="form-group">
@@ -86,23 +109,29 @@
             <option value="anthropic">Anthropic API</option>
           </select>
         </div>
+
         <div class="form-group">
           <label for="prompt">Frage / Prompt:</label>
           <textarea id="prompt" placeholder="Stell eine Frage an das Modell..."></textarea>
         </div>
+
         <div class="form-group">
           <label for="system">Anweisungen für Systemverhalten (optional):</label>
           <textarea id="system" placeholder="sei ein hilfsbereiter Spezialist für..."></textarea>
         </div>
+
         <div class="form-group">
           <label>Firmendaten mit einbeziehen?</label>
           <div class="choices" id="rag-choices">
             <label class="choice active"><input type="radio" name="rag" value="false" checked> Nein</label>
             <label class="choice"><input type="radio" name="rag" value="true"> Ja</label>
           </div>
+          <div class="inline-help">Wenn „Ja“, wird <code>rag=true</code> an <code>/webhook/llm</code> übergeben.</div>
         </div>
+
         <button type="submit" id="submit-btn">Senden</button>
       </form>
+
       <div id="result">
         <div id="result-output"></div>
         <div class="loading-container" id="spinner">
@@ -112,16 +141,18 @@
       </div>
     </div>
 
-    <!-- Dokumente Panel -->
+    <!-- Panel: Dokumente -->
     <div class="panel" id="tab-docs">
       <form id="docs-form">
         <div class="form-group">
           <label for="apiKey">API-Key (RAG)</label>
           <div class="row" style="gap:8px;align-items:center">
-            <input type="password" id="apiKey" placeholder="x-api-key" class="col" />
+            <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
             <button type="button" id="toggleKey" style="flex:0 0 auto;width:auto;padding:10px 14px">anzeigen</button>
           </div>
+          <div class="inline-help">Wird als Header <code>x-api-key</code> an <code>/rag/index</code> gesendet.</div>
         </div>
+
         <div class="row">
           <div class="form-group col">
             <label for="file">Datei auswählen</label>
@@ -130,12 +161,14 @@
           </div>
           <div class="form-group col">
             <label for="tags">Tags</label>
-            <input type="text" id="tags" placeholder="z. B. projektX,intern" />
-            <div class="inline-help">(Komma getrennt, optional)</div>
+            <input type="text" id="tags" placeholder="z. B. projektX,angebot,intern" />
+            <div class="inline-help">(optional, Komma-getrennt)</div>
           </div>
         </div>
+
         <button type="submit" id="upload-btn">Hochladen</button>
       </form>
+
       <div id="upload-result">
         <div id="upload-output"></div>
         <div class="loading-container" id="upload-spinner">
@@ -147,97 +180,223 @@
   </div>
 
   <script>
+    // Tabs
+    document.querySelectorAll('.tab').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+      });
+    });
+
+    // API-Key persist + toggle
+    const apiKeyInput = document.getElementById('apiKey');
+    const toggleKeyBtn = document.getElementById('toggleKey');
+    const savedKey = localStorage.getItem('ragApiKey');
+    if (savedKey) apiKeyInput.value = savedKey;
+    apiKeyInput.addEventListener('input', () => {
+      localStorage.setItem('ragApiKey', apiKeyInput.value.trim());
+    });
+    toggleKeyBtn.addEventListener('click', () => {
+      const hidden = apiKeyInput.type === 'password';
+      apiKeyInput.type = hidden ? 'text' : 'password';
+      toggleKeyBtn.textContent = hidden ? 'verbergen' : 'anzeigen';
+    });
+
+    // Radio pill styling
+    const ragChoices = document.getElementById('rag-choices');
+    ragChoices.addEventListener('change', () => {
+      ragChoices.querySelectorAll('.choice').forEach(c => c.classList.remove('active'));
+      const sel = ragChoices.querySelector('input[name="rag"]:checked');
+      sel.closest('.choice').classList.add('active');
+    });
+
+    // Helper: Spinner mindestens X ms anzeigen
+    function showFor(el, ms=300) {
+      el.classList.add("active");
+      const start = performance.now();
+      return () => {
+        const elapsed = performance.now() - start;
+        const left = Math.max(0, ms - elapsed);
+        setTimeout(() => el.classList.remove("active"), left);
+      };
+    }
+
+    // ---------- Prompt ----------
     window.addEventListener("DOMContentLoaded", function () {
-      const tabs = document.querySelectorAll('.tab');
-      const panels = document.querySelectorAll('.panel');
-      tabs.forEach(btn => {
-        btn.addEventListener('click', () => {
-          tabs.forEach(b => b.classList.remove('active'));
-          panels.forEach(p => p.classList.remove('active'));
-          btn.classList.add('active');
-          document.getElementById(btn.dataset.target).classList.add('active');
-        });
-      });
-
-      // API-Key speichern & anzeigen/verbergen
-      const apiKeyInput = document.getElementById('apiKey');
-      const toggleKeyBtn = document.getElementById('toggleKey');
-      const savedKey = localStorage.getItem('ragApiKey');
-      if (savedKey) apiKeyInput.value = savedKey;
-      apiKeyInput.addEventListener('input', () => localStorage.setItem('ragApiKey', apiKeyInput.value.trim()));
-      toggleKeyBtn.addEventListener('click', () => {
-        const hidden = apiKeyInput.type === 'password';
-        apiKeyInput.type = hidden ? 'text' : 'password';
-        toggleKeyBtn.textContent = hidden ? 'verbergen' : 'anzeigen';
-      });
-
-      document.getElementById('rag-choices').addEventListener('change', (e) => {
-        document.querySelectorAll('#rag-choices .choice').forEach(c => c.classList.remove('active'));
-        e.target.closest('.choice').classList.add('active');
-      });
-
-      function showFor(el, ms=300) {
-        el.classList.add("active");
-        const start = performance.now();
-        return () => {
-          const elapsed = performance.now() - start;
-          const left = Math.max(0, ms - elapsed);
-          setTimeout(() => el.classList.remove("active"), left);
-        };
-      }
-
-      // Prompt
       const form = document.getElementById("prompt-form");
+      const resultDiv = document.getElementById("result");
       const resultOut = document.getElementById("result-output");
       const spinner = document.getElementById("spinner");
-      form.addEventListener("submit", async (e) => {
+      const submitBtn = document.getElementById("submit-btn");
+
+      form.addEventListener("submit", async function (e) {
         e.preventDefault();
         const prompt = document.getElementById("prompt").value.trim();
         const model = document.getElementById("model").value;
         const system = document.getElementById("system").value.trim();
-        const ragVal = document.querySelector('input[name="rag"]:checked').value === "true";
-        if (!prompt) { resultOut.textContent = "⚠️ Prompt fehlt."; return; }
-        resultOut.textContent = "";
-        const hide = showFor(spinner);
+        const ragVal = document.querySelector('input[name="rag"]:checked')?.value === "true";
+
+        if (!prompt) {
+          resultOut.textContent = "⚠️ Bitte gib einen Prompt ein.";
+          resultDiv.className = "error";
+          return;
+        }
+
+        resultOut.innerHTML = "";
+        resultDiv.className = "";
+        const hideSpinner = showFor(spinner, 300);
+        submitBtn.disabled = true;
+
         try {
-          const res = await fetch("/webhook/llm", {
+          const response = await fetch("/webhook/llm", {
             method: "POST",
-            headers: {"Content-Type": "application/json"},
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt, system, model, rag: ragVal })
           });
-          const data = await res.json();
-          resultOut.textContent = data?.raw_response?.response || data?.result || JSON.stringify(data,null,2);
-        } catch (err) {
-          resultOut.textContent = "❌ " + err.message;
-        } finally { hide(); }
+          const text = await response.text();
+          if (!response.ok) throw new Error(text || `Fehler ${response.status}`);
+
+          let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+          // Antworttext holen
+          const answer =
+            data?.answer ??
+            data?.raw_response?.response ??
+            data?.result ??
+            (typeof data === "string" ? data : JSON.stringify(data, null, 2));
+
+          // Quellen robust extrahieren (verschiedene mögliche Felder)
+          const sources =
+            data?.sources ??
+            data?.raw_response?.sources ??
+            data?.metadata?.sources ??
+            [];
+
+          const usedTags = data?.used_tags || data?.raw_response?.used_tags || [];
+
+          // Ausgabe bauen
+          let html = "";
+          html += `<div>${escapeHtml(answer || "")}</div>`;
+
+          if (Array.isArray(sources) && sources.length > 0) {
+            html += `<div class="muted" style="margin-top:10px">Quellen:</div><ul class="sources">`;
+            sources.forEach((s) => {
+              const meta = s.meta || {};
+              const fn = meta.filename || meta.file_path || s.filename || "Quelle";
+              const score = typeof s.score === "number" ? ` (score: ${s.score.toFixed(3)})` : "";
+              const snippet = s.snippet ? ` – <span class="muted">„${escapeHtml(String(s.snippet)).slice(0,180)}“</span>` : "";
+              html += `<li><span class="mono">${escapeHtml(fn)}</span>${score}${snippet}</li>`;
+            });
+            html += `</ul>`;
+          }
+
+          if (Array.isArray(usedTags) && usedTags.length > 0) {
+            html += `<div class="muted" style="margin-top:6px">Tags: ${usedTags.map(t=>`<code>${escapeHtml(t)}</code>`).join(", ")}</div>`;
+          }
+
+          resultOut.innerHTML = html;
+          resultDiv.className = "success";
+        } catch (error) {
+          resultOut.textContent = `❌ Fehler: ${error.message}`;
+          resultDiv.className = "error";
+        } finally {
+          hideSpinner();
+          submitBtn.disabled = false;
+        }
       });
 
-      // Upload
+      // ---------- Upload ----------
       const docsForm = document.getElementById("docs-form");
+      const uploadRes = document.getElementById("upload-result");
       const uploadOut = document.getElementById("upload-output");
       const uploadSpinner = document.getElementById("upload-spinner");
-      docsForm.addEventListener("submit", async (e) => {
+      const uploadBtn = document.getElementById("upload-btn");
+
+      docsForm.addEventListener("submit", async function (e) {
         e.preventDefault();
-        const apiKey = apiKeyInput.value.trim();
+        const apiKey = document.getElementById("apiKey").value.trim();
         const fileEl = document.getElementById("file");
         const tagsStr = document.getElementById("tags").value.trim();
-        if (!apiKey) { uploadOut.textContent = "⚠️ API-Key fehlt."; return; }
-        if (!fileEl.files.length) { uploadOut.textContent = "⚠️ Datei fehlt."; return; }
-        uploadOut.textContent = "";
-        const hide = showFor(uploadSpinner);
+
+        if (!apiKey) {
+          uploadOut.textContent = "⚠️ Bitte API-Key eintragen.";
+          uploadRes.className = "error";
+          return;
+        }
+        if (!fileEl.files || fileEl.files.length === 0) {
+          uploadOut.textContent = "⚠️ Bitte eine Datei auswählen.";
+          uploadRes.className = "error";
+          return;
+        }
+
+        uploadOut.innerHTML = "";
+        uploadRes.className = "";
+        const hideSpinner = showFor(uploadSpinner, 300);
+        uploadBtn.disabled = true;
+
         try {
           const fd = new FormData();
-          fd.append("files", fileEl.files[0]);
-          if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
-          const res = await fetch("/rag/index", { method:"POST", headers:{ "x-api-key": apiKey }, body: fd });
-          const txt = await res.text();
+          fd.append("files", fileEl.files[0]); // Backend erwartet "files"
+          if (tagsStr) {
+            tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
+          }
+
+          const resp = await fetch("/rag/index", {
+            method: "POST",
+            headers: { "x-api-key": apiKey }, // kein Content-Type setzen!
+            body: fd
+          });
+
+          const txt = await resp.text();
+          if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
+
           let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-          uploadOut.textContent = data?.indexed != null ? `✅ Fertig. Chunks: ${data.indexed}` : "✅ Fertig.";
+
+          // Erwartete Struktur: { indexed: N, files: [{filename, chunks}, ...] }
+          const indexed = data?.indexed;
+          const files = Array.isArray(data?.files) ? data.files : [];
+
+          let html = "";
+          html += `<div>✅ Fertig${typeof indexed === "number" ? `. Chunks: <strong>${indexed}</strong>` : ""}</div>`;
+
+          if (files.length > 0) {
+            html += `<div class="muted" style="margin-top:8px">Details:</div><ul class="sources">`;
+            files.forEach(f => {
+              const fn = f.filename || f.file || "Datei";
+              const ch = (typeof f.chunks === "number") ? ` – Chunks: ${f.chunks}` : "";
+              html += `<li><span class="mono">${escapeHtml(fn)}</span>${ch}</li>`;
+            });
+            html += `</ul>`;
+          }
+
+          // Wenn das Backend doch rohe Daten zurückgibt:
+          if (!indexed && files.length === 0 && data?.raw) {
+            html += `<pre class="mono" style="margin-top:8px">${escapeHtml(String(data.raw))}</pre>`;
+          }
+
+          uploadOut.innerHTML = html;
+          uploadRes.className = "success";
         } catch (err) {
-          uploadOut.textContent = "❌ Upload fehlgeschlagen: " + err.message;
-        } finally { hide(); }
+          uploadOut.textContent = `❌ Upload fehlgeschlagen: ${err.message}`;
+          uploadRes.className = "error";
+        } finally {
+          hideSpinner();
+          uploadBtn.disabled = false;
+        }
       });
     });
+
+    // HTML-Escaping für sichere Ausgaben
+    function escapeHtml(str){
+      return String(str)
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+    }
   </script>
 </body>
 </html>
