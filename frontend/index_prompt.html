@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧠 AI Prompt Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 700px;
+            width: 100%;
+            backdrop-filter: blur(10px);
+        }
+
+        h2 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+            font-weight: 300;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 25px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #result {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            color: #333;
+            line-height: 1.6;
+            border: 2px solid #e0e0e0;
+            position: relative;
+        }
+
+        .loading-container {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(248, 249, 250, 0.95);
+            border-radius: 10px;
+        }
+
+        .loading-container.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            position: relative;
+        }
+
+        .spinner::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 4px solid #e0e0e0;
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 15px;
+            color: #667eea;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .dots {
+            display: inline-block;
+            width: 20px;
+            text-align: left;
+        }
+
+        .dots::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0% { content: ''; }
+            25% { content: '.'; }
+            50% { content: '..'; }
+            75% { content: '...'; }
+            100% { content: ''; }
+        }
+
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            border-color: #f5c6cb;
+        }
+
+        .success {
+            background: #d1ecf1;
+            border-color: #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🧠 AI Prompt Interface</h2>
+        
+        <form id="prompt-form">
+            <div class="form-group">
+                <label for="model">Modell:</label>
+                <select id="model">
+                    <option value="llama3">llama3</option>
+                    <option value="mistral">mistral</option>
+                    <option value="mistralapi">Codestral API</option>
+                    <option value="groq">Groq API</option>
+                    <option value="openrouter">OpenRouter API</option>
+                    <option value="openai">OpenAI API</option>
+                    <option value="huggingface">Hugging Face API</option>
+                    <option value="anthropic">Anthropic API</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="prompt">Frage / Prompt:</label>
+                <textarea id="prompt" placeholder="Stell eine Frage an das Modell..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="system">Anweisungen für Systemverhalten (optional):</label>
+                <textarea id="system" placeholder="sei ein hilfsbereiter Spezialist für..."></textarea>
+            </div>
+
+            <button type="submit" id="submit-btn">Senden</button>
+        </form>
+
+        <div id="result">
+            <div class="loading-container" id="spinner">
+                <div class="spinner"></div>
+                <div class="loading-text">
+                    Ich arbeite<span class="dots"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener("DOMContentLoaded", function () {
+            const form = document.getElementById("prompt-form");
+            const resultDiv = document.getElementById("result");
+            const spinner = document.getElementById("spinner");
+            const submitBtn = document.getElementById("submit-btn");
+
+            if (!form || !resultDiv || !spinner) {
+                console.error("❌ UI-Elemente nicht gefunden");
+                return;
+            }
+
+            form.addEventListener("submit", async function (e) {
+                e.preventDefault();
+
+                const prompt = document.getElementById("prompt").value.trim();
+                const model = document.getElementById("model").value;
+                const system = document.getElementById("system").value.trim();
+
+                if (!prompt) {
+                    resultDiv.textContent = "⚠️ Bitte gib einen Prompt ein.";
+                    resultDiv.className = "error";
+                    return;
+                }
+
+                // UI zurücksetzen
+                resultDiv.textContent = "";
+                resultDiv.className = "";
+                spinner.classList.add("active");
+                submitBtn.disabled = true;
+
+                try {
+                    const response = await fetch("/webhook/llm", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ prompt, system, model })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Fehler ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const output =
+                        data?.raw_response?.response ||
+                        data?.result ||
+                        JSON.stringify(data, null, 2);
+
+                    resultDiv.textContent = output;
+                    resultDiv.className = "success";
+                } catch (error) {
+                    resultDiv.textContent = `❌ Fehler: ${error.message}`;
+                    resultDiv.className = "error";
+                } finally {
+                    spinner.classList.remove("active");
+                    submitBtn.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

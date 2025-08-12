@@ -199,14 +199,6 @@ Zwei Skripte helfen bei der Einrichtung von nginx‑Sites:
 
 ## 8. Bekannte Abweichungen & Konsistenz‑Checks (wichtig)
 
-### ❗ Proxy‑Ziel für `/rag/` falsch (8000 statt 8082)
-- In `nginx_ai_domain.sh` und `nginx_ai_local.sh` zeigt `location /rag/ { proxy_pass http://localhost:8000/; }`
-- **Fix:** auf `http://localhost:8082/` ändern und `sudo systemctl reload nginx`.
-
-### ❗ „Zweiter“ Ollama‑Service (historisch)
-- Falls `ollama-llama3` noch konfiguriert ist: entfernen oder beide auf **dasselbe** Models‑Volume `/root/.ollama` legen.
-- **Empfehlung:** genau **einen** zentralen `ollama` betreiben.
-
 ### ❗ Netzwerk‑Definition
 - Compose nutzt `ai-net`. Wenn du das Netz **manuell** erzeugst, setze in `docker-compose.yml`:
   ```yaml
@@ -215,9 +207,6 @@ Zwei Skripte helfen bei der Einrichtung von nginx‑Sites:
       external: true
   ```
   oder lass Compose das Netz verwalten (ohne `external: true`).
-
-### ❗ RAG‑README mit altem Modell‑Tag
-- In `rag-backend/README.md` steht noch `ollama pull llama3:8b-instruct` → **ersetzen durch `ollama pull llama3`**.
 
 ### ❗ Python‑Abhängigkeiten
 - Sichergestellt: `pydantic>=2.9,<3`, `haystack-ai>=2.16.1,<3`, `ollama-haystack==4.1.0`.
