@@ -128,7 +128,7 @@ def query(payload: QueryRequest):
     retriever = get_retriever(store)
     qembed = get_text_embedder()
 
-    emb = qembed.run({"text": payload.query})["embedding"]
+    emb = qembed.run(text=payload.query)["embedding"]
     ret_docs = retriever.run({
         "query_embedding": emb,
         "filters": flt,
