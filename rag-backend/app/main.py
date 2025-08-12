@@ -7,7 +7,7 @@ from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException
 from haystack import Document
 
 from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
-from .deps import get_document_store, get_generator
+from .deps import get_document_store, get_generator, get_retriever, get_text_embedder
 from .pipelines import (
     build_index_pipeline,
     build_query_pipeline,
