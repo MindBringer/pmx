@@ -16,32 +16,37 @@
       padding:24px;max-width:860px;width:100%;backdrop-filter:blur(10px)
     }
     h2{color:#333;margin-bottom:18px;text-align:center;font-size:28px;font-weight:300}
-
-    /* Tabs */
-    .tabs{display:flex;width:100%;margin-bottom:16px}
-    .tab{
-      flex:1;
-      padding:10px 14px;
-      border-radius:10px 10px 0 0;
-      border:2px solid #e0e0e0;
-      background:#fff;
-      cursor:pointer;
-      font-weight:500;color:#444;transition:.2s;text-align:center
+    .tabs {
+      display: flex;
+      width: 100%;
+      margin-bottom: 16px;
     }
-    .tab.active{border-color:#667eea;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
-
-    /* Panels (wichtig: unsichtbar wenn inaktiv) */
-    .panel{display:none}
-    .panel.active{display:block}
+    .tab {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 10px 10px 0 0;
+      border: 2px solid #e0e0e0;
+      background: #fff;
+      cursor: pointer;
+      font-weight: 500;
+      color: #444;
+      transition: .2s;
+      text-align: center;
+    }
+    .tab.active {
+      border-color: #667eea;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+    }
+    .panel { display: none; position: relative; }
+    .panel.active { display: block; }
 
     .form-group{margin-bottom:16px}
     label{display:block;margin-bottom:8px;color:#555;font-weight:500;font-size:14px}
-    select,textarea,input[type="text"],input[type="file"],input[type="password"]{
+    select,textarea,input[type="text"],input[type="file"]{
       width:100%;padding:12px 16px;border:2px solid #e0e0e0;border-radius:10px;font-size:16px;transition:.2s;font-family:inherit
     }
-    select:focus,textarea:focus,input[type="text"]:focus,input[type="password"]:focus{
-      outline:none;border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,.1)
-    }
+    select:focus,textarea:focus,input[type="text"]:focus{outline:none;border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,.1)}
     textarea{min-height:120px;resize:vertical}
     .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
     .row .col{flex:1 1 240px}
@@ -56,7 +61,11 @@
     #result,#upload-result{
       background:#f8f9fa;border-radius:10px;padding:16px;min-height:90px;white-space:pre-wrap;color:#333;line-height:1.6;border:2px solid #e0e0e0;position:relative
     }
-    .loading-container{display:none;flex-direction:column;align-items:center;justify-content:center;padding:32px;position:absolute;inset:0;background:rgba(248,249,250,.95);border-radius:10px}
+    .loading-container{
+      display:none;flex-direction:column;align-items:center;justify-content:center;
+      position:absolute;inset:0;background:rgba(248,249,250,.95);border-radius:10px;
+      z-index:10;
+    }
     .loading-container.active{display:flex}
     .spinner{width:40px;height:40px;position:relative}
     .spinner::before{content:'';position:absolute;inset:0;border:4px solid #e0e0e0;border-radius:50%;border-top-color:#667eea;animation:spin 1s linear infinite}
@@ -69,7 +78,9 @@
     .success{background:#d1ecf1;border-color:#bee5eb}
     .inline-help{font-size:12px;color:#666;margin-top:6px}
     .choices{display:flex;gap:12px}
-    .choice{padding:8px 12px;border:2px solid #e0e0e0;border-radius:999px;cursor:pointer;user-select:none}
+    .choice{
+      padding:8px 12px;border:2px solid #e0e0e0;border-radius:999px;cursor:pointer;user-select:none
+    }
     .choice input{display:none}
     .choice.active{border-color:#667eea;background:#eef1ff}
   </style>
@@ -117,13 +128,13 @@
             <label class="choice active"><input type="radio" name="rag" value="false" checked> Nein</label>
             <label class="choice"><input type="radio" name="rag" value="true"> Ja</label>
           </div>
-          <div class="inline-help">Wenn „Ja“, wird die Variable <code>rag=true</code> an <code>/webhook/llm</code> übergeben.</div>
         </div>
 
         <button type="submit" id="submit-btn">Senden</button>
       </form>
 
       <div id="result">
+        <div id="result-output"></div>
         <div class="loading-container" id="spinner">
           <div class="spinner"></div>
           <div class="loading-text">Ich arbeite<span class="dots"></span></div>
@@ -136,23 +147,17 @@
       <form id="docs-form">
         <div class="form-group">
           <label for="apiKey">API-Key (RAG)</label>
-          <div class="row" style="gap:8px;align-items:center">
-            <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
-            <button type="button" id="toggleKey" style="flex:0 0 auto;width:auto;padding:10px 14px">anzeigen</button>
-          </div>
-          <div class="inline-help">Wird als Header <code>x-api-key</code> an <code>/rag/index</code> gesendet.</div>
+          <input type="text" id="apiKey" placeholder="x-api-key für RAG-Backend" />
         </div>
 
         <div class="row">
           <div class="form-group col">
             <label for="file">Datei auswählen</label>
             <input type="file" id="file" />
-            <div class="inline-help">Unterstützt: txt, md, pdf, html, docx, odt, xlsx, eml</div>
           </div>
           <div class="form-group col">
-            <label for="tags">Tags</label>
+            <label for="tags">Tags (optional)</label>
             <input type="text" id="tags" placeholder="z. B. projektX,angebot,intern" />
-            <div class="inline-help">(optional, Komma-getrennt)</div>
           </div>
         </div>
 
@@ -160,6 +165,7 @@
       </form>
 
       <div id="upload-result">
+        <div id="upload-output"></div>
         <div class="loading-container" id="upload-spinner">
           <div class="spinner"></div>
           <div class="loading-text">Lade hoch<span class="dots"></span></div>
@@ -169,42 +175,39 @@
   </div>
 
   <script>
+    // Tabs
+    document.querySelectorAll('.tab').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+      });
+    });
+
+    // API-Key persistent speichern
+    const apiKeyInput = document.getElementById('apiKey');
+    const savedKey = localStorage.getItem('ragApiKey');
+    if (savedKey) apiKeyInput.value = savedKey;
+    apiKeyInput.addEventListener('input', () => {
+      localStorage.setItem('ragApiKey', apiKeyInput.value.trim());
+    });
+
+    // Helper: Spinner mindestens X ms anzeigen
+    function showFor(el, ms=300) {
+      el.classList.add("active");
+      const start = performance.now();
+      return () => {
+        const elapsed = performance.now() - start;
+        const left = Math.max(0, ms - elapsed);
+        setTimeout(() => el.classList.remove("active"), left);
+      };
+    }
+
     window.addEventListener("DOMContentLoaded", function () {
-      // Tabs
-      document.querySelectorAll('.tab').forEach(btn=>{
-        btn.addEventListener('click',()=>{
-          document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-          document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-          btn.classList.add('active');
-          document.getElementById(btn.dataset.target).classList.add('active');
-        });
-      });
-
-      // API-Key persist + toggle
-      const apiKeyInput = document.getElementById('apiKey');
-      const toggleKeyBtn = document.getElementById('toggleKey');
-      const savedKey = localStorage.getItem('ragApiKey');
-      if (savedKey) apiKeyInput.value = savedKey;
-      apiKeyInput.addEventListener('input', () => {
-        localStorage.setItem('ragApiKey', apiKeyInput.value.trim());
-      });
-      toggleKeyBtn.addEventListener('click', () => {
-        const hidden = apiKeyInput.type === 'password';
-        apiKeyInput.type = hidden ? 'text' : 'password';
-        toggleKeyBtn.textContent = hidden ? 'verbergen' : 'anzeigen';
-      });
-
-      // Radio pill styling
-      const ragChoices = document.getElementById('rag-choices');
-      ragChoices.addEventListener('change', () => {
-        ragChoices.querySelectorAll('.choice').forEach(c => c.classList.remove('active'));
-        const sel = ragChoices.querySelector('input[name="rag"]:checked');
-        sel.closest('.choice').classList.add('active');
-      });
-
-      // Prompt submit → /webhook/llm (mit rag: true|false)
       const form = document.getElementById("prompt-form");
       const resultDiv = document.getElementById("result");
+      const resultOut = document.getElementById("result-output");
       const spinner = document.getElementById("spinner");
       const submitBtn = document.getElementById("submit-btn");
 
@@ -216,13 +219,15 @@
         const ragVal = document.querySelector('input[name="rag"]:checked')?.value === "true";
 
         if (!prompt) {
-          resultDiv.textContent = "⚠️ Bitte gib einen Prompt ein.";
+          resultOut.textContent = "⚠️ Bitte gib einen Prompt ein.";
           resultDiv.className = "error";
           return;
         }
 
-        resultDiv.textContent = ""; resultDiv.className = "";
-        spinner.classList.add("active"); submitBtn.disabled = true;
+        resultOut.textContent = "";
+        resultDiv.className = "";
+        const hideSpinner = showFor(spinner, 300);
+        submitBtn.disabled = true;
 
         try {
           const response = await fetch("/webhook/llm", {
@@ -233,79 +238,71 @@
 
           if (!response.ok) throw new Error(`Fehler ${response.status}`);
           const data = await response.json();
-          const output =
-            data?.raw_response?.response ||
-            data?.result ||
-            JSON.stringify(data, null, 2);
-
-          resultDiv.textContent = output;
+          const output = data?.raw_response?.response || data?.result || JSON.stringify(data, null, 2);
+          resultOut.textContent = output;
           resultDiv.className = "success";
         } catch (error) {
-          resultDiv.textContent = `❌ Fehler: ${error.message}`;
+          resultOut.textContent = `❌ Fehler: ${error.message}`;
           resultDiv.className = "error";
         } finally {
-          spinner.classList.remove("active");
+          hideSpinner();
           submitBtn.disabled = false;
         }
       });
 
-      // Dokumente-Upload → /rag/index
+      // Upload
       const docsForm = document.getElementById("docs-form");
       const uploadRes = document.getElementById("upload-result");
+      const uploadOut = document.getElementById("upload-output");
       const uploadSpinner = document.getElementById("upload-spinner");
       const uploadBtn = document.getElementById("upload-btn");
 
       docsForm.addEventListener("submit", async function (e) {
         e.preventDefault();
-        const apiKey = document.getElementById("apiKey").value.trim();
+        const apiKey = apiKeyInput.value.trim();
         const fileEl = document.getElementById("file");
         const tagsStr = document.getElementById("tags").value.trim();
 
         if (!apiKey) {
-          uploadRes.textContent = "⚠️ Bitte API-Key eintragen.";
+          uploadOut.textContent = "⚠️ Bitte API-Key eintragen.";
           uploadRes.className = "error";
           return;
         }
         if (!fileEl.files || fileEl.files.length === 0) {
-          uploadRes.textContent = "⚠️ Bitte eine Datei auswählen.";
+          uploadOut.textContent = "⚠️ Bitte eine Datei auswählen.";
           uploadRes.className = "error";
           return;
         }
 
-        uploadRes.textContent = ""; uploadRes.className = "";
-        uploadSpinner.classList.add("active"); uploadBtn.disabled = true;
+        uploadOut.textContent = "";
+        uploadRes.className = "";
+        const hideSpinner = showFor(uploadSpinner, 300);
+        uploadBtn.disabled = true;
 
         try {
           const fd = new FormData();
-          fd.append("files", fileEl.files[0]); // Backend erwartet Feldname "files"
-
-          // optionale Tags (als Mehrfachfelder)
+          fd.append("files", fileEl.files[0]);
           if (tagsStr) {
             tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
           }
 
           const resp = await fetch("/rag/index", {
             method: "POST",
-            headers: { "x-api-key": apiKey }, // Content-Type NICHT setzen, Browser setzt boundary
+            headers: { "x-api-key": apiKey },
             body: fd
           });
 
           const txt = await resp.text();
           if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
-
-          let data;
-          try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-
-          const msg = data?.indexed != null
-            ? `✅ Fertig. Chunks: ${data.indexed}`
-            : "✅ Fertig.";
-          uploadRes.textContent = msg + (data?.files ? `\nDetails: ${JSON.stringify(data.files)}` : "");
+          let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
+          const msg = data?.indexed != null ? `✅ Fertig. Chunks: ${data.indexed}` : "✅ Fertig.";
+          uploadOut.textContent = msg + (data?.files ? `\nDetails: ${JSON.stringify(data.files)}` : "");
           uploadRes.className = "success";
         } catch (err) {
-          uploadRes.textContent = `❌ Upload fehlgeschlagen: ${err.message}`;
+          uploadOut.textContent = `❌ Upload fehlgeschlagen: ${err.message}`;
           uploadRes.className = "error";
         } finally {
-          uploadSpinner.classList.remove("active");
+          hideSpinner();
           uploadBtn.disabled = false;
         }
       });
