@@ -129,11 +129,11 @@ def query(payload: QueryRequest):
     qembed = get_text_embedder()
 
     emb = qembed.run(text=payload.query)["embedding"]
-    ret_docs = retriever.run({
-        "query_embedding": emb,
-        "filters": flt,
-        "top_k": payload.top_k or 5
-    })
+    ret_docs = retriever.run(
+        query_embedding=emb,
+        filters=flt,
+        top_k=payload.top_k or 5,
+    )
     docs = ret_docs.get("documents", []) or []
 
 # Quellen zusammenfassen
