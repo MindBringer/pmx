@@ -25,9 +25,9 @@ def get_document_store() -> QdrantDocumentStore:
         url=QDRANT_URL,
         index=QDRANT_COLLECTION,
         embedding_dim=EMBED_DIM,   # <<< WICHTIG
+        similarity="cosine",
         recreate_index=QDRANT_RECREATE,
-        # optional, aber üblich:
-        # similarity="cosine",
+
     )
 
 # NEU: Für Indexierung (Documents -> embeddings)

@@ -118,16 +118,23 @@ def query(payload: QueryRequest):
         "generate": {}
     })
 
-# Robust auslesen, egal was die Pipeline an Keys zurückliefert
+# Ergebnis der Pipeline (Antwort-Text)
     gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-# Dokumente versuchen von 'retrieve', sonst (Fallback) von 'generate'
-    docs = []
-    if isinstance(ret, dict):
-        docs = (ret.get("retrieve", {}) or {}).get("documents") or \
-            (ret.get("generate", {}) or {}).get("documents") or []
+# --- Quellen separat holen: Text -> Embedding -> Retriever ---
+    store = get_document_store()
+    retriever = get_retriever(store)
+    qembed = get_text_embedder()
+
+    emb = qembed.run({"text": payload.query})["embedding"]
+    ret_docs = retriever.run({
+        "query_embedding": emb,
+        "filters": flt,
+        "top_k": payload.top_k or 5
+    })
+    docs = ret_docs.get("documents", []) or []
 
 # Quellen zusammenfassen
     srcs = [
@@ -138,12 +145,11 @@ def query(payload: QueryRequest):
             "meta": getattr(d, "meta", None),
             "snippet": (getattr(d, "content", "") or "")[:350],
         }
-        for d in (docs or [])
+        for d in docs
     ]
-    used_tags = sorted({t for d in (docs or []) for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
+    used_tags = sorted({t for d in docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
-
 
 # -----------------------------
 # Tags
