@@ -173,7 +173,7 @@ def _run_converter_with_tempfile(converter, suffix: str, data: bytes) -> List[Do
         tmp.write(data)
         tmp_path = tmp.name
     try:
-        # Converter erwarten usually "sources=[pfad]"
+        # Converter erwarten normalerweise "sources=[pfad]"
         out = converter.run(sources=[tmp_path])["documents"]
         return out
     finally:

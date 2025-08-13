@@ -6,7 +6,7 @@ TARGET_DIR="/var/www/$APP_NAME"
 
 echo "📁 Kopiere Web-UI nach $TARGET_DIR"
 sudo mkdir -p "$TARGET_DIR"
-sudo cp -r ./* "$TARGET_DIR/"
+sudo cp -r ./frontend/* "$TARGET_DIR/"
 sudo chown -R www-data:www-data "$TARGET_DIR"
 
 echo "✅ Web-UI wurde in $TARGET_DIR bereitgestellt."

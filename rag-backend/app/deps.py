@@ -11,6 +11,7 @@ from haystack_integrations.components.generators.ollama import OllamaGenerator
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "mxbai-embed-large")
 GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "llama3")
+OLLAMA_TIMEOUT = _int_env("OLLAMA_TIMEOUT", 300)  # Sekunden (z.B. 300 = 5min)
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "pmx_docs")
@@ -32,14 +33,14 @@ def get_document_store() -> QdrantDocumentStore:
 
 # NEU: Für Indexierung (Documents -> embeddings)
 def get_doc_embedder() -> OllamaDocumentEmbedder:
-    return OllamaDocumentEmbedder(model=EMBED_MODEL, url=OLLAMA_BASE_URL)
+    return OllamaDocumentEmbedder(model=EMBED_MODEL, url=OLLAMA_BASE_URL, timeout=OLLAMA_TIMEOUT)
 
 # NEU: Für Query (Query-Text -> embedding)
 def get_text_embedder() -> OllamaTextEmbedder:
-    return OllamaTextEmbedder(model=EMBED_MODEL, url=OLLAMA_BASE_URL)
+    return OllamaTextEmbedder(model=EMBED_MODEL, url=OLLAMA_BASE_URL, timeout=OLLAMA_TIMEOUT)
 
 def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
     return QdrantEmbeddingRetriever(document_store=store)
 
 def get_generator() -> OllamaGenerator:
-    return OllamaGenerator(model=GENERATOR_MODEL, url=OLLAMA_BASE_URL)
+    return OllamaGenerator(model=GENERATOR_MODEL, url=OLLAMA_BASE_URL, timeout=OLLAMA_TIMEOUT)
