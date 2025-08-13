@@ -7,7 +7,7 @@ from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, F
 from haystack import Document
 
 from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
-from .deps import get_document_store, get_generator, get_retriever, get_text_embedder
+from .deps import get_document_store, get_generator
 from .pipelines import (
     build_index_pipeline,
     build_query_pipeline,
@@ -21,17 +21,18 @@ from .transcribe import router as transcribe_router
 # Settings & App
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
-SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.65"))  # sinnvoller Default
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
+# Transcribe-Endpoints registrieren (ohne Prefix, da App hier kein root_path nutzt)
 app.include_router(transcribe_router, prefix="", tags=["audio"])
+
 
 def require_key(x_api_key: Optional[str] = Header(None)):
     """
     Einfacher Header-Check. Setze API_KEY in rag-backend/.env
     """
-    # Wenn ein Key gesetzt ist, muss er passen.
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -50,7 +51,7 @@ def health():
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
     files: List[UploadFile] = File(default=[]),
-    tags: Optional[List[str]] = Form(default=None),   # <— NEU
+    tags: Optional[List[str]] = Form(default=None),
 ):
     # Pipeline-Komponenten
     pipe, _store = build_index_pipeline()
@@ -79,21 +80,22 @@ async def index(
     _ = pipe.run({"clean": {"documents": all_docs}})
     return {"indexed": len(all_docs), "files": file_stats}
 
+
 # -----------------------------
-# Query
+# Query (mit Reranker-Auswertung)
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
     """
-    Semantische Suche + Generierung.
-    Unterstützt Tag-Filter:
+    Semantische Suche + Generierung (Retriever → Reranker → Prompt → Generator).
+    Tag-Filter:
       - tags_all: alle müssen enthalten sein
       - tags_any: mindestens einer muss enthalten sein
     """
     store = get_document_store()
     pipe = build_query_pipeline(store)
 
-    # Filter bauen (Qdrant-Dokumentfilter)
+    # Qdrant-Filter bauen
     flt = None
     if payload.tags_all or payload.tags_any:
         flt = {"operator": "AND", "conditions": []}
@@ -108,54 +110,66 @@ def query(payload: QueryRequest):
 
     ret = pipe.run({
         "embed_query": {"text": payload.query},
-        "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
+        "retrieve": {
+            "filters": flt,
+            "top_k": payload.top_k or 5
+        },
         "prompt_builder": {"query": payload.query},
         "generate": {}
     })
 
-# Antwort aus der Pipeline
+    # Antwort aus der Pipeline
     gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-# Quellen separat via Direkt-Retrieval (robust, unabhängig von Pipeline-Outputs)
-    store = get_document_store()
-    retriever = get_retriever(store)
-    qembed = get_text_embedder()
+    # Kandidaten: bevorzugt nach Reranking, sonst Fallback auf Retriever
+    docs = []
+    if isinstance(ret, dict):
+        docs = (ret.get("rerank") or {}).get("documents") or []
+        if not docs:
+            docs = (ret.get("retrieve") or {}).get("documents") or []
 
-    emb = qembed.run(text=payload.query)["embedding"]
-    ret_docs = retriever.run(
-        query_embedding=emb,
-        filters=flt,
-        top_k=payload.top_k or 5,
-        score_threshold=(SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else None),
-    )
-    docs = ret_docs.get("documents", []) or []
+    # 1) Threshold anwenden
+    thr = SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else 0.0
+    filtered = [d for d in docs if (getattr(d, "score", None) is not None and float(d.score) >= thr)]
 
-# Quellen zusammenfassen
+    # 2) Pro Datei nur den BESTEN Chunk behalten
+    best_per_file = {}
+    for d in filtered:
+        meta = getattr(d, "meta", {}) or {}
+        fn = meta.get("filename") or meta.get("file_path") or "unknown"
+        if fn not in best_per_file or (best_per_file[fn].score or 0) < (d.score or 0):
+            best_per_file[fn] = d
+
+    top_docs = sorted(best_per_file.values(), key=lambda x: (x.score or 0.0), reverse=True)
+
+    # 3) Quellen zusammenfassen
     srcs = []
-    for d in docs:
+    for d in top_docs:
         meta = getattr(d, "meta", {}) or {}
         srcs.append({
             "id": getattr(d, "id", None),
-            "score": getattr(d, "score", None),
+            "score": round(float(getattr(d, "score", 0.0)), 3) if getattr(d, "score", None) is not None else None,
             "tags": meta.get("tags"),
+            "source": meta.get("source"),
             "meta": meta,
-            "snippet": (getattr(d, "content", "") or "")[:350],
+            "snippet": (getattr(d, "content", "") or "").replace("\n", " ")[:350],
         })
 
-    used_tags = sorted({t for d in docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
+    used_tags = sorted({t for d in top_docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
 
-# Antworttext um kompakte Quellenliste ergänzen
+    # 4) Antworttext um kompakte Quellenliste ergänzen
     if srcs:
         lines = []
         for s in srcs[:5]:
-            fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s["id"]
+            fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s.get("id")
             sc = s.get("score")
             lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
         answer = f"{answer}\n\nQuellen:\n" + "\n".join(lines)
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
+
 
 # -----------------------------
 # Tags
@@ -169,7 +183,6 @@ def list_tags(limit: int = 1000):
     docs = store.filter_documents(filters=None, top_k=limit)
 
     from collections import Counter
-
     c = Counter()
     for d in docs:
         for t in (d.meta or {}).get("tags", []):
