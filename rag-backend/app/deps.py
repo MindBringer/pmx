@@ -8,6 +8,13 @@ from haystack_integrations.components.embedders.ollama import (
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from haystack_integrations.components.generators.ollama import OllamaGenerator
 
+def _int_env(name: str, default: int) -> int:
+    """Hole eine Umgebungsvariable als int, mit Default."""
+    try:
+        return int(os.getenv(name, default))
+    except ValueError:
+        return default
+
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "mxbai-embed-large")
 GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "llama3")
