@@ -24,7 +24,7 @@ API_KEY = os.getenv("API_KEY", "")
 BASE_PATH = os.getenv("RAG_BASE_PATH", "/rag")
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
-app = FastAPI(title="pmx-rag-backend", version="1.0.0", root_path=BASE_PATH)
+app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
 app.include_router(transcribe_router, prefix="/rag", tags=["audio"])
 
