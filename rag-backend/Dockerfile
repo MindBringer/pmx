@@ -5,7 +5,7 @@ ENV PIP_NO_CACHE_DIR=1         PYTHONDONTWRITEBYTECODE=1         PYTHONUNBUFFERE
 WORKDIR /app
 
 # System packages for converters (pdf/html/markdown) and mime sniffing
-RUN apt-get update && apt-get install -y --no-install-recommends         build-essential curl poppler-utils libmagic1 &&         rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends         build-essential curl poppler-utils libmagic1 ffmpeg &&         rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip && \

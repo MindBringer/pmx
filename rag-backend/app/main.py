@@ -15,6 +15,8 @@ from .pipelines import (
     convert_bytes_to_documents,
 )
 
+from .transcribe import router as transcribe_router
+
 # -----------------------------
 # Settings & App
 # -----------------------------
@@ -24,6 +26,7 @@ SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0", root_path=BASE_PATH)
 
+app.include_router(transcribe_router, prefix="/rag", tags=["audio"])
 
 def require_key(x_api_key: Optional[str] = Header(None)):
     """

@@ -33,3 +33,6 @@ openpyxl==3.1.5
 
 # EML
 mail-parser==3.15.0
+
+# Audio
+faster-whisper>=1.0.0
