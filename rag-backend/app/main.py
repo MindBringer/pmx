@@ -146,10 +146,10 @@ def query(payload: QueryRequest):
     # 1) Erst nur bis zum Retriever laufen lassen, damit wir selber reranken können
     ret = pipe.run({
         "embed_query": {"text": payload.query},
-        "retrieve": {
-            "filters": flt,
-            "top_k": max(payload.top_k or 5, RERANK_CANDIDATES)  # wir holen mehr, reranken dann runter
-        },
+        "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
+        "rerank":      {},  # Input nur aus retrieve.documents
+        "prompt_builder": {"query": payload.query},
+        "generate": {}
     })
 
     docs = (ret.get("retrieve") or {}).get("documents", []) if isinstance(ret, dict) else []
