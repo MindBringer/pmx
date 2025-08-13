@@ -21,12 +21,11 @@ from .transcribe import router as transcribe_router
 # Settings & App
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
-BASE_PATH = os.getenv("RAG_BASE_PATH", "/rag")
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
-app.include_router(transcribe_router, prefix="/rag", tags=["audio"])
+app.include_router(transcribe_router, prefix="", tags=["audio"])
 
 def require_key(x_api_key: Optional[str] = Header(None)):
     """
