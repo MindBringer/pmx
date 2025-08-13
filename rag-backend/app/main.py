@@ -21,18 +21,19 @@ from .transcribe import router as transcribe_router
 # Settings & App
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
-SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.65"))  # sinnvoller Default
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.65"))  # 0 = aus
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "3"))            # wie viele nach Rerank in die Antwort
+RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "25")) # wie viele Retriever-Kandidaten maximal reranken
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
-# Transcribe-Endpoints registrieren (ohne Prefix, da App hier kein root_path nutzt)
+# Transcribe-Endpoints registrieren
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 
 
 def require_key(x_api_key: Optional[str] = Header(None)):
-    """
-    Einfacher Header-Check. Setze API_KEY in rag-backend/.env
-    """
+    """Einfacher Header-Check. Setze API_KEY in rag-backend/.env"""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -82,18 +83,52 @@ async def index(
 
 
 # -----------------------------
-# Query (mit Reranker-Auswertung)
+# Reranker (CrossEncoder) – lazy init
+# -----------------------------
+_RERANKER = None
+
+def get_reranker():
+    global _RERANKER
+    if _RERANKER is None:
+        from sentence_transformers import CrossEncoder
+        _RERANKER = CrossEncoder(RERANKER_MODEL)
+    return _RERANKER
+
+
+def _apply_threshold_and_best_per_file(docs: List[Document], thr: float) -> List[Document]:
+    """Filtert per Threshold und lässt pro Datei nur den besten Chunk übrig."""
+    filtered = [d for d in docs if (getattr(d, "score", None) is not None and float(d.score) >= thr)]
+    best_per_file = {}
+    for d in filtered:
+        meta = getattr(d, "meta", {}) or {}
+        fn = meta.get("filename") or meta.get("file_path") or "unknown"
+        if fn not in best_per_file or (best_per_file[fn].score or 0) < (d.score or 0):
+            best_per_file[fn] = d
+    return sorted(best_per_file.values(), key=lambda x: (x.score or 0.0), reverse=True)
+
+
+def _format_sources_for_answer(srcs: List[dict], limit: int = 5) -> str:
+    lines = []
+    for s in srcs[:limit]:
+        fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s.get("id")
+        sc = s.get("score")
+        lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
+    return "\n".join(lines)
+
+
+# -----------------------------
+# Query (Retriever → Cross-Encoder Rerank → Prompt → Generator)
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
     """
-    Semantische Suche + Generierung (Retriever → Reranker → Prompt → Generator).
+    Semantische Suche + Generierung.
     Tag-Filter:
       - tags_all: alle müssen enthalten sein
       - tags_any: mindestens einer muss enthalten sein
     """
     store = get_document_store()
-    pipe = build_query_pipeline(store)
+    pipe = build_query_pipeline(store)  # enthält: embed_query, retrieve, prompt_builder, generate
 
     # Qdrant-Filter bauen
     flt = None
@@ -108,43 +143,44 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
+    # 1) Erst nur bis zum Retriever laufen lassen, damit wir selber reranken können
     ret = pipe.run({
         "embed_query": {"text": payload.query},
         "retrieve": {
             "filters": flt,
-            "top_k": payload.top_k or 5
+            "top_k": max(payload.top_k or 5, RERANK_CANDIDATES)  # wir holen mehr, reranken dann runter
         },
-        "prompt_builder": {"query": payload.query},
+    })
+
+    docs = (ret.get("retrieve") or {}).get("documents", []) if isinstance(ret, dict) else []
+
+    # 2) Reranking mit CrossEncoder (Query, Doc-Text)
+    if docs:
+        reranker = get_reranker()
+        pairs = [(payload.query, (getattr(d, "content", "") or "")) for d in docs]
+        scores = reranker.predict(pairs)  # Liste[float]
+        for d, sc in zip(docs, scores):
+            d.score = float(sc)
+
+        # Threshold & bester Chunk je Datei
+        thr = SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else 0.0
+        top_docs = _apply_threshold_and_best_per_file(docs, thr)
+        # Final begrenzen (Antwortquellen)
+        top_docs = top_docs[:max(payload.top_k or 5, RERANK_TOP_K)]
+    else:
+        top_docs = []
+
+    # 3) Prompt bauen & generieren (mit rerankten Dokumenten)
+    gen_ret = pipe.run({
+        "prompt_builder": {"query": payload.query, "documents": top_docs},
         "generate": {}
     })
 
-    # Antwort aus der Pipeline
-    gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
+    gen_out = gen_ret.get("generate", {}) if isinstance(gen_ret, dict) else {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-    # Kandidaten: bevorzugt nach Reranking, sonst Fallback auf Retriever
-    docs = []
-    if isinstance(ret, dict):
-        docs = (ret.get("rerank") or {}).get("documents") or []
-        if not docs:
-            docs = (ret.get("retrieve") or {}).get("documents") or []
-
-    # 1) Threshold anwenden
-    thr = SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else 0.0
-    filtered = [d for d in docs if (getattr(d, "score", None) is not None and float(d.score) >= thr)]
-
-    # 2) Pro Datei nur den BESTEN Chunk behalten
-    best_per_file = {}
-    for d in filtered:
-        meta = getattr(d, "meta", {}) or {}
-        fn = meta.get("filename") or meta.get("file_path") or "unknown"
-        if fn not in best_per_file or (best_per_file[fn].score or 0) < (d.score or 0):
-            best_per_file[fn] = d
-
-    top_docs = sorted(best_per_file.values(), key=lambda x: (x.score or 0.0), reverse=True)
-
-    # 3) Quellen zusammenfassen
+    # 4) Quellen zusammenfassen (kompakt)
     srcs = []
     for d in top_docs:
         meta = getattr(d, "meta", {}) or {}
@@ -159,14 +195,8 @@ def query(payload: QueryRequest):
 
     used_tags = sorted({t for d in top_docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
 
-    # 4) Antworttext um kompakte Quellenliste ergänzen
     if srcs:
-        lines = []
-        for s in srcs[:5]:
-            fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s.get("id")
-            sc = s.get("score")
-            lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
-        answer = f"{answer}\n\nQuellen:\n" + "\n".join(lines)
+        answer = f"{answer}\n\nQuellen:\n" + _format_sources_for_answer(srcs, limit=5)
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
 
@@ -176,9 +206,7 @@ def query(payload: QueryRequest):
 # -----------------------------
 @app.get("/tags", dependencies=[Depends(require_key)])
 def list_tags(limit: int = 1000):
-    """
-    Aggregiert alle bekannten Tags und liefert Counts zurück.
-    """
+    """Aggregiert alle bekannten Tags und liefert Counts zurück."""
     store = get_document_store()
     docs = store.filter_documents(filters=None, top_k=limit)
 
@@ -195,11 +223,8 @@ def list_tags(limit: int = 1000):
 # -----------------------------
 @app.patch("/docs/{doc_id}/tags", dependencies=[Depends(require_key)])
 def patch_tags(doc_id: str, patch: TagPatch):
-    """
-    Ermöglicht das manuelle Hinzufügen/Entfernen von Tags an einem Dokument.
-    """
+    """Manuelles Hinzufügen/Entfernen von Tags an einem Dokument."""
     store = get_document_store()
-    # Einfachster Weg: Dokument anhand der ID holen
     docs = store.filter_documents(
         filters={"operator": "AND", "conditions": [{"field": "id", "operator": "==", "value": doc_id}]},
         top_k=1,
