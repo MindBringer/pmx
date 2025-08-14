@@ -1,6 +1,6 @@
 # rag-backend/app/main.py
 
-import os
+import os, time
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form, Request
 from haystack import Document
@@ -57,43 +57,37 @@ async def index(
     """
     Mehrere Dateien entgegennehmen, in Haystack-Dokumente konvertieren,
     automatisch taggen (inkl. Form-Tags) und indexieren.
-
-    Robust gegen:
-      - tags als einzelner String ("mexikanisch")
-      - tags als CSV ("mexikanisch,angebote")
-      - tags mehrfach (FormData: tags=... & tags=...)
+    Liefert Metadaten: Chunks, Laufzeiten, Dateigröße etc.
     """
-    # --- Tags robust aus dem Form auslesen ---
+    # --- Tags robust aus dem Form auslesen (String, CSV oder mehrfach) ---
     form = await request.form()
-    raw_list = form.getlist("tags")  # alle gleichnamigen Felder
+    raw_list = form.getlist("tags")
     tags: List[str] = []
-
     if raw_list:
-        # Wenn der Browser mehrere tags-Felder geschickt hat, kommen die hier als Liste an
         for item in raw_list:
             if isinstance(item, str) and ("," in item):
                 tags.extend([t.strip() for t in item.split(",") if t.strip()])
             elif isinstance(item, str) and item.strip():
                 tags.append(item.strip())
     else:
-        # Falls nur EIN Feld "tags" existiert (als String)
         raw = form.get("tags")
         if isinstance(raw, str) and raw.strip():
-            if "," in raw:
-                tags = [t.strip() for t in raw.split(",") if t.strip()]
-            else:
-                tags = [raw.strip()]
+            tags = [t.strip() for t in raw.split(",")] if "," in raw else [raw.strip()]
 
-    # Pipeline-Komponenten
+    # Pipelines
     pipe, _store = build_index_pipeline()
     gen = get_generator()
 
+    t0 = time.perf_counter()
     all_docs: List[Document] = []
     file_stats = []
 
     for f in files:
         data = await f.read()
         mime = f.content_type or "application/octet-stream"
+        size_bytes = len(data)
+
+        t_conv0 = time.perf_counter()
         docs = convert_bytes_to_documents(
             filename=f.filename,
             mime=mime,
@@ -102,15 +96,36 @@ async def index(
         )
         # Auto-Tagging auf Chunk-Basis + Form-Tags
         docs = postprocess_with_tags(gen, docs, tags or [])
+        conv_ms = round((time.perf_counter() - t_conv0) * 1000)
+
         all_docs.extend(docs)
-        file_stats.append({"filename": f.filename, "chunks": len(docs)})
+        file_stats.append({
+            "filename": f.filename,
+            "mime": mime,
+            "size_bytes": size_bytes,
+            "chunks": len(docs),
+            "chars": sum(len(d.content or "") for d in docs),
+            "conv_ms": conv_ms,
+        })
 
-    if not all_docs:
-        return {"indexed": 0, "files": file_stats, "tags": tags}
+    t_idx0 = time.perf_counter()
+    if all_docs:
+        _ = pipe.run({"clean": {"documents": all_docs}})
+    pipeline_ms = round((time.perf_counter() - t_idx0) * 1000)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
-    _ = pipe.run({"clean": {"documents": all_docs}})
-
-    return {"indexed": len(all_docs), "files": file_stats, "tags": tags}
+    total_chunks = len(all_docs)
+    return {
+        "indexed": total_chunks,
+        "files": file_stats,
+        "tags": tags,
+        "metrics": {
+            "elapsed_ms": elapsed_ms,
+            "pipeline_ms": pipeline_ms,
+            "total_chunks": total_chunks,
+            "files_count": len(file_stats),
+        },
+    }
 
 # -----------------------------
 # Query

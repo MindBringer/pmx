@@ -64,6 +64,11 @@
       box-shadow:0 6px 18px rgba(118,75,162,.25), 0 4px 12px rgba(102,126,234,.22);
     }
 
+    .tab.active:hover {
+      box-shadow: var(--shadow-lg);
+      filter: brightness(1.03);
+    }
+
     .panel{display:none}
     .panel.active{display:block}
 
@@ -337,7 +342,15 @@
     function escapeHtml(str){
       return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
     }
-
+    
+    // Helper
+    function fmtMs(ms){ if(ms==null) return "–"; if(ms<1000) return `${Math.round(ms)} ms`; return `${(ms/1000).toFixed(2)} s`; }
+    function fmtBytes(b){
+      if(typeof b!=="number") return "–";
+      const u=["B","KB","MB","GB","TB"]; let i=0; let n=b;
+      while(n>=1024 && i<u.length-1){ n/=1024; i++; }
+      return `${n.toFixed(n<10?2: (n<100?1:0))} ${u[i]}`;
+    }
     // ---------- Prompt senden ----------
     const form = document.getElementById("prompt-form");
     const resultDiv = document.getElementById("result");
@@ -441,21 +454,49 @@
         if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
 
         let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-        const indexed = data?.indexed || data?.files || [];
-        const tags = data?.tags || [];
+
+        const files = Array.isArray(data?.files) ? data.files : [];
+        const tags  = data?.tags || [];
+        const m     = data?.metrics || {};
+        const total = typeof data?.indexed === "number" ? data.indexed : (m.total_chunks ?? files.reduce((a,b)=>a+(b.chunks||0),0));
+
         let html = "";
-        if (indexed.length) {
-          html += `<div>✅ Index erstellt:</div>`;
-          html += `<ul style="margin:6px 0 0 18px">` + indexed.map(x=>`<li>${escapeHtml(String(x))}</li>`).join("") + `</ul>`;
-        } else {
-          html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-          if (data?.raw) html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
+
+        // Zusammenfassung
+        html += `<div>✅ Index erstellt</div>`;
+        html += `<div class="inline-help" style="margin-top:6px">
+          Gesamt-Chunks: <b>${Number(total||0)}</b>
+          ${m.elapsed_ms!=null ? ` · Laufzeit gesamt: <b>${fmtMs(m.elapsed_ms)}</b>` : ""}
+          ${m.pipeline_ms!=null ? ` · Indexieren: <b>${fmtMs(m.pipeline_ms)}</b>` : ""}
+          ${m.files_count!=null ? ` · Dateien: <b>${m.files_count}</b>` : ""}
+        </div>`;
+
+        // Pro Datei
+        if (files.length){
+          html += `<ul style="margin:8px 0 0 18px">` + files.map(f=>{
+            const fn = escapeHtml(String(f.filename||"unbenannt"));
+            const ch = Number(f.chunks||0);
+            const sz = (typeof f.size_bytes==="number") ? fmtBytes(f.size_bytes) : "–";
+            const mm = escapeHtml(String(f.mime||""));
+            const cv = (typeof f.conv_ms==="number") ? fmtMs(f.conv_ms) : "–";
+            const cs = (typeof f.chars==="number") ? `${f.chars} Zeichen` : "";
+            return `<li><b>${fn}</b> <span class="inline-help">(${mm}, ${sz})</span><br/>
+                    <span class="inline-help">Chunks: <b>${ch}</b>${cs?` · ${cs}`:""} · Konvertierung+Tagging: <b>${cv}</b></span></li>`;
+          }).join("") + `</ul>`;
         }
+
         if (tags.length) {
-          html += `<div class="inline-help" style="margin-top:6px">Tags: ${tags.map(escapeHtml).join(", ")}</div>`;
+          html += `<div class="inline-help" style="margin-top:8px">Tags: ${tags.map(escapeHtml).join(", ")}</div>`;
         }
+
+        // Fallback-Rohtext
+        if (!files.length && data?.raw) {
+          html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
+        }
+
         uploadOut.innerHTML = html;
         uploadRes.className = "success";
+
       } catch (err) {
         uploadOut.textContent = `❌ Fehler: ${err.message}`;
         uploadRes.className = "error";
