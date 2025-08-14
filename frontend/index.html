@@ -150,6 +150,12 @@
       .btn-grid.cols-2{grid-template-columns:1fr 1fr}
       .btn-grid.cols-3{grid-template-columns:1fr 1fr 1fr}
     }
+    
+    ul.sources{margin-top:6px;padding-left:18px}
+    ul.sources li{margin:6px 0}
+    ul.sources a{text-decoration:none}
+    ul.sources a:hover{text-decoration:underline}
+
   </style>
 </head>
 <body>
@@ -351,6 +357,39 @@
       while(n>=1024 && i<u.length-1){ n/=1024; i++; }
       return `${n.toFixed(n<10?2: (n<100?1:0))} ${u[i]}`;
     }
+
+    function renderSources(sources){
+      if (!Array.isArray(sources) || sources.length === 0) return "";
+      const items = sources.map((s, i) => {
+        // String direkt
+        if (typeof s === "string") return `<li>${escapeHtml(s)}</li>`;
+
+        // Objekt → Felder robust abgreifen
+        if (s && typeof s === "object") {
+          const title = s.title || s.name || s.meta?.title || s.file_name || `Quelle ${i+1}`;
+          const origin = s.source || s.meta?.source || "";
+          const score  = (s.score != null) ? ` · Score: <b>${Number(s.score).toFixed(3)}</b>` : "";
+          const tags   = Array.isArray(s.tags) && s.tags.length ? ` · Tags: ${s.tags.map(escapeHtml).join(", ")}` : "";
+          const href   = s.url || s.link; // wenn vorhanden, klickbar machen
+          const head   = href
+            ? `<a href="${href}" target="_blank" rel="noopener">${escapeHtml(String(title))}</a>`
+            : escapeHtml(String(title));
+          const snippet = s.snippet || s.content || s.text || "";
+
+          return `<li>
+            <b>${head}</b>${origin?` <span class="inline-help">(${escapeHtml(String(origin))})</span>`:""}${score}${tags}
+            ${snippet ? `<div class="inline-help" style="margin-top:4px">${escapeHtml(String(snippet))}</div>` : ""}
+          </li>`;
+        }
+
+        // Fallback
+        return `<li>${escapeHtml(String(s))}</li>`;
+      }).join("");
+
+      return `<div class="inline-help" style="margin-top:8px">Quellen:</div>
+              <ul class="sources">${items}</ul>`;
+    }
+
     // ---------- Prompt senden ----------
     const form = document.getElementById("prompt-form");
     const resultDiv = document.getElementById("result");
@@ -404,7 +443,7 @@
         }
         if (Array.isArray(sources) && sources.length){
           html += `<div class="inline-help" style="margin-top:8px">Quellen:</div>`;
-          html += `<ul style="margin:6px 0 0 18px">` + sources.map(s=>`<li>${escapeHtml(String(s.title||s.name||s))}</li>`).join("") + `</ul>`;
+          html += renderSources(sources);
         }
         resultOut.innerHTML = html;
         resultDiv.className = "success";
