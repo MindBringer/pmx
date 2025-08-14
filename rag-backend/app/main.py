@@ -3,6 +3,7 @@
 import os
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
+from jinja2 import Environment, StrictUndefined
 
 from haystack import Document
 from haystack.components.builders import PromptBuilder  # direkter Einsatz in Schritt 3
@@ -183,9 +184,10 @@ def query(payload: QueryRequest):
         top_docs = top_docs[: (payload.top_k or 5)]
 
     # 3) Prompt bauen & generieren – NICHT über die Pipeline, sondern direkt:
-    pb = PromptBuilder(template=PROMPT_TEMPLATE, required_variables=["query", "documents"])
-    pb_out = pb.run({"query": payload.query, "documents": top_docs, "template": PROMPT_TEMPLATE})
-    prompt = pb_out.get("prompt", "")
+    # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
+    env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
+    tmpl = env.from_string(PROMPT_TEMPLATE)
+    prompt = tmpl.render(query=payload.query, documents=top_docs)
 
     gen = get_generator()
     gen_out = gen.run({"prompt": prompt}) or {}
