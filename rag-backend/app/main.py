@@ -2,8 +2,7 @@
 
 import os
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
-
+from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form, Request
 from haystack import Document
 
 from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
@@ -49,15 +48,42 @@ def health():
 # -----------------------------
 # Index
 # -----------------------------
+
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
+    request: Request,
     files: List[UploadFile] = File(default=[]),
-    tags: Optional[List[str]] = Form(default=None),   # zusätzliche Form-Tags, optional
 ):
     """
     Mehrere Dateien entgegennehmen, in Haystack-Dokumente konvertieren,
     automatisch taggen (inkl. Form-Tags) und indexieren.
+
+    Robust gegen:
+      - tags als einzelner String ("mexikanisch")
+      - tags als CSV ("mexikanisch,angebote")
+      - tags mehrfach (FormData: tags=... & tags=...)
     """
+    # --- Tags robust aus dem Form auslesen ---
+    form = await request.form()
+    raw_list = form.getlist("tags")  # alle gleichnamigen Felder
+    tags: List[str] = []
+
+    if raw_list:
+        # Wenn der Browser mehrere tags-Felder geschickt hat, kommen die hier als Liste an
+        for item in raw_list:
+            if isinstance(item, str) and ("," in item):
+                tags.extend([t.strip() for t in item.split(",") if t.strip()])
+            elif isinstance(item, str) and item.strip():
+                tags.append(item.strip())
+    else:
+        # Falls nur EIN Feld "tags" existiert (als String)
+        raw = form.get("tags")
+        if isinstance(raw, str) and raw.strip():
+            if "," in raw:
+                tags = [t.strip() for t in raw.split(",") if t.strip()]
+            else:
+                tags = [raw.strip()]
+
     # Pipeline-Komponenten
     pipe, _store = build_index_pipeline()
     gen = get_generator()
@@ -80,13 +106,11 @@ async def index(
         file_stats.append({"filename": f.filename, "chunks": len(docs)})
 
     if not all_docs:
-        return {"indexed": 0, "files": file_stats}
+        return {"indexed": 0, "files": file_stats, "tags": tags}
 
-    # Indexieren (Reihenfolge/Steps in build_index_pipeline definiert)
     _ = pipe.run({"clean": {"documents": all_docs}})
 
-    return {"indexed": len(all_docs), "files": file_stats}
-
+    return {"indexed": len(all_docs), "files": file_stats, "tags": tags}
 
 # -----------------------------
 # Query
