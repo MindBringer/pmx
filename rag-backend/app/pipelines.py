@@ -264,7 +264,6 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
         d.meta = meta
     return docs
 
-
 def build_query_pipeline(store=None):
     store = store or get_document_store()
     retriever = get_retriever(store)
@@ -291,23 +290,30 @@ Frage: {{ query }}
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
 
-    # Nur wenn der Ranker importiert werden konnte UND aktiviert ist
+    # Flag statt pipe.components verwenden (kompatibel zu allen Haystack-Versionen)
+    has_rerank = False
     if enable_rerank and SentenceTransformersRanker is not None:
         reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
         pipe.add_component("rerank", reranker)
+        has_rerank = True
 
-    pipe.add_component("prompt_builder", PromptBuilder(template=template))
+    # PromptBuilder mit Required-Variablen, damit die Warnung verschwindet
+    pipe.add_component(
+        "prompt_builder",
+        PromptBuilder(
+            template=template,
+            required_variables={"query", "documents"},
+        ),
+    )
     pipe.add_component("generate", gen)
 
     # Verbindungen
     pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-
-    if "rerank" in pipe.components:
+    if has_rerank:
         pipe.connect("retrieve.documents", "rerank.documents")
         pipe.connect("rerank.documents", "prompt_builder.documents")
     else:
-        # Fallback: direkt vom Retriever in den PromptBuilder
         pipe.connect("retrieve.documents", "prompt_builder.documents")
-
     pipe.connect("prompt_builder.prompt", "generate.prompt")
+
     return pipe
