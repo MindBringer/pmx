@@ -3,9 +3,9 @@
 import os
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
+from jinja2 import Environment, StrictUndefined
 
 from haystack import Document
-from haystack.components.builders import PromptBuilder  # direkter Einsatz in Schritt 3
 
 from .models import QueryRequest, QueryResponse, TagPatch
 from .deps import get_document_store, get_generator
