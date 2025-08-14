@@ -55,155 +55,34 @@ async def index(
 ):
     # Pipeline-Komponenten
     pipe, _store = build_index_pipeline()
-    gen = get_generator()
-
-    all_docs: List[Document] = []
-    file_stats = []
-
-    for f in files:
-        data = await f.read()
-        mime = f.content_type or "application/octet-stream"
-        docs = convert_bytes_to_documents(
-            filename=f.filename,
-            mime=mime,
-            data=data,
-            default_meta={"source": "upload"},
-        )
-        # Auto-Tagging auf Chunk-Basis + Form-Tags
-        docs = postprocess_with_tags(gen, docs, tags or [])
-        all_docs.extend(docs)
-        file_stats.append({"filename": f.filename, "chunks": len(docs)})
-
-    if not all_docs:
-        return {"indexed": 0, "files": file_stats}
-
-    _ = pipe.run({"clean": {"documents": all_docs}})
-    return {"indexed": len(all_docs), "files": file_stats}
-
-
-# -----------------------------
-# Reranker (CrossEncoder) – lazy init
-# -----------------------------
-_RERANKER = None
-
-def get_reranker():
-    """
-    Lokaler CrossEncoder-Reranker (sentence-transformers).
-    Wird nur genutzt, wenn wir nach dem Retriever manuell reranken.
-    """
-    global _RERANKER
-    if _RERANKER is None:
-        from sentence_transformers import CrossEncoder
-        model_name = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-        _RERANKER = CrossEncoder(model_name)
-    return _RERANKER
-
-
-def _apply_threshold_and_best_per_file(docs: List[Document], thr: float) -> List[Document]:
-    """Filtert per Threshold und lässt pro Datei nur den besten Chunk übrig."""
-    filtered = [d for d in docs if (getattr(d, "score", None) is not None and float(d.score) >= thr)]
-    best_per_file = {}
-    for d in filtered:
-        meta = getattr(d, "meta", {}) or {}
-        fn = meta.get("filename") or meta.get("file_path") or "unknown"
-        if fn not in best_per_file or (best_per_file[fn].score or 0) < (d.score or 0):
-            best_per_file[fn] = d
-    return sorted(best_per_file.values(), key=lambda x: (x.score or 0.0), reverse=True)
-
-
-def _format_sources_for_answer(srcs: List[dict], limit: int = 5) -> str:
-    lines = []
-    for s in srcs[:limit]:
-        fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s.get("id")
-        sc = s.get("score")
-        lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
-    return "\n".join(lines)
-
-
-PROMPT_TEMPLATE = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
-Gib keine Inhalte wieder, die nicht im Kontext stehen.
-
-Kontext:
-{% for d in documents %}
-- {{ d.content | truncate(600) }}
-{% endfor %}
-
-Frage: {{ query }}
-"""
-
-# -----------------------------
-# Query (Retriever → CrossEncoder-Rerank → PromptBuilder (direkt) → Generator)
-# -----------------------------
-@app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
-def query(payload: QueryRequest):
-    """
-    Semantische Suche + Generierung.
-    Tag-Filter:
-      - tags_all: alle müssen enthalten sein
-      - tags_any: mindestens einer muss enthalten sein
-    """
-    # 0) Pipeline mit Retriever (und ggf. integriertem Ranker – falls aktiviert/verfügbar)
-    store = get_document_store()
-    pipe = build_query_pipeline(store)
-
-    # Qdrant-Filter bauen
-    flt = None
-    if payload.tags_all or payload.tags_any:
-        flt = {"operator": "AND", "conditions": []}
-        if payload.tags_all:
-            flt["conditions"].append(
-                {"field": "meta.tags", "operator": "contains_all", "value": payload.tags_all}
-            )
-        if payload.tags_any:
-            flt["conditions"].append(
-                {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
-            )
-
-    # 1) Nur bis zum Retriever laufen lassen → Kandidaten
-    ret = pipe.run({
-        "embed_query": {"text": payload.query},
-        "retrieve":    {"filters": flt, "top_k": max(payload.top_k or 5, RERANK_CANDIDATES)},
-    })
-    docs = (ret.get("retrieve") or {}).get("documents", []) if isinstance(ret, dict) else []
-
-    # 2) Manuelles Reranking (CrossEncoder)
-    top_docs: List[Document] = []
-    if docs:
-        reranker = get_reranker()
-        pairs = [(payload.query, (getattr(d, "content", "") or "")) for d in docs]
-        scores = reranker.predict(pairs)
-        for d, sc in zip(docs, scores):
-            d.score = float(sc)
-
-        thr = SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else 0.0
-        top_docs = _apply_threshold_and_best_per_file(docs, thr)
-        top_docs = top_docs[: (payload.top_k or 5)]
-
-    # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
-    env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
-    tmpl = env.from_string(PROMPT_TEMPLATE)
-    prompt = tmpl.render(query=payload.query, documents=top_docs)
-    gen = get_generator()
-    # Normalize prompt robustly
+    # 3b) Direkter Ollama-Call (um Haystack-Wrapper-/Pydantic-Kanten zu vermeiden)
     try:
         from collections.abc import Mapping
     except Exception:
         Mapping = dict  # fallback
-    if isinstance(prompt, Mapping):
-        if 'prompt' in prompt and isinstance(prompt['prompt'], str):
-            prompt = prompt['prompt']
-        else:
-            prompt = str(prompt)
-    elif hasattr(prompt, "prompt") and isinstance(getattr(prompt, "prompt"), str):
-        prompt = getattr(prompt, "prompt")
+
+    # prompt war oben bereits als String gerendert; trotzdem defensiv normalisieren:
+    if isinstance(prompt, Mapping) and "prompt" in prompt and isinstance(prompt["prompt"], str):
+        prompt = prompt["prompt"]
     elif not isinstance(prompt, str):
         prompt = str(prompt)
-    if not isinstance(prompt, str):
-        prompt = str(prompt)
-    gen_out = gen.run({"prompt": (prompt if isinstance(prompt, str) else (prompt.get("prompt") if isinstance(prompt, dict) else str(prompt)))}) or {}
-    answer_list = gen_out.get("replies") or []
-    answer = answer_list[0] if answer_list else ""
 
+    try:
+        from ollama import Client as _OClient
+        ollama_host = os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_BASE_URL") or "http://ollama:11434"
+        model_name = os.getenv("OLLAMA_MODEL") or os.getenv("GENERATOR_MODEL") or "llama3"
+        _oc = _OClient(host=ollama_host)
+        _resp = _oc.generate(model=model_name, prompt=prompt, stream=False)
+        answer = (_resp.get("response") or "").strip()
+    except Exception as _e:
+        # Fallback: versuche trotzdem den Haystack-Generator (falls konfiguriert)
+        try:
+            gen = get_generator()
+            gen_out = gen.run({"prompt": prompt}) or {}
+            answer_list = gen_out.get("replies") or []
+            answer = answer_list[0] if answer_list else ""
+        except Exception as _e2:
+            raise HTTPException(status_code=500, detail=f"Ollama/Generator error: {str(_e2) or str(_e)}")
     # 4) Quellen zusammenfassen
     srcs = []
     for d in top_docs:
