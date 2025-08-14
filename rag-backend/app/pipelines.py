@@ -11,6 +11,7 @@ from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
 from haystack.components.builders import PromptBuilder
+
 # --- Optionaler Reranker (verschiedene Pfade je nach Version) ---
 try:
     # Neuer Integrationspfad (Haystack 2.x)
@@ -264,6 +265,7 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
         d.meta = meta
     return docs
 
+
 def build_query_pipeline(store=None):
     store = store or get_document_store()
     retriever = get_retriever(store)
@@ -290,14 +292,14 @@ Frage: {{ query }}
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
 
-    # Flag statt pipe.components verwenden (kompatibel zu allen Haystack-Versionen)
+    # Optionaler integrierter SentenceTransformersRanker (falls verfügbar)
     has_rerank = False
     if enable_rerank and SentenceTransformersRanker is not None:
         reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
         pipe.add_component("rerank", reranker)
         has_rerank = True
 
-    # PromptBuilder mit Required-Variablen, damit die Warnung verschwindet
+    # PromptBuilder mit Required-Variablen
     pipe.add_component(
         "prompt_builder",
         PromptBuilder(

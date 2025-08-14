@@ -6,7 +6,7 @@ from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, F
 
 from haystack import Document
 
-from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
+from .models import QueryRequest, QueryResponse, TagPatch
 from .deps import get_document_store, get_generator
 from .pipelines import (
     build_index_pipeline,
@@ -21,10 +21,8 @@ from .transcribe import router as transcribe_router
 # Settings & App
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
-SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.65"))  # 0 = aus
-RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-RERANK_TOP_K = int(os.getenv("RERANK_TOP_K", "3"))            # wie viele nach Rerank in die Antwort
-RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "25")) # wie viele Retriever-Kandidaten maximal reranken
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.65"))          # 0 = aus
+RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "25"))          # wie viele Retriever-Kandidaten vor Rerank
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
@@ -88,10 +86,15 @@ async def index(
 _RERANKER = None
 
 def get_reranker():
+    """
+    Lokaler CrossEncoder-Reranker (sentence-transformers).
+    Wird nur genutzt, wenn wir nach dem Retriever manuell reranken.
+    """
     global _RERANKER
     if _RERANKER is None:
         from sentence_transformers import CrossEncoder
-        _RERANKER = CrossEncoder(RERANKER_MODEL)
+        model_name = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+        _RERANKER = CrossEncoder(model_name)
     return _RERANKER
 
 
@@ -117,7 +120,7 @@ def _format_sources_for_answer(srcs: List[dict], limit: int = 5) -> str:
 
 
 # -----------------------------
-# Query (Retriever → Cross-Encoder Rerank → Prompt → Generator)
+# Query (Retriever → optional integrierter Pipeline-Reranker → CrossEncoder-Rerank → Prompt → Generator)
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
@@ -127,8 +130,9 @@ def query(payload: QueryRequest):
       - tags_all: alle müssen enthalten sein
       - tags_any: mindestens einer muss enthalten sein
     """
+    # 0) Pipeline mit Retriever (und optionalem integrierten SentenceTransformersRanker)
     store = get_document_store()
-    pipe = build_query_pipeline(store)  # enthält: embed_query, retrieve, prompt_builder, generate
+    pipe = build_query_pipeline(store)
 
     # Qdrant-Filter bauen
     flt = None
@@ -143,17 +147,17 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
-    # 1) Erst nur bis zum Retriever laufen lassen, damit wir selber reranken können
+    # 1) Nur bis zum Retriever laufen lassen (→ Kandidaten für manuelles CrossEncoder-Reranking)
+    #    WICHTIG: Nur "embed_query" + "retrieve" befüllen. PromptBuilder hat required_variables und würde sonst meckern.
     ret = pipe.run({
         "embed_query": {"text": payload.query},
-        "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
-        "prompt_builder": {"query": payload.query},
-        "generate": {}
+        "retrieve":    {"filters": flt, "top_k": max(payload.top_k or 5, RERANK_CANDIDATES)},
     })
 
     docs = (ret.get("retrieve") or {}).get("documents", []) if isinstance(ret, dict) else []
 
-    # 2) Reranking mit CrossEncoder (Query, Doc-Text)
+    # 2) Manuelles Reranking mit CrossEncoder
+    top_docs: List[Document] = []
     if docs:
         reranker = get_reranker()
         pairs = [(payload.query, (getattr(d, "content", "") or "")) for d in docs]
@@ -161,13 +165,10 @@ def query(payload: QueryRequest):
         for d, sc in zip(docs, scores):
             d.score = float(sc)
 
-        # Threshold & bester Chunk je Datei
         thr = SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else 0.0
         top_docs = _apply_threshold_and_best_per_file(docs, thr)
-        # Final begrenzen (Antwortquellen)
-        top_docs = top_docs[:max(payload.top_k or 5, RERANK_TOP_K)]
-    else:
-        top_docs = []
+        # Final begrenzen
+        top_docs = top_docs[: (payload.top_k or 5)]
 
     # 3) Prompt bauen & generieren (mit rerankten Dokumenten)
     gen_ret = pipe.run({
@@ -179,7 +180,7 @@ def query(payload: QueryRequest):
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-    # 4) Quellen zusammenfassen (kompakt)
+    # 4) Quellen zusammenfassen
     srcs = []
     for d in top_docs:
         meta = getattr(d, "meta", {}) or {}
