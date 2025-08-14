@@ -184,7 +184,6 @@ def query(payload: QueryRequest):
     env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
     tmpl = env.from_string(PROMPT_TEMPLATE)
     prompt = tmpl.render(query=payload.query, documents=top_docs)
-    prompt = pb_out.get("prompt", "")
     gen = get_generator()
     # Normalize prompt to a plain string in case it's a dict like {'prompt': '...'}
     if isinstance(prompt, dict) and 'prompt' in prompt:
