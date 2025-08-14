@@ -14,7 +14,7 @@
       "typeVersion": 2,
       "position": [
         -1888,
-        676
+        688
       ],
       "webhookId": "llm-router"
     },
@@ -110,7 +110,7 @@
       "typeVersion": 3.4,
       "position": [
         -1664,
-        676
+        688
       ]
     },
     {
@@ -126,10 +126,10 @@
             {
               "id": "openai-condition",
               "leftValue": "={{ $json.rag }}",
-              "rightValue": "false",
+              "rightValue": "true",
               "operator": {
                 "type": "string",
-                "operation": "equals"
+                "operation": "notEquals"
               }
             }
           ],
@@ -143,7 +143,7 @@
       "typeVersion": 2,
       "position": [
         -1440,
-        676
+        688
       ]
     },
     {
@@ -174,7 +174,7 @@
       "typeVersion": 4.2,
       "position": [
         -1216,
-        748
+        752
       ],
       "id": "4411db0a-0640-453c-bfb8-94120087de18",
       "name": "RAG Query"
@@ -187,7 +187,7 @@
       "typeVersion": 2,
       "position": [
         -992,
-        748
+        752
       ],
       "id": "a55012c7-05e0-4caa-bb82-6cc3f38574db",
       "name": "Build Augmented Prompt"
@@ -222,7 +222,7 @@
       "typeVersion": 2,
       "position": [
         -768,
-        676
+        688
       ]
     },
     {
@@ -255,7 +255,7 @@
       "typeVersion": 2,
       "position": [
         -544,
-        876
+        880
       ]
     },
     {
@@ -588,7 +588,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
       "typeVersion": 1,
       "position": [
-        808,
+        816,
         368
       ],
       "id": "fc12f589-2270-4a73-86cf-8e04c36aac22",
@@ -608,7 +608,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        936,
+        944,
         368
       ],
       "id": "42382ae3-d17e-427c-bb50-e5069a95c54c",
@@ -644,7 +644,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        808,
+        816,
         -32
       ],
       "id": "415fc2d0-781a-4bc5-b8a6-e5351bf6e88c",
@@ -664,7 +664,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        936,
+        944,
         -32
       ],
       "id": "3abc6a01-67ec-4001-8993-8a3b495649c6",
@@ -678,7 +678,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Robust response formatter across providers (NDJSON + SSE streaming aware)\nconst requested = $('Extract Fields').first().json || {};\nconst item = $input.first();\nconst data = item.json;\n\n// --- Helpers ---\n\n// Parse NDJSON (newline-delimited JSON), used by Ollama and some proxies\nfunction parseNdjsonString(s) {\n  try {\n    const lines = String(s).trim().split('\\n').filter(Boolean);\n    const objects = lines.map(l => JSON.parse(l));\n    return objects;\n  } catch {\n    return null;\n  }\n}\n\n// Parse SSE-like 'data: {...}\\n\\n' streams (OpenRouter/Groq/OpenAI-style)\nfunction parseSseString(s) {\n  const out = [];\n  const lines = String(s).split('\\n');\n  for (const line of lines) {\n    const trimmed = line.trim();\n    if (!trimmed) continue;\n    if (!trimmed.toLowerCase().startsWith('data:')) continue;\n    const payload = trimmed.slice(5).trim();\n    if (!payload || payload === '[DONE]') continue;\n    try { out.push(JSON.parse(payload)); } catch {}\n  }\n  return out.length ? out : null;\n}\n\n// Extract text content from a variety of chunk shapes\nfunction extractTextFromChunk(obj) {\n  // Ollama\n  if (typeof obj.response === 'string') return obj.response;\n\n  // OpenAI-like deltas\n  const choice0 = obj.choices && obj.choices[0];\n  if (choice0) {\n    if (choice0.delta && typeof choice0.delta.content === 'string') return choice0.delta.content;\n    if (choice0.message && typeof choice0.message.content === 'string') return choice0.message.content;\n    if (typeof choice0.text === 'string') return choice0.text;\n    if (Array.isArray(choice0.content)) {\n      return choice0.content.map(c => (typeof c.text === 'string' ? c.text : '')).join('');\n    }\n  }\n\n  // OpenRouter-style tokens\n  if (typeof obj.content === 'string') return obj.content;\n  if (typeof obj.output_text === 'string') return obj.output_text;\n  if (typeof obj.text === 'string') return obj.text;\n\n  return '';\n}\n\n// --- Main ---\n\nlet result, provider, actualModel, usage = null, raw = data;\n\n// 1) If body came as string, try NDJSON and then SSE\nif (data && typeof data.data === 'string') {\n  // Try NDJSON first (Ollama)\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o => o.done === true)?.model) || chunks[0]?.model || requested.ollama_model;\n    const textParts = chunks.map(extractTextFromChunk).filter(Boolean);\n    result = textParts.join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    // Try SSE (OpenRouter/Groq-style)\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o => o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o => o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model;\n      const textParts = chunks.map(extractTextFromChunk).filter(Boolean);\n      result = textParts.join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\n// 2) Non-streaming structured responses\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    result = data.choices[0].message.content; provider='OpenAI'; actualModel=data.model||requested.openai_model;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    result = data.content[0].text || data.content[0].content; provider='Claude/Anthropic'; actualModel=data.model||requested.claude_model;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    result = data[0].generated_text; provider='Hugging Face'; actualModel=requested.hf_model;\n  } else if (data && data.generated_text) {\n    result = data.generated_text; provider='Hugging Face'; actualModel=requested.hf_model;\n  } else if (data && typeof data.response === 'string') {\n    result = data.response; provider='Ollama'; actualModel=data.model||requested.ollama_model;\n  } else if (data && data.text) {\n    result = data.text; provider='OpenRouter'; actualModel=requested.model || requested.openai_model || requested.ollama_model;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`; provider='Error'; actualModel='N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`; provider='Unknown'; actualModel='N/A';\n  }\n}\n\n// 3) RAG-Metadaten anhängen\nconst ragNode = $('Build Augmented Prompt');\nlet sources = [];\nlet used_tags = [];\nif (ragNode?.item?.json) {\n  const r = ragNode.item.json;\n  sources   = r.sources   || [];\n  used_tags = r.used_tags || [];\n}\n\nreturn {\n  result: (result || '').trim(),\n  status: (provider === 'Error') ? 'error' : 'success',\n  provider,\n  model_requested: requested.model,\n  model_used: actualModel,\n  timestamp: new Date().toISOString(),\n  usage: usage,\n  raw_response: raw,\n  sources,\n  used_tags\n};\n"
+        "jsCode": "// Robust response formatter across providers (NDJSON + SSE streaming aware)\nconst requested = $('Extract Fields').first().json || {};\nconst item = $input.first();\nlet data = item.json;\n\n// --- Helpers ---\n\nfunction parseNdjsonString(s) {\n  try {\n    const lines = String(s).trim().split('\\n').filter(Boolean);\n    const objects = lines.map(l => JSON.parse(l));\n    return objects;\n  } catch {\n    return null;\n  }\n}\n\nfunction parseSseString(s) {\n  const out = [];\n  const lines = String(s).split('\\n');\n  for (const line of lines) {\n    const trimmed = line.trim();\n    if (!trimmed) continue;\n    if (!trimmed.toLowerCase().startsWith('data:')) continue;\n    const payload = trimmed.slice(5).trim();\n    if (!payload || payload === '[DONE]') continue;\n    try { out.push(JSON.parse(payload)); } catch {}\n  }\n  return out.length ? out : null;\n}\n\nfunction extractTextFromChunk(obj) {\n  if (typeof obj.response === 'string') return obj.response;\n\n  const choice0 = obj.choices && obj.choices[0];\n  if (choice0) {\n    if (choice0.delta && typeof choice0.delta.content === 'string') return choice0.delta.content;\n    if (choice0.message && typeof choice0.message.content === 'string') return choice0.message.content;\n    if (typeof choice0.text === 'string') return choice0.text;\n    if (Array.isArray(choice0.content)) {\n      return choice0.content.map(c => (typeof c.text === 'string' ? c.text : '')).join('');\n    }\n  }\n  if (typeof obj.content === 'string') return obj.content;\n  if (typeof obj.output_text === 'string') return obj.output_text;\n  if (typeof obj.text === 'string') return obj.text;\n\n  return '';\n}\n\n// --- Main ---\n\nlet result, provider, actualModel, usage = null, raw = data;\n\n// Falls die API-Antwort als purer String kam, kompatibel machen\nif (typeof data === 'string') {\n  raw = { data };\n  data = { data };\n}\n\n// 1) Wenn body als String kam, versuche NDJSON, dann SSE\nif (data && typeof data.data === 'string') {\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o => o.done === true)?.model) || chunks[0]?.model || requested.ollama_model;\n    const textParts = chunks.map(extractTextFromChunk).filter(Boolean);\n    result = textParts.join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o => o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o => o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model;\n      const textParts = chunks.map(extractTextFromChunk).filter(Boolean);\n      result = textParts.join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\n// 2) Non-streaming structured responses\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    result = data.choices[0].message.content; provider='OpenAI'; actualModel=data.model||requested.openai_model;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    result = data.content[0].text || data.content[0].content; provider='Claude/Anthropic'; actualModel=data.model||requested.claude_model;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    result = data[0].generated_text; provider='Hugging Face'; actualModel=requested.hf_model;\n  } else if (data && data.generated_text) {\n    result = data.generated_text; provider='Hugging Face'; actualModel=requested.hf_model;\n  } else if (data && typeof data.response === 'string') {\n    result = data.response; provider='Ollama'; actualModel=data.model||requested.ollama_model;\n  } else if (data && data.text) {\n    result = data.text; provider='OpenRouter'; actualModel=requested.model || requested.openai_model || requested.ollama_model;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`; provider='Error'; actualModel='N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`; provider='Unknown'; actualModel='N/A';\n  }\n}\n\n// 3) RAG-Metadaten anhängen (robust)\nlet sources = [];\nlet used_tags = [];\ntry {\n  const ragJson = $('Build Augmented Prompt').first().json || {};\n  if (Array.isArray(ragJson.sources))   sources   = ragJson.sources;\n  if (Array.isArray(ragJson.used_tags)) used_tags = ragJson.used_tags;\n} catch (_) {\n  sources = [];\n  used_tags = [];\n}\n\nreturn {\n  result: (result || '').trim(),\n  status: (provider === 'Error') ? 'error' : 'success',\n  provider,\n  model_requested: requested.model,\n  model_used: actualModel,\n  timestamp: new Date().toISOString(),\n  usage: usage,\n  raw_response: raw,\n  sources,\n  used_tags\n};\n"
       },
       "id": "916597a3-e841-467c-86ea-dc8f5eae5b10",
       "name": "Format Response",
@@ -705,7 +705,46 @@
       ]
     }
   ],
-  "pinData": {},
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "connection": "upgrade",
+            "host": "ai.local",
+            "x-real-ip": "192.168.244.229",
+            "x-forwarded-for": "192.168.244.229",
+            "x-forwarded-proto": "https",
+            "content-length": "71",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0",
+            "sec-ch-ua": "\"Not;A=Brand\";v=\"99\", \"Microsoft Edge\";v=\"139\", \"Chromium\";v=\"139\"",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "https://ai.local",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://ai.local/ui/index.html",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "de,de-DE;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+            "cookie": "rl_page_init_referrer=RudderEncrypt%3AU2FsdGVkX18%2BUaadL%2F1nd1jk4fwcJtHgOKElOMoYd0g%3D; rl_page_init_referring_domain=RudderEncrypt%3AU2FsdGVkX19AQ8VVUuEv35hCFjVozq%2BEDvHupJPBNIA%3D; ph_phc_4URIAm1uYfJO7j8kWSe0J8lc8IqnstRLS7Jx8NcakHo_posthog=%7B%22distinct_id%22%3A%225e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4%2386228bc1-3d85-4e8b-a5ab-ccfe9ed47737%22%2C%22%24sesid%22%3A%5B1755162794409%2C%220198a7da-d9aa-74cf-8191-37d53089eb8b%22%2C1755162794409%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fai.local%2Fhome%2Fworkflows%22%7D%7D; rl_anonymous_id=RudderEncrypt%3AU2FsdGVkX1%2FUrboOw8jLeHC3xfT9PlSbkGWtrJZYtKgffJ1z4EyHbkfzD%2BgV3wMlvcnqS3xHVIJm2O7kXzaRCw%3D%3D; rl_user_id=RudderEncrypt%3AU2FsdGVkX19HkT0bmFv%2F8E4Ju1tdOYBjoaErPoaBVThE6kXi4cySRrhH3rfyNdZ%2BHFhk%2BLuJhSEQJEe6p3N3dF7dW5UpeDMtf%2B6VNQeN%2By9VqSZrR8ik%2FF2CsxKhv5COUDx%2BDy9Hsr5rLHx1TewFDCSM5fQKl0MZKLeWD8QNuys%3D; rl_trait=RudderEncrypt%3AU2FsdGVkX1%2BfDf3ETNIegqSHMiM8bibwQbVRzrwcUxYVkzyO0mGaGViSHYt4w6uHZAW3B6zH%2FgEM4Ja9J%2FzkE6W5FXClydnBemcKLM87QJ0MHLg4s2M%2BWGdyQuo6BtAFQIm4pUWBJ0FoHN%2BawR91Rg%3D%3D; rl_session=RudderEncrypt%3AU2FsdGVkX1%2FI0HPKTZeUhsBRWeFeaJXmhjyKZiNLqeQJpm7xhzgHZxtW76U2hhhXgSkz9%2BW8zL4WBoZEe4BEbNZ089r%2F7XD4sSRae3C2it0CAV%2FTt%2BxVk3lvwGWQ3TP7vQDRH%2BREtdGXN3IQZWEIZw%3D%3D"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "prompt": "Anzahl KI Meetings?",
+            "system": "",
+            "model": "groq",
+            "rag": false
+          },
+          "webhookUrl": "http://localhost:5678/webhook/llm",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
   "connections": {
     "Webhook": {
       "main": [
@@ -1043,7 +1082,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "4bcf42dd-2291-4832-8e39-24eb7c891c2b",
+  "versionId": "a9463007-ea9b-495c-b506-23da6af9bbe0",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
