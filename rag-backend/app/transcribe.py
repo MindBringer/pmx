@@ -10,7 +10,8 @@ from faster_whisper import WhisperModel
 # --- Speaker Embeddings (SpeechBrain ECAPA) ---
 import torch
 import torchaudio
-from speechbrain.pretrained import EncoderClassifier
+# FIX: neuer Pfad seit SpeechBrain 1.0
+from speechbrain.inference import EncoderClassifier
 
 # --- Qdrant ---
 from qdrant_client import QdrantClient
@@ -33,8 +34,14 @@ _spk_model: Optional[EncoderClassifier] = None
 _qdrant: Optional[QdrantClient] = None
 
 def _ffmpeg_to_wav_mono16k(in_path: str) -> str:
+    """Konvertiert jede Audiodatei robust in 16kHz/mono/PCM16 WAV."""
     out_path = tempfile.mktemp(suffix=".wav")
-    cmd = ["ffmpeg","-nostdin","-y","-i",in_path,"-ac","1","-ar","16000","-vn",out_path]
+    cmd = [
+        "ffmpeg","-nostdin","-y","-i",in_path,
+        "-ac","1","-ar","16000","-vn",
+        "-acodec","pcm_s16le",  # FIX: explizit PCM 16-bit little endian
+        out_path
+    ]
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return out_path
 
@@ -48,8 +55,10 @@ def asr_model() -> WhisperModel:
 def spk_model() -> EncoderClassifier:
     global _spk_model
     if _spk_model is None:
-        _spk_model = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb",
-                                                    run_opts={"device": DEVICE})
+        _spk_model = EncoderClassifier.from_hparams(
+            source="speechbrain/spkrec-ecapa-voxceleb",
+            run_opts={"device": DEVICE}
+        )
     return _spk_model
 
 def qdrant() -> QdrantClient:
@@ -74,13 +83,8 @@ def _embed_audio(path: str) -> np.ndarray:
     return emb
 
 def speakers_list() -> List[Dict[str, Any]]:
-    # We keep simple metadata in payload (name); using non-paginated scroll for demo
-    # In real usage, maintain a side metadata collection or payload index
-    res = qdrant().scroll(collection_name=SPEAKER_COLLECTION, limit=1000)[0]
-    out = []
-    for p in res:
-        out.append({"id": p.id, "name": (p.payload or {}).get("name", None)})
-    return out
+    pts, _ = qdrant().scroll(collection_name=SPEAKER_COLLECTION, limit=1000)
+    return [{"id": p.id, "name": (p.payload or {}).get("name")} for p in pts]
 
 def speakers_enroll(name: str, file_path: str) -> Dict[str, Any]:
     emb = _embed_audio(file_path)
@@ -104,72 +108,110 @@ def speakers_identify(emb: np.ndarray, hints: Optional[List[str]] = None, thresh
     if not srch:
         return (None, 1.0)
     pt = srch[0]
-    # cosine distance: 1 - cosine_similarity
-    dist = float(pt.score)  # qdrant returns SIMILARITY for cosine by default (higher better). For safety map:
-    # convert similarity to distance
-    sim = dist
-    d = 1.0 - sim
+    # Qdrant mit COSINE liefert Score = Similarity (1.0 perfekt)
+    sim = float(pt.score)
+    dist = 1.0 - sim
     name = (pt.payload or {}).get("name")
-    if d <= threshold:
-        return (name, d)
-    return (None, d)
+    if dist <= threshold:
+        return (name, dist)
+    return (None, dist)
 
 # --------- Diarization (tokenfrei) ---------
-import collections, contextlib, wave, math
+import contextlib, wave, collections
 
 def _read_wave_mono16k(path):
     with contextlib.closing(wave.open(path, 'rb')) as wf:
-        assert wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 16000
-        pcm = wf.readframes(wf.getnframes())
-        return pcm, 16000
+        assert wf.getnchannels() == 1, "WAV must be mono"
+        assert wf.getsampwidth() == 2, "WAV must be 16-bit PCM"
+        assert wf.getframerate() == 16000, "WAV must be 16kHz"
+        return wf.readframes(wf.getnframes()), 16000
 
 import webrtcvad
+
 def _vad_segments(wav_path: str, aggressiveness: int = 2):
+    """
+    FIX: Nur volle Frames (10/20/30ms) an webrtcvad übergeben.
+    Zu kurze letzte Frame wird verworfen, damit 'Error while processing frame' nicht mehr auftritt.
+    """
     pcm, sr = _read_wave_mono16k(wav_path)
     vad = webrtcvad.Vad(aggressiveness)
-    frame_ms = 30
-    n = int(sr * (frame_ms/1000.0) * 2)
-    frames = [pcm[i:i+n] for i in range(0, len(pcm), n)]
-    t, step = 0.0, frame_ms/1000.0
+    frame_ms = 30  # 10/20/30 erlaubt
+    bytes_per_frame = int(sr * (frame_ms/1000.0)) * 2  # 16-bit mono -> *2
+    total = (len(pcm) // bytes_per_frame) * bytes_per_frame  # nur volle Frames
+    if total <= 0:
+        return []
+    step_sec = frame_ms / 1000.0
+
     segs = []
-    rb = collections.deque(maxlen=10)
-    trig, seg_start = False, 0.0
-    for fr in frames:
-        is_speech = vad.is_speech(fr, sr)
-        if not trig:
-            rb.append((fr, t, is_speech))
-            if sum(1 for x in rb if x[2]) > 0.9*rb.maxlen:
-                trig = True; seg_start = rb[0][1]; rb.clear()
+    rb = collections.deque(maxlen=10)  # ~300ms
+    triggered = False
+    t = 0.0
+    seg_start = 0.0
+
+    for i in range(0, total, bytes_per_frame):
+        frame = pcm[i:i+bytes_per_frame]
+        # Safety: webrtcvad darf hier nicht crashen
+        try:
+            is_speech = vad.is_speech(frame, sr)
+        except Exception:
+            # Bei unerwarteten Frames (sollte nicht passieren) -> stumm behandeln
+            is_speech = False
+
+        if not triggered:
+            rb.append((t, is_speech))
+            # Start wenn >90% der Pufferframes Sprachanteil haben
+            if sum(1 for _, sp in rb if sp) > 0.9 * rb.maxlen:
+                triggered = True
+                seg_start = rb[0][0]  # Zeitpunkt der ersten Puffer-Frame
+                rb.clear()
         else:
-            rb.append((fr, t, is_speech))
-            if sum(1 for x in rb if not x[2]) > 0.9*rb.maxlen:
-                segs.append((seg_start, t)); trig=False; rb.clear()
-        t += step
-    if trig: segs.append((seg_start, t))
-    # merge tiny gaps
+            rb.append((t, is_speech))
+            # Ende wenn >90% non-speech
+            if sum(1 for _, sp in rb if not sp) > 0.9 * rb.maxlen:
+                segs.append((seg_start, t))
+                rb.clear()
+                triggered = False
+        t += step_sec
+
+    if triggered:
+        segs.append((seg_start, t))
+
+    # Kleine Lücken (<250ms) zusammenführen
     merged = []
-    for s,e in segs:
-        if not merged: merged.append([s,e])
+    for s, e in segs:
+        if not merged:
+            merged.append([s, e])
         else:
-            if s - merged[-1][1] < 0.25: merged[-1][1]=e
-            else: merged.append([s,e])
-    return [(float(s),float(e)) for s,e in merged]
+            if s - merged[-1][1] < 0.25:
+                merged[-1][1] = e
+            else:
+                merged.append([s, e])
+    return [(float(s), float(e)) for s, e in merged]
 
 def _slice_to_wav(src: str, start: float, end: float) -> str:
     out = tempfile.mktemp(suffix=".wav")
-    dur = max(0.01, end-start)
-    subprocess.run(["ffmpeg","-nostdin","-y","-i",src,"-ss",f"{start:.3f}","-t",f"{dur:.3f}","-ac","1","-ar","16000","-vn",out],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    dur = max(0.01, end - start)
+    subprocess.run(
+        ["ffmpeg","-nostdin","-y","-i",src,"-ss",f"{start:.3f}","-t",f"{dur:.3f}",
+         "-ac","1","-ar","16000","-vn","-acodec","pcm_s16le", out],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     return out
 
 def diarize_local(path: str, identify: bool, hints: Optional[List[str]] = None) -> List[Dict[str,Any]]:
     base_wav = _ffmpeg_to_wav_mono16k(path)
     segs = _vad_segments(base_wav)
-    if not segs: return []
-    centroids: List[np.ndarray] = []; counts: List[int] = []; assign: List[int]=[]
+    if not segs:
+        return []
+    # Embeddings + Online-Clustering
+    centroids: List[np.ndarray] = []
+    counts: List[int] = []
+    assign: List[int] = []
+    embs_per_seg: List[np.ndarray] = []
+
     def cosine(a,b): return float(np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b)+1e-9))
     thr_new = 0.75
-    embs_per_seg: List[np.ndarray] = []
+
     for (s,e) in segs:
         clip = _slice_to_wav(path, s, e)
         emb = _embed_audio(clip)
@@ -182,6 +224,8 @@ def diarize_local(path: str, identify: bool, hints: Optional[List[str]] = None) 
                 centroids.append(emb.copy()); counts.append(1); assign.append(len(centroids)-1)
             else:
                 k=counts[j]; centroids[j]=(centroids[j]*k+emb)/(k+1); counts[j]+=1; assign.append(j)
+
+    # Label-Mapping spk1/spk2/…
     label_map: Dict[int,str] = {}; next_id=1
     segments: List[Dict[str,Any]] = []
     for i,(s,e) in enumerate(segs):
@@ -189,8 +233,8 @@ def diarize_local(path: str, identify: bool, hints: Optional[List[str]] = None) 
         if cid not in label_map: label_map[cid]=f"spk{next_id}"; next_id+=1
         segments.append({"speaker":label_map[cid], "start":float(s), "end":float(e), "conf":0.6})
 
+    # (Optional) Identifikation gegen Qdrant
     if identify and segments:
-        # aggregate per speaker and identify
         for lab in set(x["speaker"] for x in segments):
             idxs = [i for i,(s,e) in enumerate(segs) if label_map[assign[i]]==lab]
             if not idxs: continue
