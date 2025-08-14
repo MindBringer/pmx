@@ -10,7 +10,6 @@ import pathlib
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
-from haystack.components.builders import PromptBuilder
 
 # --- Optionaler Reranker (verschiedene Pfade je nach Version) ---
 try:
@@ -267,52 +266,32 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
 
 
 def build_query_pipeline(store=None):
+    """
+    Retriever-only Query-Pipeline.
+    - embed_query (TextEmbedder) -> retrieve (DenseRetriever)
+    - optional: rerank (CrossEncoder) to re-order documents; main.py does the Prompt+Generation.
+    """
     store = store or get_document_store()
     retriever = get_retriever(store)
-    gen = get_generator()
-    qembed = get_text_embedder()  # TEXT-Embedder für die Query
+    qembed = get_text_embedder()
 
-    # Optionaler integrierter SentenceTransformersRanker
+    # Optional CrossEncoder-based reranker (keeps compatibility with env flags)
     enable_rerank = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
     rerank_model = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
     rerank_top_k = int(os.getenv("RERANK_TOP_K", "3"))
-
-    template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
-Gib keine Inhalte wieder, die nicht im Kontext stehen.
-
-Kontext:
-{% for d in documents %}
-- {{ d.content | truncate(600) }}
-{% endfor %}
-
-Frage: {{ query }}
-"""
 
     pipe = Pipeline()
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
 
-    # Optionaler integrierter Ranker
     if enable_rerank and SentenceTransformersRanker is not None:
         reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
         pipe.add_component("rerank", reranker)
-        pipe.add_component(
-            "prompt_builder",
-            PromptBuilder(template=template),  # ohne required_variables, um versionstolerant zu bleiben
-        )
+        # connections
         pipe.connect("embed_query.embedding", "retrieve.query_embedding")
         pipe.connect("retrieve.documents", "rerank.documents")
-        pipe.connect("rerank.documents", "prompt_builder.documents")
     else:
-        pipe.add_component(
-            "prompt_builder",
-            PromptBuilder(template=template),
-        )
+        # connections without reranker
         pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-        pipe.connect("retrieve.documents", "prompt_builder.documents")
-
-    # Generator (wird in main.py nicht mehr per Pipeline genutzt, bleibt aber kompatibel)
-    pipe.add_component("generate", gen)
-    pipe.connect("prompt_builder.prompt", "generate.prompt")
 
     return pipe

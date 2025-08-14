@@ -131,6 +131,9 @@ Kontext:
 Frage: {{ query }}
 """
 
+
+# Defensive check to avoid Jinja 'non template nodes'
+assert isinstance(PROMPT_TEMPLATE, str), f\"PROMPT_TEMPLATE must be str, got {type(PROMPT_TEMPLATE)}\"
 # -----------------------------
 # Query (Retriever → CrossEncoder-Rerank → PromptBuilder (direkt) → Generator)
 # -----------------------------
