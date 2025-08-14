@@ -6,7 +6,10 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 # 🔽 libs nötig für soundfile + ffmpeg bereits ok
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsndfile1 ffmpeg \
+    build-essential \
+    libsndfile1 \
+    ffmpeg \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
