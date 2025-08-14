@@ -11,6 +11,20 @@ from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
 from haystack.components.builders import PromptBuilder
+# --- Optionaler Reranker (verschiedene Pfade je nach Version) ---
+try:
+    # Neuer Integrationspfad (Haystack 2.x)
+    from haystack_integrations.components.rankers.sentence_transformers import SentenceTransformersRanker
+except Exception:
+    try:
+        # Teilweise noch hier zu finden
+        from haystack_integrations.components.rankers.sentence_transformers.ranker import SentenceTransformersRanker  # noqa: F401
+    except Exception:
+        try:
+            # Manchmal (älter) direkt unter haystack.components.rankers
+            from haystack.components.rankers import SentenceTransformersRanker  # noqa: F401
+        except Exception:
+            SentenceTransformersRanker = None  # Fallback: kein Ranker verfügbar
 
 # Built-in Haystack converters
 from haystack.components.converters import (
@@ -255,11 +269,12 @@ def build_query_pipeline(store=None):
     store = store or get_document_store()
     retriever = get_retriever(store)
     gen = get_generator()
-    qembed = get_text_embedder()
+    qembed = get_text_embedder()  # TEXT-Embedder für die Query
 
+    # Reranker optional aktivieren (ENV: ENABLE_RERANKER=true/false)
+    enable_rerank = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
     rerank_model = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
     rerank_top_k = int(os.getenv("RERANK_TOP_K", "3"))
-    reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
 
     template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
 Gib keine Inhalte wieder, die nicht im Kontext stehen.
@@ -275,14 +290,24 @@ Frage: {{ query }}
     pipe = Pipeline()
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
-    pipe.add_component("rerank", reranker)  # ✅ richtiger Variablenname
+
+    # Nur wenn der Ranker importiert werden konnte UND aktiviert ist
+    if enable_rerank and SentenceTransformersRanker is not None:
+        reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
+        pipe.add_component("rerank", reranker)
+
     pipe.add_component("prompt_builder", PromptBuilder(template=template))
     pipe.add_component("generate", gen)
 
+    # Verbindungen
     pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-    pipe.connect("retrieve.documents", "rerank.documents")      # Retriever -> Reranker
-    pipe.connect("rerank.documents", "prompt_builder.documents") # Reranker -> PromptBuilder
+
+    if "rerank" in pipe.components:
+        pipe.connect("retrieve.documents", "rerank.documents")
+        pipe.connect("rerank.documents", "prompt_builder.documents")
+    else:
+        # Fallback: direkt vom Retriever in den PromptBuilder
+        pipe.connect("retrieve.documents", "prompt_builder.documents")
+
     pipe.connect("prompt_builder.prompt", "generate.prompt")
-
     return pipe
-
