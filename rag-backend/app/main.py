@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
 
 from haystack import Document
+from haystack.components.builders import PromptBuilder  # direkter Einsatz in Schritt 3
 
 from .models import QueryRequest, QueryResponse, TagPatch
 from .deps import get_document_store, get_generator
@@ -119,8 +120,19 @@ def _format_sources_for_answer(srcs: List[dict], limit: int = 5) -> str:
     return "\n".join(lines)
 
 
+PROMPT_TEMPLATE = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
+Gib keine Inhalte wieder, die nicht im Kontext stehen.
+
+Kontext:
+{% for d in documents %}
+- {{ d.content | truncate(600) }}
+{% endfor %}
+
+Frage: {{ query }}
+"""
+
 # -----------------------------
-# Query (Retriever → optional integrierter Pipeline-Reranker → CrossEncoder-Rerank → Prompt → Generator)
+# Query (Retriever → CrossEncoder-Rerank → PromptBuilder (direkt) → Generator)
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
@@ -130,7 +142,7 @@ def query(payload: QueryRequest):
       - tags_all: alle müssen enthalten sein
       - tags_any: mindestens einer muss enthalten sein
     """
-    # 0) Pipeline mit Retriever (und optionalem integrierten SentenceTransformersRanker)
+    # 0) Pipeline mit Retriever (und ggf. integriertem Ranker – falls aktiviert/verfügbar)
     store = get_document_store()
     pipe = build_query_pipeline(store)
 
@@ -147,36 +159,33 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
-    # 1) Nur bis zum Retriever laufen lassen (→ Kandidaten für manuelles CrossEncoder-Reranking)
-    #    WICHTIG: Nur "embed_query" + "retrieve" befüllen. PromptBuilder hat required_variables und würde sonst meckern.
+    # 1) Nur bis zum Retriever laufen lassen → Kandidaten
     ret = pipe.run({
         "embed_query": {"text": payload.query},
         "retrieve":    {"filters": flt, "top_k": max(payload.top_k or 5, RERANK_CANDIDATES)},
     })
-
     docs = (ret.get("retrieve") or {}).get("documents", []) if isinstance(ret, dict) else []
 
-    # 2) Manuelles Reranking mit CrossEncoder
+    # 2) Manuelles Reranking (CrossEncoder)
     top_docs: List[Document] = []
     if docs:
         reranker = get_reranker()
         pairs = [(payload.query, (getattr(d, "content", "") or "")) for d in docs]
-        scores = reranker.predict(pairs)  # Liste[float]
+        scores = reranker.predict(pairs)
         for d, sc in zip(docs, scores):
             d.score = float(sc)
 
         thr = SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else 0.0
         top_docs = _apply_threshold_and_best_per_file(docs, thr)
-        # Final begrenzen
         top_docs = top_docs[: (payload.top_k or 5)]
 
-    # 3) Prompt bauen & generieren (mit rerankten Dokumenten)
-    gen_ret = pipe.run({
-        "prompt_builder": {"query": payload.query, "documents": top_docs},
-        "generate": {}
-    })
+    # 3) Prompt bauen & generieren – NICHT über die Pipeline, sondern direkt:
+    pb = PromptBuilder(template=PROMPT_TEMPLATE)
+    pb_out = pb.run({"query": payload.query, "documents": top_docs})
+    prompt = pb_out.get("prompt", "")
 
-    gen_out = gen_ret.get("generate", {}) if isinstance(gen_ret, dict) else {}
+    gen = get_generator()
+    gen_out = gen.run({"prompt": prompt}) or {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 

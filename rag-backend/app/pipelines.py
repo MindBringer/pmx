@@ -272,7 +272,7 @@ def build_query_pipeline(store=None):
     gen = get_generator()
     qembed = get_text_embedder()  # TEXT-Embedder für die Query
 
-    # Reranker optional aktivieren (ENV: ENABLE_RERANKER=true/false)
+    # Optionaler integrierter SentenceTransformersRanker
     enable_rerank = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
     rerank_model = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
     rerank_top_k = int(os.getenv("RERANK_TOP_K", "3"))
@@ -292,30 +292,27 @@ Frage: {{ query }}
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
 
-    # Optionaler integrierter SentenceTransformersRanker (falls verfügbar)
-    has_rerank = False
+    # Optionaler integrierter Ranker
     if enable_rerank and SentenceTransformersRanker is not None:
         reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
         pipe.add_component("rerank", reranker)
-        has_rerank = True
-
-    # PromptBuilder mit Required-Variablen
-    pipe.add_component(
-        "prompt_builder",
-        PromptBuilder(
-            template=template,
-            required_variables={"query", "documents"},
-        ),
-    )
-    pipe.add_component("generate", gen)
-
-    # Verbindungen
-    pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-    if has_rerank:
+        pipe.add_component(
+            "prompt_builder",
+            PromptBuilder(template=template),  # ohne required_variables, um versionstolerant zu bleiben
+        )
+        pipe.connect("embed_query.embedding", "retrieve.query_embedding")
         pipe.connect("retrieve.documents", "rerank.documents")
         pipe.connect("rerank.documents", "prompt_builder.documents")
     else:
+        pipe.add_component(
+            "prompt_builder",
+            PromptBuilder(template=template),
+        )
+        pipe.connect("embed_query.embedding", "retrieve.query_embedding")
         pipe.connect("retrieve.documents", "prompt_builder.documents")
+
+    # Generator (wird in main.py nicht mehr per Pipeline genutzt, bleibt aber kompatibel)
+    pipe.add_component("generate", gen)
     pipe.connect("prompt_builder.prompt", "generate.prompt")
 
     return pipe
