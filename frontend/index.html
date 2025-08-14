@@ -233,7 +233,7 @@
         <div class="row">
           <div class="form-group col">
             <label for="file">Datei auswählen</label>
-            <input type="file" id="file" />
+            <input type="file" id="file" multiple />
             <div class="inline-help">Unterstützt: txt, md, pdf, html, docx, odt, xlsx, eml</div>
           </div>
           <div class="form-group col">
@@ -303,7 +303,40 @@
       </div>
     </div>
   </div>
+  <!-- --- Sprecherverwaltung (Enrollment) --- -->
+  <div style="height:1px;background:#eee;margin:18px 0"></div>
+  <form id="speaker-form">
+    <div class="form-group">
+      <label for="speakerName">Name des Sprechers</label>
+      <input type="text" id="speakerName" placeholder="z. B. Alice Müller" />
+      <div class="inline-help">Nutze exakt denselben Namen, der später zur Anzeige verwendet werden soll.</div>
+    </div>
+    <div class="form-group">
+      <label for="speakerFile">Referenz-Audio für Enrollment</label>
+      <input type="file" id="speakerFile" accept="audio/*" />
+      <div class="inline-help">Empfohlen: 10–30 Sek. klare Sprache, nur diese Person, wenig Hintergrundgeräusche.</div>
+    </div>
+    <div class="btn-grid cols-2">
+      <button type="submit" id="speaker-enroll-btn">Sprecher hinzufügen</button>
+    </div>
+  </form>
 
+  <div id="speaker-result" class="upload-box">
+    <div id="speaker-output"></div>
+    <div class="loading-container" id="speaker-spinner" style="display:none">
+      <div class="spinner"></div>
+      <div class="loading-text">Speichere<span class="dots"></span></div>
+    </div>
+  </div>
+
+  <div class="upload-box" style="margin-top:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div><b>Bekannte Sprecher</b></div>
+      <button type="button" id="speaker-refresh-btn" class="secondary" style="width:auto">Liste aktualisieren</button>
+    </div>
+    <div id="speaker-list" class="timeline" style="margin-top:8px"></div>
+  </div>
+  
   <script>
     // Tabs
     document.querySelectorAll('.tab').forEach(btn=>{
@@ -388,6 +421,51 @@
 
       return `<div class="inline-help" style="margin-top:8px">Quellen:</div>
               <ul class="sources">${items}</ul>`;
+    }
+
+    async function refreshSpeakers(){
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const list = document.getElementById("speaker-list");
+      if (!list) return;
+      list.innerHTML = `<div class="inline-help">lädt…</div>`;
+      try {
+        const res = await fetch("/rag/speakers", { headers: apiKey ? { "x-api-key": apiKey } : {} });
+        const txt = await res.text();
+        if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
+        const data = JSON.parse(txt);
+        if (!Array.isArray(data) || data.length === 0){
+          list.innerHTML = `<div class="inline-help">Noch keine Sprecher vorhanden.</div>`;
+          return;
+        }
+        list.innerHTML = data.map(sp => {
+          const name = (sp.name ?? "Ohne Namen");
+          const id   = (sp.id ?? "");
+          return `<div class="seg" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                    <div>
+                      <b>${escapeHtml(String(name))}</b>
+                      <div class="inline-help">ID: <span class="mono">${escapeHtml(String(id))}</span></div>
+                    </div>
+                    <button type="button" data-id="${escapeHtml(String(id))}" class="secondary" style="width:auto">löschen</button>
+                  </div>`;
+        }).join("");
+        // Delete-Buttons verdrahten
+        list.querySelectorAll('button[data-id]').forEach(btn=>{
+          btn.addEventListener('click', async ()=>{
+            const apiKey = document.getElementById("apiKey").value.trim();
+            const id = btn.getAttribute('data-id');
+            if (!confirm(`Sprecher wirklich löschen?\n${id}`)) return;
+            const res = await fetch(`/rag/speakers/${encodeURIComponent(id)}`, {
+              method: "DELETE",
+              headers: apiKey ? { "x-api-key": apiKey } : {}
+            });
+            const txt = await res.text();
+            if (!res.ok) { alert(`Fehler beim Löschen: ${txt||res.status}`); return; }
+            await refreshSpeakers();
+          });
+        });
+      } catch (err){
+        list.innerHTML = `<div class="error">❌ Laden fehlgeschlagen: ${escapeHtml(err.message||String(err))}</div>`;
+      }
     }
 
     // ---------- Prompt senden ----------
@@ -478,7 +556,7 @@
 
       try {
         const fd = new FormData();
-        fd.append("files", fileEl.files[0]); // Backend erwartet "files"
+        for (const f of fileEl.files) fd.append("files", f); // Backend erwartet "files"
         if (tagsStr) {
           tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
         }
@@ -644,6 +722,70 @@
         }
       });
     }
+
+    // ---------- Sprecher Enrollment ----------
+    const speakerForm    = document.getElementById("speaker-form");
+    const speakerOutBox  = document.getElementById("speaker-result");
+    const speakerOut     = document.getElementById("speaker-output");
+    const speakerSpinner = document.getElementById("speaker-spinner");
+    const speakerBtn     = document.getElementById("speaker-enroll-btn");
+    const speakerRefresh = document.getElementById("speaker-refresh-btn");
+
+    if (speakerForm) {
+      speakerForm.addEventListener("submit", async function(e){
+        e.preventDefault();
+        const apiKey = document.getElementById("apiKey").value.trim();
+        const nameEl = document.getElementById("speakerName");
+        const fileEl = document.getElementById("speakerFile");
+        const name = nameEl.value.trim();
+
+        if (!name){ speakerOut.textContent = "⚠️ Bitte Namen angeben."; speakerOutBox.className = "error upload-box"; return; }
+        if (!fileEl.files || fileEl.files.length === 0){ speakerOut.textContent = "⚠️ Bitte Audio-Datei wählen."; speakerOutBox.className = "error upload-box"; return; }
+
+        speakerOut.innerHTML = "";
+        speakerOutBox.className = "upload-box";
+        const hideSpinner = (function(el){ el.style.display='flex'; const t0=Date.now(); return ()=>{ const dt=Date.now()-t0; setTimeout(()=>{ el.style.display='none'; }, Math.max(0,300-dt)); }; })(speakerSpinner);
+        speakerBtn.disabled = true;
+
+        try{
+          const fd = new FormData();
+          fd.append("name", name);
+          fd.append("file", fileEl.files[0]);
+
+          const res = await fetch("/rag/speakers/enroll", {
+            method: "POST",
+            headers: apiKey ? { "x-api-key": apiKey } : {},
+            body: fd
+          });
+          const txt = await res.text();
+          if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
+          const data = JSON.parse(txt);
+
+          const dim = data?.dim ?? 192;
+          speakerOut.innerHTML = `✅ Sprecher <b>${escapeHtml(name)}</b> hinzugefügt <span class="inline-help">(Embedding-Dim: ${dim})</span>`;
+          speakerOutBox.className = "success upload-box";
+          // Liste neu laden
+          await refreshSpeakers();
+          // Formular zurücksetzen
+          nameEl.value = "";
+          fileEl.value = "";
+        } catch (err){
+          speakerOut.textContent = `❌ Enrollment fehlgeschlagen: ${err.message}`;
+          speakerOutBox.className = "error upload-box";
+        } finally {
+          hideSpinner();
+          speakerBtn.disabled = false;
+        }
+      });
+
+      speakerRefresh?.addEventListener('click', refreshSpeakers);
+
+      // Wenn auf den „Dateien“-Reiter geklickt wird → Liste laden
+      document.querySelectorAll('.tab[data-target="tab-docs"]').forEach(btn=>{
+        btn.addEventListener('click', ()=> { refreshSpeakers(); });
+      });
+    }
+
   </script>
 </body>
 </html>
