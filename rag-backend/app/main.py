@@ -3,12 +3,11 @@
 import os
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
-from jinja2 import Environment, StrictUndefined
 
 from haystack import Document
 
-from .models import QueryRequest, QueryResponse, TagPatch
-from .deps import get_document_store, get_generator
+from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
+from .deps import get_document_store, get_generator, get_retriever, get_text_embedder
 from .pipelines import (
     build_index_pipeline,
     build_query_pipeline,
@@ -22,17 +21,17 @@ from .transcribe import router as transcribe_router
 # Settings & App
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
-SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.65"))          # 0 = aus
-RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "25"))          # wie viele Retriever-Kandidaten vor Rerank
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
-# Transcribe-Endpoints registrieren
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 
-
 def require_key(x_api_key: Optional[str] = Header(None)):
-    """Einfacher Header-Check. Setze API_KEY in rag-backend/.env"""
+    """
+    Einfacher Header-Check. Setze API_KEY in rag-backend/.env
+    """
+    # Wenn ein Key gesetzt ist, muss er passen.
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -51,69 +50,126 @@ def health():
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
     files: List[UploadFile] = File(default=[]),
-    tags: Optional[List[str]] = Form(default=None),
+    tags: Optional[List[str]] = Form(default=None),   # <— NEU
 ):
     # Pipeline-Komponenten
     pipe, _store = build_index_pipeline()
-    # 3b) Direkter Ollama-Call (um Haystack-Wrapper-/Pydantic-Kanten zu vermeiden)
-    try:
-        from collections.abc import Mapping
-    except Exception:
-        Mapping = dict  # fallback
+    gen = get_generator()
 
-    # prompt war oben bereits als String gerendert; trotzdem defensiv normalisieren:
-    if isinstance(prompt, Mapping) and "prompt" in prompt and isinstance(prompt["prompt"], str):
-        prompt = prompt["prompt"]
-    elif not isinstance(prompt, str):
-        prompt = str(prompt)
+    all_docs: List[Document] = []
+    file_stats = []
 
-    try:
-        from ollama import Client as _OClient
-        ollama_host = os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_BASE_URL") or "http://ollama:11434"
-        model_name = os.getenv("OLLAMA_MODEL") or os.getenv("GENERATOR_MODEL") or "llama3"
-        _oc = _OClient(host=ollama_host)
-        _resp = _oc.generate(model=model_name, prompt=prompt, stream=False)
-        answer = (_resp.get("response") or "").strip()
-    except Exception as _e:
-        # Fallback: versuche trotzdem den Haystack-Generator (falls konfiguriert)
-        try:
-            gen = get_generator()
-            gen_out = gen.run({"prompt": prompt}) or {}
-            answer_list = gen_out.get("replies") or []
-            answer = answer_list[0] if answer_list else ""
-        except Exception as _e2:
-            raise HTTPException(status_code=500, detail=f"Ollama/Generator error: {str(_e2) or str(_e)}")
-    # 4) Quellen zusammenfassen
+    for f in files:
+        data = await f.read()
+        mime = f.content_type or "application/octet-stream"
+        docs = convert_bytes_to_documents(
+            filename=f.filename,
+            mime=mime,
+            data=data,
+            default_meta={"source": "upload"},
+        )
+        # Auto-Tagging auf Chunk-Basis + Form-Tags
+        docs = postprocess_with_tags(gen, docs, tags or [])
+        all_docs.extend(docs)
+        file_stats.append({"filename": f.filename, "chunks": len(docs)})
+
+    if not all_docs:
+        return {"indexed": 0, "files": file_stats}
+
+    _ = pipe.run({"clean": {"documents": all_docs}})
+    return {"indexed": len(all_docs), "files": file_stats}
+
+# -----------------------------
+# Query
+# -----------------------------
+@app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
+def query(payload: QueryRequest):
+    """
+    Semantische Suche + Generierung.
+    Unterstützt Tag-Filter:
+      - tags_all: alle müssen enthalten sein
+      - tags_any: mindestens einer muss enthalten sein
+    """
+    store = get_document_store()
+    pipe = build_query_pipeline(store)
+
+    # Filter bauen (Qdrant-Dokumentfilter)
+    flt = None
+    if payload.tags_all or payload.tags_any:
+        flt = {"operator": "AND", "conditions": []}
+        if payload.tags_all:
+            flt["conditions"].append(
+                {"field": "meta.tags", "operator": "contains_all", "value": payload.tags_all}
+            )
+        if payload.tags_any:
+            flt["conditions"].append(
+                {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
+            )
+
+    ret = pipe.run({
+        "embed_query": {"text": payload.query},
+        "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
+        "prompt_builder": {"query": payload.query},
+        "generate": {}
+    })
+
+# Antwort aus der Pipeline
+    gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
+    answer_list = gen_out.get("replies") or []
+    answer = answer_list[0] if answer_list else ""
+
+# Quellen separat via Direkt-Retrieval (robust, unabhängig von Pipeline-Outputs)
+    store = get_document_store()
+    retriever = get_retriever(store)
+    qembed = get_text_embedder()
+
+    emb = qembed.run(text=payload.query)["embedding"]
+    ret_docs = retriever.run(
+        query_embedding=emb,
+        filters=flt,
+        top_k=payload.top_k or 5,
+        score_threshold=(SCORE_THRESHOLD if SCORE_THRESHOLD > 0 else None),
+    )
+    docs = ret_docs.get("documents", []) or []
+
+# Quellen zusammenfassen
     srcs = []
-    for d in top_docs:
+    for d in docs:
         meta = getattr(d, "meta", {}) or {}
         srcs.append({
             "id": getattr(d, "id", None),
-            "score": round(float(getattr(d, "score", 0.0)), 3) if getattr(d, "score", None) is not None else None,
+            "score": getattr(d, "score", None),
             "tags": meta.get("tags"),
-            "source": meta.get("source"),
             "meta": meta,
-            "snippet": (getattr(d, "content", "") or "").replace("\n", " ")[:350],
+            "snippet": (getattr(d, "content", "") or "")[:350],
         })
 
-    used_tags = sorted({t for d in top_docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
+    used_tags = sorted({t for d in docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
 
+# Antworttext um kompakte Quellenliste ergänzen
     if srcs:
-        answer = f"{answer}\n\nQuellen:\n" + _format_sources_for_answer(srcs, limit=5)
+        lines = []
+        for s in srcs[:5]:
+            fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s["id"]
+            sc = s.get("score")
+            lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
+        answer = f"{answer}\n\nQuellen:\n" + "\n".join(lines)
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
-
 
 # -----------------------------
 # Tags
 # -----------------------------
 @app.get("/tags", dependencies=[Depends(require_key)])
 def list_tags(limit: int = 1000):
-    """Aggregiert alle bekannten Tags und liefert Counts zurück."""
+    """
+    Aggregiert alle bekannten Tags und liefert Counts zurück.
+    """
     store = get_document_store()
     docs = store.filter_documents(filters=None, top_k=limit)
 
     from collections import Counter
+
     c = Counter()
     for d in docs:
         for t in (d.meta or {}).get("tags", []):
@@ -126,8 +182,11 @@ def list_tags(limit: int = 1000):
 # -----------------------------
 @app.patch("/docs/{doc_id}/tags", dependencies=[Depends(require_key)])
 def patch_tags(doc_id: str, patch: TagPatch):
-    """Manuelles Hinzufügen/Entfernen von Tags an einem Dokument."""
+    """
+    Ermöglicht das manuelle Hinzufügen/Entfernen von Tags an einem Dokument.
+    """
     store = get_document_store()
+    # Einfachster Weg: Dokument anhand der ID holen
     docs = store.filter_documents(
         filters={"operator": "AND", "conditions": [{"field": "id", "operator": "==", "value": doc_id}]},
         top_k=1,

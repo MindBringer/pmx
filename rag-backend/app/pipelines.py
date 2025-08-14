@@ -10,23 +10,9 @@ import pathlib
 from haystack import Pipeline, Document
 from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
 from haystack.components.writers import DocumentWriter
+from haystack.components.builders import PromptBuilder
 
-# --- Optionaler Reranker (verschiedene Pfade je nach Version) ---
-try:
-    # Neuer Integrationspfad (Haystack 2.x)
-    from haystack_integrations.components.rankers.sentence_transformers import SentenceTransformersRanker
-except Exception:
-    try:
-        # Teilweise noch hier zu finden
-        from haystack_integrations.components.rankers.sentence_transformers.ranker import SentenceTransformersRanker  # noqa: F401
-    except Exception:
-        try:
-            # Manchmal (älter) direkt unter haystack.components.rankers
-            from haystack.components.rankers import SentenceTransformersRanker  # noqa: F401
-        except Exception:
-            SentenceTransformersRanker = None  # Fallback: kein Ranker verfügbar
-
-# Built-in Haystack converters
+# Built-in Haystack converters (nutzen wir, wo vorhanden/stabil)
 from haystack.components.converters import (
     PyPDFToDocument,
     TextFileToDocument,
@@ -34,7 +20,8 @@ from haystack.components.converters import (
     HTMLToDocument,
 )
 
-# Zusätzliche Formate
+# Unsere Abhängigkeiten für zusätzliche Formate:
+# docx, odt, xlsx, eml
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument  # python-docx
 from odf.opendocument import load as odf_load                  # odfpy
@@ -70,6 +57,7 @@ _HTML = HTMLToDocument()
 
 
 def _doc_from_text(text: str, meta: Optional[Dict[str, Any]] = None) -> Document:
+    # Normiere Zeilenenden & trimme überschüssige Leerzeichen
     cleaned = re.sub(r"\r\n?", "\n", text or "").strip()
     return Document(content=cleaned, meta=meta or {})
 
@@ -77,9 +65,11 @@ def _doc_from_text(text: str, meta: Optional[Dict[str, Any]] = None) -> Document
 def _convert_docx(data: bytes, meta: Dict[str, Any]) -> List[Document]:
     f = io.BytesIO(data)
     doc = DocxDocument(f)
+    # Absätze zusammentragen
     parts = []
     for p in doc.paragraphs:
         parts.append(p.text)
+    # Tabellen auch berücksichtigen (einfacher Join)
     for table in getattr(doc, "tables", []):
         for row in table.rows:
             cells = [c.text for c in row.cells]
@@ -89,23 +79,27 @@ def _convert_docx(data: bytes, meta: Dict[str, Any]) -> List[Document]:
 
 
 def _extract_odf_text(elem) -> Iterable[str]:
+    # ODT: hole alle Text-Elemente (Absätze, Zeilenumbrüche, Listen)
     for node in elem.childNodes:
         if isinstance(node, odf_text.P) or isinstance(node, odf_text.H):
             yield "".join(t.data for t in node.childNodes if hasattr(t, "data"))
         elif isinstance(node, odf_text.List) or isinstance(node, odf_text.ListItem):
             yield from _extract_odf_text(node)
         else:
+            # Rekursiv durchgehen; Text-Span etc.
             if hasattr(node, "childNodes"):
                 yield from _extract_odf_text(node)
 
 
 def _convert_odt(data: bytes, meta: Dict[str, Any]) -> List[Document]:
+    # ODT via odfpy
     f = io.BytesIO(data)
     odoc = odf_load(f)
     texts = []
     for body in odoc.getElementsByType(odf_text.P):
         texts.append("".join(t.data for t in body.childNodes if hasattr(t, "data")))
     if not texts:
+        # Als Fallback alles aus dem Text-Baum holen
         try:
             body = odoc.text
             texts = list(_extract_odf_text(body))
@@ -122,6 +116,7 @@ def _convert_xlsx(data: bytes, meta: Dict[str, Any]) -> List[Document]:
     for ws in wb.worksheets:
         rows = []
         for row in ws.iter_rows(values_only=True):
+            # Repräsentiere jede Zeile als tab-getrennte Werte
             vals = ["" if v is None else str(v) for v in row]
             rows.append("\t".join(vals))
         text = "\n".join(rows).strip()
@@ -133,6 +128,7 @@ def _convert_xlsx(data: bytes, meta: Dict[str, Any]) -> List[Document]:
 
 
 def _convert_eml(data: bytes, meta: Dict[str, Any]) -> List[Document]:
+    # E-Mail inkl. Header + Body (Text bevorzugt, HTML als Plain extrahiert)
     mail = mailparser.parse_from_bytes(data)
     headers = {
         "from": (mail.from_[0][1] if mail.from_ else None),
@@ -141,16 +137,18 @@ def _convert_eml(data: bytes, meta: Dict[str, Any]) -> List[Document]:
         "date": str(mail.date) if mail.date else None,
         "message_id": mail.message_id,
     }
+    # Body
     body_text = ""
     if mail.text_plain:
         body_text = "\n\n".join(mail.text_plain)
     elif mail.text_html:
+        # HTML -> Plain
         texts = []
         for html in mail.text_html:
             soup = BeautifulSoup(html, "lxml")
             texts.append(soup.get_text(separator="\n"))
         body_text = "\n\n".join(texts)
-
+    # Anhänge werden hier ignoriert (kann später ergänzt werden)
     content = []
     content.append(f"Subject: {headers.get('subject') or ''}")
     if headers.get("from"):
@@ -167,10 +165,15 @@ def _convert_eml(data: bytes, meta: Dict[str, Any]) -> List[Document]:
 
 
 def _run_converter_with_tempfile(converter, suffix: str, data: bytes) -> List[Document]:
+    """
+    Schreibt die Bytes in eine Temp-Datei und ruft den Haystack-Converter mit Pfad auf.
+    Das ist am robustesten, weil einige Converter Pfade bevorzugen.
+    """
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(data)
         tmp_path = tmp.name
     try:
+        # Converter erwarten normalerweise "sources=[pfad]"
         out = converter.run(sources=[tmp_path])["documents"]
         return out
     finally:
@@ -186,34 +189,51 @@ def convert_bytes_to_documents(
     data: bytes,
     default_meta: Optional[Dict[str, Any]] = None
 ) -> List[Document]:
+    """
+    Universeller Konverter: Datei-Bytes -> Haystack Documents
+    Unterstützte Typen: txt, md, pdf, html, docx, odt, xlsx, eml
+    """
     meta = dict(default_meta or {})
     meta.update({"filename": filename, "mime": mime})
+
+    # Normalisiere MIME
     mime = (mime or "").lower()
 
     try:
         if mime == "application/pdf" or filename.lower().endswith(".pdf"):
             docs = _run_converter_with_tempfile(_PDF, ".pdf", data)
+
         elif mime in ("text/markdown",) or filename.lower().endswith(".md"):
             docs = _run_converter_with_tempfile(_MD, ".md", data)
+
         elif mime in ("text/html", "application/xhtml+xml") or filename.lower().endswith((".htm", ".html")):
             docs = _run_converter_with_tempfile(_HTML, ".html", data)
+
         elif mime in ("text/plain",) or filename.lower().endswith(".txt"):
+            # Einheitlich auch via Tempfile + TextFileToDocument
             docs = _run_converter_with_tempfile(_TXT, ".txt", data)
+
         elif mime in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",) or filename.lower().endswith(".docx"):
             docs = _convert_docx(data, meta)
+
         elif mime in ("application/vnd.oasis.opendocument.text", "application/odt") or filename.lower().endswith(".odt"):
             docs = _convert_odt(data, meta)
+
         elif mime in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",) or filename.lower().endswith(".xlsx"):
             docs = _convert_xlsx(data, meta)
+
         elif mime in ("message/rfc822", "application/eml") or filename.lower().endswith(".eml"):
             docs = _convert_eml(data, meta)
+
         else:
+            # Fallback: als Text behandeln
             try:
                 text = data.decode("utf-8", errors="ignore")
             except Exception:
                 text = ""
             docs = [_doc_from_text(text, meta)] if text.strip() else []
 
+        # Meta anreichern (z. B. filename/mime in Dokumente übernehmen)
         for d in docs:
             m = dict(d.meta or {})
             m.setdefault("filename", filename)
@@ -223,6 +243,7 @@ def convert_bytes_to_documents(
         return docs
 
     except Exception as e:
+        # Defensive: nie komplett scheitern lassen
         fallback = f"[Konvertierung fehlgeschlagen: {type(e).__name__}: {e}]"
         return [_doc_from_text(fallback, meta)]
 
@@ -233,12 +254,12 @@ def convert_bytes_to_documents(
 
 def build_index_pipeline():
     store = get_document_store()
-    embedder = get_doc_embedder()
+    embedder = get_doc_embedder()           # DOKUMENT-Embedder
     writer = DocumentWriter(document_store=store)
 
     cleaner = DocumentCleaner()
     splitter = DocumentSplitter(
-        split_by="word",  # gültig: function, page, passage, period, word, line, sentence
+        split_by="word",                    # gültig: function, page, passage, period, word, line, sentence
         split_length=int_env("CHUNK_SIZE", 200),
         split_overlap=int_env("CHUNK_OVERLAP", 20),
     )
@@ -246,7 +267,7 @@ def build_index_pipeline():
     pipe = Pipeline()
     pipe.add_component("clean", cleaner)
     pipe.add_component("split", splitter)
-    pipe.add_component("embed", embedder)
+    pipe.add_component("embed", embedder)   # erwartet documents
     pipe.add_component("write", writer)
 
     pipe.connect("clean.documents", "split.documents")
@@ -256,6 +277,9 @@ def build_index_pipeline():
 
 
 def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List[str]]):
+    """
+    Auto-Tagging auf Chunk-Ebene: nutzt Llama3 (OllamaGenerator) und ergänzt um default_tags.
+    """
     for d in docs:
         auto = extract_tags(gen, d.content)[:8]
         meta = d.meta or {}
@@ -266,32 +290,31 @@ def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List
 
 
 def build_query_pipeline(store=None):
-    """
-    Retriever-only Query-Pipeline.
-    - embed_query (TextEmbedder) -> retrieve (DenseRetriever)
-    - optional: rerank (CrossEncoder) to re-order documents; main.py does the Prompt+Generation.
-    """
     store = store or get_document_store()
     retriever = get_retriever(store)
-    qembed = get_text_embedder()
+    gen = get_generator()
+    qembed = get_text_embedder()            # TEXT-Embedder für die Query
 
-    # Optional CrossEncoder-based reranker (keeps compatibility with env flags)
-    enable_rerank = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
-    rerank_model = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-    rerank_top_k = int(os.getenv("RERANK_TOP_K", "3"))
+    template = """Beantworte prägnant und korrekt anhand der folgenden Dokumente.
+Gib keine Inhalte wieder, die nicht im Kontext stehen.
+
+Kontext:
+{% for d in documents %}
+- {{ d.content | truncate(600) }}
+{% endfor %}
+
+Frage: {{ query }}
+"""
 
     pipe = Pipeline()
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
+    pipe.add_component("prompt_builder", PromptBuilder(template=template))
+    pipe.add_component("generate", gen)
 
-    if enable_rerank and SentenceTransformersRanker is not None:
-        reranker = SentenceTransformersRanker(model=rerank_model, top_k=rerank_top_k)
-        pipe.add_component("rerank", reranker)
-        # connections
-        pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-        pipe.connect("retrieve.documents", "rerank.documents")
-    else:
-        # connections without reranker
-        pipe.connect("embed_query.embedding", "retrieve.query_embedding")
-
+    # Query-Text -> Embedder -> Retriever
+    pipe.connect("embed_query.embedding", "retrieve.query_embedding")
+    # Retriever-Dokumente -> PromptBuilder -> Generator
+    pipe.connect("retrieve.documents", "prompt_builder.documents")
+    pipe.connect("prompt_builder.prompt", "generate.prompt")
     return pipe
