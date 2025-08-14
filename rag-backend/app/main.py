@@ -1,9 +1,8 @@
 # rag-backend/app/main.py
 
-import os
+import os, time
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form
-
+from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Form, Request
 from haystack import Document
 
 from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
@@ -15,7 +14,7 @@ from .pipelines import (
     convert_bytes_to_documents,
 )
 
-from .transcribe import router as transcribe_router
+from .transcribe import router as transcribe_router  # Audio: /transcribe + /speakers
 
 # -----------------------------
 # Settings & App
@@ -25,7 +24,9 @@ SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
+# Neue Audio-/Speaker-Routen einhängen (aus transcribe.py)
 app.include_router(transcribe_router, prefix="", tags=["audio"])
+
 
 def require_key(x_api_key: Optional[str] = Header(None)):
     """
@@ -47,21 +48,46 @@ def health():
 # -----------------------------
 # Index
 # -----------------------------
+
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
+    request: Request,
     files: List[UploadFile] = File(default=[]),
-    tags: Optional[List[str]] = Form(default=None),   # <— NEU
 ):
-    # Pipeline-Komponenten
+    """
+    Mehrere Dateien entgegennehmen, in Haystack-Dokumente konvertieren,
+    automatisch taggen (inkl. Form-Tags) und indexieren.
+    Liefert Metadaten: Chunks, Laufzeiten, Dateigröße etc.
+    """
+    # --- Tags robust aus dem Form auslesen (String, CSV oder mehrfach) ---
+    form = await request.form()
+    raw_list = form.getlist("tags")
+    tags: List[str] = []
+    if raw_list:
+        for item in raw_list:
+            if isinstance(item, str) and ("," in item):
+                tags.extend([t.strip() for t in item.split(",") if t.strip()])
+            elif isinstance(item, str) and item.strip():
+                tags.append(item.strip())
+    else:
+        raw = form.get("tags")
+        if isinstance(raw, str) and raw.strip():
+            tags = [t.strip() for t in raw.split(",")] if "," in raw else [raw.strip()]
+
+    # Pipelines
     pipe, _store = build_index_pipeline()
     gen = get_generator()
 
+    t0 = time.perf_counter()
     all_docs: List[Document] = []
     file_stats = []
 
     for f in files:
         data = await f.read()
         mime = f.content_type or "application/octet-stream"
+        size_bytes = len(data)
+
+        t_conv0 = time.perf_counter()
         docs = convert_bytes_to_documents(
             filename=f.filename,
             mime=mime,
@@ -70,14 +96,36 @@ async def index(
         )
         # Auto-Tagging auf Chunk-Basis + Form-Tags
         docs = postprocess_with_tags(gen, docs, tags or [])
+        conv_ms = round((time.perf_counter() - t_conv0) * 1000)
+
         all_docs.extend(docs)
-        file_stats.append({"filename": f.filename, "chunks": len(docs)})
+        file_stats.append({
+            "filename": f.filename,
+            "mime": mime,
+            "size_bytes": size_bytes,
+            "chunks": len(docs),
+            "chars": sum(len(d.content or "") for d in docs),
+            "conv_ms": conv_ms,
+        })
 
-    if not all_docs:
-        return {"indexed": 0, "files": file_stats}
+    t_idx0 = time.perf_counter()
+    if all_docs:
+        _ = pipe.run({"clean": {"documents": all_docs}})
+    pipeline_ms = round((time.perf_counter() - t_idx0) * 1000)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
-    _ = pipe.run({"clean": {"documents": all_docs}})
-    return {"indexed": len(all_docs), "files": file_stats}
+    total_chunks = len(all_docs)
+    return {
+        "indexed": total_chunks,
+        "files": file_stats,
+        "tags": tags,
+        "metrics": {
+            "elapsed_ms": elapsed_ms,
+            "pipeline_ms": pipeline_ms,
+            "total_chunks": total_chunks,
+            "files_count": len(file_stats),
+        },
+    }
 
 # -----------------------------
 # Query
@@ -106,23 +154,22 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
+    # End-to-End Pipeline (Embed -> Retrieve -> Prompt -> Generate)
     ret = pipe.run({
-        "embed_query": {"text": payload.query},
-        "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
-        "prompt_builder": {"query": payload.query},
-        "generate": {}
+        "embed_query":     {"text": payload.query},
+        "retrieve":        {"filters": flt, "top_k": payload.top_k or 5},
+        "prompt_builder":  {"query": payload.query},
+        "generate":        {}
     })
 
-# Antwort aus der Pipeline
+    # Antwort aus der Pipeline
     gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-# Quellen separat via Direkt-Retrieval (robust, unabhängig von Pipeline-Outputs)
-    store = get_document_store()
+    # Quellen separat via Direkt-Retrieval (robust, unabhängig von Pipeline-Outputs)
     retriever = get_retriever(store)
     qembed = get_text_embedder()
-
     emb = qembed.run(text=payload.query)["embedding"]
     ret_docs = retriever.run(
         query_embedding=emb,
@@ -132,30 +179,26 @@ def query(payload: QueryRequest):
     )
     docs = ret_docs.get("documents", []) or []
 
-# Quellen zusammenfassen
+    # Quellen zusammenfassen
     srcs = []
+    used_tags = []
     for d in docs:
-        meta = getattr(d, "meta", {}) or {}
+        meta = d.meta or {}
         srcs.append({
             "id": getattr(d, "id", None),
             "score": getattr(d, "score", None),
-            "tags": meta.get("tags"),
-            "meta": meta,
-            "snippet": (getattr(d, "content", "") or "")[:350],
+            "tags": meta.get("tags", []),
+            "source": meta.get("source"),
+            "title": meta.get("title"),
+            "snippet": d.content[:400] + ("…" if d.content and len(d.content) > 400 else ""),
         })
-
-    used_tags = sorted({t for d in docs for t in ((getattr(d, "meta", None) or {}).get("tags", []))})
-
-# Antworttext um kompakte Quellenliste ergänzen
-    if srcs:
-        lines = []
-        for s in srcs[:5]:
-            fname = (s.get("meta") or {}).get("filename") or (s.get("meta") or {}).get("file_path") or s["id"]
-            sc = s.get("score")
-            lines.append(f"- {fname} (score: {sc:.3f})" if sc is not None else f"- {fname}")
-        answer = f"{answer}\n\nQuellen:\n" + "\n".join(lines)
+        used_tags.extend(meta.get("tags", []))
+    # Duplikate entfernen, Reihenfolge grob beibehalten
+    seen = set()
+    used_tags = [t for t in used_tags if not (t in seen or seen.add(t))]
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
+
 
 # -----------------------------
 # Tags
@@ -169,7 +212,6 @@ def list_tags(limit: int = 1000):
     docs = store.filter_documents(filters=None, top_k=limit)
 
     from collections import Counter
-
     c = Counter()
     for d in docs:
         for t in (d.meta or {}).get("tags", []):
@@ -186,7 +228,7 @@ def patch_tags(doc_id: str, patch: TagPatch):
     Ermöglicht das manuelle Hinzufügen/Entfernen von Tags an einem Dokument.
     """
     store = get_document_store()
-    # Einfachster Weg: Dokument anhand der ID holen
+    # Dokument anhand der ID holen
     docs = store.filter_documents(
         filters={"operator": "AND", "conditions": [{"field": "id", "operator": "==", "value": doc_id}]},
         top_k=1,
