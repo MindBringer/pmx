@@ -147,7 +147,6 @@ def query(payload: QueryRequest):
     ret = pipe.run({
         "embed_query": {"text": payload.query},
         "retrieve":    {"filters": flt, "top_k": payload.top_k or 5},
-        "rerank":      {},  # Input nur aus retrieve.documents
         "prompt_builder": {"query": payload.query},
         "generate": {}
     })
