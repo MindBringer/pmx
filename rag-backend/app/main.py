@@ -179,16 +179,26 @@ def query(payload: QueryRequest):
         top_docs = _apply_threshold_and_best_per_file(docs, thr)
         top_docs = top_docs[: (payload.top_k or 5)]
 
-    # 3) Prompt bauen & generieren – NICHT über die Pipeline, sondern direkt:
-    # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
+     # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
     env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
     tmpl = env.from_string(PROMPT_TEMPLATE)
     prompt = tmpl.render(query=payload.query, documents=top_docs)
     gen = get_generator()
-    # Normalize prompt to a plain string in case it's a dict like {'prompt': '...'}
-    if isinstance(prompt, dict) and 'prompt' in prompt:
-        prompt = prompt['prompt']
+    # Normalize prompt robustly
+    try:
+        from collections.abc import Mapping
+    except Exception:
+        Mapping = dict  # fallback
+    if isinstance(prompt, Mapping):
+        if 'prompt' in prompt and isinstance(prompt['prompt'], str):
+            prompt = prompt['prompt']
+        else:
+            prompt = str(prompt)
+    elif hasattr(prompt, "prompt") and isinstance(getattr(prompt, "prompt"), str):
+        prompt = getattr(prompt, "prompt")
     elif not isinstance(prompt, str):
+        prompt = str(prompt)
+    if not isinstance(prompt, str):
         prompt = str(prompt)
     gen_out = gen.run({"prompt": prompt}) or {}
     answer_list = gen_out.get("replies") or []
