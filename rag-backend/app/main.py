@@ -179,7 +179,7 @@ def query(payload: QueryRequest):
         top_docs = _apply_threshold_and_best_per_file(docs, thr)
         top_docs = top_docs[: (payload.top_k or 5)]
 
-     # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
+    # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
     env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
     tmpl = env.from_string(PROMPT_TEMPLATE)
     prompt = tmpl.render(query=payload.query, documents=top_docs)
@@ -200,7 +200,7 @@ def query(payload: QueryRequest):
         prompt = str(prompt)
     if not isinstance(prompt, str):
         prompt = str(prompt)
-    gen_out = gen.run({"prompt": prompt}) or {}
+    gen_out = gen.run({"prompt": (prompt if isinstance(prompt, str) else (prompt.get("prompt") if isinstance(prompt, dict) else str(prompt)))}) or {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
