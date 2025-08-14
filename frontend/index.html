@@ -3,528 +3,187 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>🧠 AI Prompt Interface</title>
+  <title>🧠 RAG UI – Dateien & Anfrage</title>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;
-      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-      min-height:100vh;padding:20px;display:flex;align-items:center;justify-content:center
-    }
-    .container{
-      background:rgba(255,255,255,.95);border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,.1);
-      padding:24px;max-width:860px;width:100%;backdrop-filter:blur(10px)
-    }
-    h2{color:#333;margin-bottom:18px;text-align:center;font-size:28px;font-weight:300}
-
-    /* Tabs */
-    .tabs{display:flex;width:100%;margin-bottom:16px}
-    .tab{
-      flex:1;
-      padding:10px 14px;
-      border-radius:10px 10px 0 0;
-      border:2px solid #e0e0e0;
-      background:#fff;
-      cursor:pointer;
-      font-weight:500;color:#444;transition:.2s;text-align:center
-    }
-    .tab.active{border-color:#667eea;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
-
-    /* Panels (wichtig: unsichtbar wenn inaktiv) */
-    .panel{display:none;position:relative}
-    .panel.active{display:block}
-
-    .form-group{margin-bottom:16px}
-    label{display:block;margin-bottom:8px;color:#555;font-weight:500;font-size:14px}
-    select,textarea,input[type="text"],input[type="file"],input[type="password"]{
-      width:100%;padding:12px 16px;border:2px solid #e0e0e0;border-radius:10px;font-size:16px;transition:.2s;font-family:inherit
-    }
-    select:focus,textarea:focus,input[type="text"]:focus,input[type="password"]:focus{
-      outline:none;border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,.1)
-    }
-    textarea{min-height:120px;resize:vertical}
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .row .col{flex:1 1 240px}
-
-    button{
-      width:100%;padding:14px 24px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-      color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;transition:.2s;margin:8px 0 18px
-    }
-    button:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 5px 15px rgba(102,126,234,.4)}
-    button:disabled{opacity:.7;cursor:not-allowed;transform:none}
-
-    #result,#upload-result{
-      background:#f8f9fa;border-radius:10px;padding:16px;min-height:90px;white-space:pre-wrap;color:#333;line-height:1.6;border:2px solid #e0e0e0;position:relative
-    }
-    .loading-container{
-      display:none;flex-direction:column;align-items:center;justify-content:center;
-      padding:32px;position:absolute;inset:0;background:rgba(248,249,250,.95);border-radius:10px;z-index:10
-    }
-    .loading-container.active{display:flex}
-    .spinner{width:40px;height:40px;position:relative}
-    .spinner::before{content:'';position:absolute;inset:0;border:4px solid #e0e0e0;border-radius:50%;border-top-color:#667eea;animation:spin 1s linear infinite}
+    :root { --pri:#5b6cff; --bg:#0b1020; --card:#121733; --mut:#aab3cf; --ok:#10b981; --err:#ef4444; }
+    *{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#0b1020,#0f1732);color:#e7ecff;font-family:system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif}
+    .wrap{max-width:1100px;margin:0 auto;padding:24px}
+    h1{font-size:22px;font-weight:700;margin:10px 0 20px;display:flex;gap:10px;align-items:center}
+    h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--pri);box-shadow:0 0 10px var(--pri)}
+    .tabs{display:flex;gap:8px;margin-bottom:16px}
+    .tab{padding:10px 14px;border-radius:10px;background:#0d1430;border:1px solid #1a2455;cursor:pointer;color:#cdd6ff}
+    .tab.active{background:#121a45;border-color:#2a3aa0;color:#fff}
+    .card{background:var(--card);border:1px solid #1a2455;border-radius:16px;padding:16px}
+    .row{display:flex;gap:16px;flex-wrap:wrap}
+    .col{flex:1 1 360px}
+    label{font-size:13px;color:#b9c3ee}
+    input[type="text"], textarea{width:100%;padding:10px 12px;background:#0f1536;border:1px solid #1a2455;border-radius:10px;color:#e7ecff}
+    input[type="file"]{width:100%;padding:8px;background:#0f1536;border:1px dashed #3340a0;border-radius:10px;color:#b9c3ee}
+    .checks{display:flex;gap:12px;margin:10px 0}
+    .checks label{display:flex;gap:8px;align-items:center;cursor:pointer}
+    .btn{background:var(--pri);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
+    .mut{color:#aab3cf;font-size:12px}
+    .hr{height:1px;background:#1a2455;margin:12px 0}
+    .pill{display:inline-flex;gap:6px;align-items:center;background:#0f1536;border:1px solid #2a3aa0;color:#dce2ff;border-radius:999px;padding:6px 10px;font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .result{white-space:pre-wrap;background:#0f1536;border:1px solid #1a2455;border-radius:10px;padding:10px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    .timeline{display:flex;flex-direction:column;gap:8px}
+    .seg{background:#0f1536;border:1px solid #1a2455;border-radius:10px;padding:8px}
+    .seg b{color:#7cc6ff}
+    .status{display:flex;align-items:center;gap:8px}
+    .spinner{width:14px;height:14px;border:2px solid #3a4bbd;border-top-color:#9aa6ff;border-radius:50%;animation:spin 0.9s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .loading-text{margin-top:12px;color:#667eea;font-size:16px;font-weight:500}
-    .dots{display:inline-block;width:20px;text-align:left}
-    .dots::after{content:'';animation:dots 1.5s steps(4,end) infinite}
-    @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}100%{content:''}}
-    .error{color:#dc3545;background:#f8d7da;border-color:#f5c6cb}
-    .success{background:#d1ecf1;border-color:#bee5eb}
-    .inline-help{font-size:12px;color:#666;margin-top:6px}
-    .choices{display:flex;gap:12px}
-    .choice{padding:8px 12px;border:2px solid #e0e0e0;border-radius:999px;cursor:pointer;user-select:none}
-    .choice input{display:none}
-    .choice.active{border-color:#667eea;background:#eef1ff}
-
-    /* kleine Helfer */
-    .muted{color:#666}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    ul.sources{margin-top:10px;padding-left:18px}
-    ul.sources li{margin:4px 0}
+    .ok{color:var(--ok)} .err{color:var(--err)}
   </style>
 </head>
 <body>
-  <div class="container">
-    <h2>🧠 AI Prompt Interface</h2>
-
-    <!-- Tabs -->
+  <div class="wrap">
+    <h1><span class="dot"></span> RAG-Interface – <span id="tabTitle">Dateien</span></h1>
     <div class="tabs">
-      <button class="tab active" data-target="tab-prompt">Prompt</button>
-      <button class="tab" data-target="tab-docs">Dateien</button>
+      <button class="tab active" data-tab="files">Dateien</button>
+      <button class="tab" data-tab="chat">Fragen</button>
     </div>
 
-    <!-- Panel: Prompt -->
-    <div class="panel active" id="tab-prompt">
-      <form id="prompt-form">
-        <div class="form-group">
-          <label for="model">Modell:</label>
-          <select id="model">
-            <option value="llama3">llama3</option>
-            <option value="mistral">mistral</option>
-            <option value="mistralapi">Codestral API</option>
-            <option value="groq">Groq API</option>
-            <option value="openrouter">OpenRouter API</option>
-            <option value="openai">OpenAI API</option>
-            <option value="huggingface">Hugging Face API</option>
-            <option value="anthropic">Anthropic API</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="prompt">Frage / Prompt:</label>
-          <textarea id="prompt" placeholder="Stell eine Frage an das Modell..."></textarea>
-        </div>
-
-        <div class="form-group">
-          <label for="system">Anweisungen für Systemverhalten (optional):</label>
-          <textarea id="system" placeholder="sei ein hilfsbereiter Spezialist für..."></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>Firmendaten mit einbeziehen?</label>
-          <div class="choices" id="rag-choices">
-            <label class="choice active"><input type="radio" name="rag" value="false" checked> Nein</label>
-            <label class="choice"><input type="radio" name="rag" value="true"> Ja</label>
+    <!-- Dateien Tab -->
+    <div id="tab-files" class="card">
+      <div class="row">
+        <div class="col">
+          <h3>Dokumente hochladen</h3>
+          <input id="docFile" type="file" multiple accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx,.pptx,.html,.htm,.json,image/*"/>
+          <div class="checks">
+            <label><input id="docIndex" type="checkbox" checked/> Indexieren</label>
           </div>
-          <div class="inline-help">Wenn „Ja“, wird <code>rag=true</code> an <code>/webhook/llm</code> übergeben.</div>
+          <label>Tags (kommagetrennt)</label>
+          <input id="docTags" type="text" placeholder="projekt, meeting, 2025-08-14"/>
+          <div style="margin-top:10px">
+            <button class="btn" id="btnUploadDocs">Hochladen</button>
+            <span id="docStatus" class="status" style="margin-left:10px;display:none"><span class="spinner"></span> Lädt...</span>
+          </div>
         </div>
-
-        <button type="submit" id="submit-btn">Senden</button>
-      </form>
-
-      <div id="result">
-        <div id="result-output"></div>
-        <div class="loading-container" id="spinner">
-          <div class="spinner"></div>
-          <div class="loading-text">Ich arbeite<span class="dots"></span></div>
+        <div class="col">
+          <h3>Audio hochladen</h3>
+          <input id="audioFile" type="file" accept="audio/*"/>
+          <div class="checks">
+            <label><input id="doTranscribe" type="checkbox" checked/> Transkribieren</label>
+            <label><input id="doDiar" type="checkbox" checked/> Sprecher trennen</label>
+            <label><input id="doIdentify" type="checkbox" checked/> Personen identifizieren</label>
+          </div>
+          <label>Speaker Hints (Namen, optional)</label>
+          <input id="speakerHints" type="text" placeholder="alice,bob"/>
+          <label>Tags (kommagetrennt)</label>
+          <input id="audioTags" type="text" placeholder="audio, meeting"/>
+          <div style="margin-top:10px">
+            <button class="btn" id="btnUploadAudio">Transkribieren</button>
+            <span id="audioStatus" class="status" style="margin-left:10px;display:none"><span class="spinner"></span> Läuft...</span>
+          </div>
+        </div>
+      </div>
+      <div class="hr"></div>
+      <div class="grid">
+        <div>
+          <h3>Ergebnis</h3>
+          <div id="resultText" class="result" style="display:none"></div>
+        </div>
+        <div>
+          <h3>Segmente</h3>
+          <div id="resultSegs" class="timeline"></div>
         </div>
       </div>
     </div>
 
-    <!-- Panel: Dokumente -->
-    <div class="panel" id="tab-docs">
-      <form id="docs-form">
-        <div class="form-group">
-          <label for="apiKey">API-Key (RAG)</label>
-          <div class="row" style="gap:8px;align-items:center">
-            <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
-            <button type="button" id="toggleKey" style="flex:0 0 auto;width:auto;padding:10px 14px">anzeigen</button>
-          </div>
-          <div class="inline-help">Wird als Header <code>x-api-key</code> an <code>/rag/index</code> gesendet.</div>
-        </div>
-
-        <div class="row">
-          <div class="form-group col">
-            <label for="file">Datei auswählen</label>
-            <input type="file" id="file" />
-            <div class="inline-help">Unterstützt: txt, md, pdf, html, docx, odt, xlsx, eml</div>
-          </div>
-          <div class="form-group col">
-            <label for="tags">Tags</label>
-            <input type="text" id="tags" placeholder="z. B. projektX,angebot,intern" />
-            <div class="inline-help">(optional, Komma-getrennt)</div>
-          </div>
-        </div>
-
-        <button type="submit" id="upload-btn">Hochladen</button>
-      </form>
-
-      <div id="upload-result">
-        <div id="upload-output"></div>
-        <div class="loading-container" id="upload-spinner">
-          <div class="spinner"></div>
-          <div class="loading-text">Lade hoch<span class="dots"></span></div>
-        </div>
+    <!-- Chat Tab -->
+    <div id="tab-chat" class="card" style="display:none">
+      <label>Frage</label>
+      <textarea id="query" rows="4" placeholder="Frag die Wissensbasis..."></textarea>
+      <div style="margin-top:10px">
+        <button class="btn" id="btnAsk">Fragen</button>
+        <span id="qStatus" class="status" style="margin-left:10px;display:none"><span class="spinner"></span> Anfrage...</span>
       </div>
-
-      <!-- --- Audio Upload (Transkription) --- -->
-      <div style="height:1px;background:#eee;margin:18px 0"></div>
-      <form id="audio-form">
-        <div class="form-group">
-          <label for="audioFile">Audio auswählen</label>
-          <input type="file" id="audioFile" accept="audio/*" />
-          <div class="inline-help">Unterstützt: wav, mp3, m4a, ogg, webm, flac</div>
-        </div>
-
-        <div class="row">
-          <div class="form-group col">
-            <label for="audioTags">Tags</label>
-            <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
-            <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
-          </div>
-        </div>
-
-        <button type="submit" id="audio-upload-btn">Audio hochladen & transkribieren</button>
-      </form>
-
-      <div id="audio-upload-result">
-        <div id="audio-upload-output"></div>
-        <div class="loading-container" id="audio-upload-spinner">
-          <div class="spinner"></div>
-          <div class="loading-text">Transkribiere<span class="dots"></span></div>
-        </div>
-      </div>
-
-    </div>
-  </div>
+      <div class="hr"></div>
+      <h3>Antwort</h3>
+      <div id="answer" class="result" style="display:none"></div>
     </div>
   </div>
 
-  <script>
-    // Tabs
-    document.querySelectorAll('.tab').forEach(btn=>{
-      btn.addEventListener('click',()=>{
-        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.target).classList.add('active');
-      });
-    });
+<script>
+const $ = (sel)=>document.querySelector(sel);
+const $$ = (sel)=>document.querySelectorAll(sel);
 
-    // API-Key persist + toggle
-    const apiKeyInput = document.getElementById('apiKey');
-    const toggleKeyBtn = document.getElementById('toggleKey');
-    const savedKey = localStorage.getItem('ragApiKey');
-    if (savedKey) apiKeyInput.value = savedKey;
-    apiKeyInput.addEventListener('input', () => {
-      localStorage.setItem('ragApiKey', apiKeyInput.value.trim());
-    });
-    toggleKeyBtn.addEventListener('click', () => {
-      const hidden = apiKeyInput.type === 'password';
-      apiKeyInput.type = hidden ? 'text' : 'password';
-      toggleKeyBtn.textContent = hidden ? 'verbergen' : 'anzeigen';
-    });
+$$('.tab').forEach(b=>b.addEventListener('click', ()=>{
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  const k = b.dataset.tab;
+  $('#tab-files').style.display = (k==='files')?'block':'none';
+  $('#tab-chat').style.display  = (k==='chat') ?'block':'none';
+  $('#tabTitle').textContent = (k==='files')?'Dateien':'Fragen';
+}));
 
-    // Radio pill styling
-    const ragChoices = document.getElementById('rag-choices');
-    ragChoices.addEventListener('change', () => {
-      ragChoices.querySelectorAll('.choice').forEach(c => c.classList.remove('active'));
-      const sel = ragChoices.querySelector('input[name="rag"]:checked');
-      sel.closest('.choice').classList.add('active');
-    });
+async function postForm(url, formData) {
+  const res = await fetch(url, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error(await res.text());
+  const ct = res.headers.get('content-type')||'';
+  if (ct.includes('application/json')) return res.json();
+  return res.text();
+}
 
-    // Helper: Spinner mindestens X ms anzeigen
-    function showFor(el, ms=300) {
-      el.classList.add("active");
-      const start = performance.now();
-      return () => {
-        const elapsed = performance.now() - start;
-        const left = Math.max(0, ms - elapsed);
-        setTimeout(() => el.classList.remove("active"), left);
-      };
+// Dokument-Upload (bestehender /index Endpunkt, falls vorhanden – ansonsten ignoriere Button)
+$('#btnUploadDocs').addEventListener('click', async ()=>{
+  const files = $('#docFile').files;
+  if(!files.length) return alert('Bitte Dateien wählen');
+  $('#docStatus').style.display='inline-flex';
+  try {
+    for(const f of files){
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('index', $('#docIndex').checked ? 'true' : 'false');
+      fd.append('tags', $('#docTags').value || '');
+      await postForm('/index', fd); // dein Backend sollte /index akzeptieren
     }
+    $('#docStatus').innerHTML = '<span class="ok">Fertig.</span>';
+  } catch(err){
+    console.error(err);
+    $('#docStatus').innerHTML = '<span class="err">Fehler: '+(err.message||err)+'</span>';
+  } finally {
+    setTimeout(()=>$('#docStatus').style.display='none', 2500);
+  }
+});
 
-    // ---------- Prompt ----------
-    window.addEventListener("DOMContentLoaded", function () {
-      const form = document.getElementById("prompt-form");
-      const resultDiv = document.getElementById("result");
-      const resultOut = document.getElementById("result-output");
-      const spinner = document.getElementById("spinner");
-      const submitBtn = document.getElementById("submit-btn");
+// Audio-Upload -> /transcribe
+$('#btnUploadAudio').addEventListener('click', async ()=>{
+  const f = $('#audioFile').files[0];
+  if(!f) return alert('Bitte Audio-Datei wählen');
+  $('#audioStatus').style.display='inline-flex';
+  $('#resultText').style.display='none';
+  $('#resultSegs').innerHTML='';
+  try {
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('diarize_flag', $('#doDiar').checked ? 'true':'false');
+    fd.append('identify', $('#doIdentify').checked ? 'true':'false');
+    fd.append('tags', $('#audioTags').value || '');
+    fd.append('speaker_hints', $('#speakerHints').value || '');
+    const out = await postForm('/transcribe', fd);
+    $('#resultText').textContent = out.text || '';
+    $('#resultText').style.display = 'block';
+    const segs = out.segments || [];
+    $('#resultSegs').innerHTML = segs.map(s=>{
+      const who = s.name || s.speaker;
+      const t = `[${fmt(s.start)}–${fmt(s.end)}]`;
+      return `<div class="seg"><b>${who}</b> <span class="mut">${t}</span><div>${escapeHtml(s.text||'')}</div></div>`
+    }).join('');
+    $('#audioStatus').innerHTML = '<span class="ok">Fertig.</span>';
+  } catch(err){
+    console.error(err);
+    $('#audioStatus').innerHTML = '<span class="err">Fehler: '+(err.message||err)+'</span>';
+  } finally {
+    setTimeout(()=>$('#audioStatus').style.display='none', 2500);
+  }
+});
 
-      form.addEventListener("submit", async function (e) {
-        e.preventDefault();
-        const prompt = document.getElementById("prompt").value.trim();
-        const model = document.getElementById("model").value;
-        const system = document.getElementById("system").value.trim();
-        const ragVal = document.querySelector('input[name="rag"]:checked')?.value === "true";
+function fmt(sec){ const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=(sec%60).toFixed(1); return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(4,'0')}`;}
+function escapeHtml(s){return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 
-        if (!prompt) {
-          resultOut.textContent = "⚠️ Bitte gib einen Prompt ein.";
-          resultDiv.className = "error";
-          return;
-        }
-
-        resultOut.innerHTML = "";
-        resultDiv.className = "";
-        const hideSpinner = showFor(spinner, 300);
-        submitBtn.disabled = true;
-
-        try {
-          const response = await fetch("/webhook/llm", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, system, model, rag: ragVal })
-          });
-          const text = await response.text();
-          if (!response.ok) throw new Error(text || `Fehler ${response.status}`);
-
-          let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-          // Antworttext holen
-          const answer =
-            data?.answer ??
-            data?.raw_response?.response ??
-            data?.result ??
-            (typeof data === "string" ? data : JSON.stringify(data, null, 2));
-
-          // Quellen robust extrahieren (verschiedene mögliche Felder)
-          const sources =
-            data?.sources ??
-            data?.raw_response?.sources ??
-            data?.metadata?.sources ??
-            [];
-
-          const usedTags = data?.used_tags || data?.raw_response?.used_tags || [];
-
-          // Ausgabe bauen
-          let html = "";
-          html += `<div>${escapeHtml(answer || "")}</div>`;
-
-          if (Array.isArray(sources) && sources.length > 0) {
-            html += `<div class="muted" style="margin-top:10px">Quellen:</div><ul class="sources">`;
-            sources.forEach((s) => {
-              const meta = s.meta || {};
-              const fn = meta.filename || meta.file_path || s.filename || "Quelle";
-              const score = typeof s.score === "number" ? ` (score: ${s.score.toFixed(3)})` : "";
-              const snippet = s.snippet ? ` – <span class="muted">„${escapeHtml(String(s.snippet)).slice(0,180)}“</span>` : "";
-              html += `<li><span class="mono">${escapeHtml(fn)}</span>${score}${snippet}</li>`;
-            });
-            html += `</ul>`;
-          }
-
-          if (Array.isArray(usedTags) && usedTags.length > 0) {
-            html += `<div class="muted" style="margin-top:6px">Tags: ${usedTags.map(t=>`<code>${escapeHtml(t)}</code>`).join(", ")}</div>`;
-          }
-
-          resultOut.innerHTML = html;
-          resultDiv.className = "success";
-        } catch (error) {
-          resultOut.textContent = `❌ Fehler: ${error.message}`;
-          resultDiv.className = "error";
-        } finally {
-          hideSpinner();
-          submitBtn.disabled = false;
-        }
-      });
-
-      // ---------- Upload ----------
-      const docsForm = document.getElementById("docs-form");
-      const uploadRes = document.getElementById("upload-result");
-      const uploadOut = document.getElementById("upload-output");
-      const uploadSpinner = document.getElementById("upload-spinner");
-      const uploadBtn = document.getElementById("upload-btn");
-
-      docsForm.addEventListener("submit", async function (e) {
-        e.preventDefault();
-        const apiKey = document.getElementById("apiKey").value.trim();
-        const fileEl = document.getElementById("file");
-        const tagsStr = document.getElementById("tags").value.trim();
-
-        if (!apiKey) {
-          uploadOut.textContent = "⚠️ Bitte API-Key eintragen.";
-          uploadRes.className = "error";
-          return;
-        }
-        if (!fileEl.files || fileEl.files.length === 0) {
-          uploadOut.textContent = "⚠️ Bitte eine Datei auswählen.";
-          uploadRes.className = "error";
-          return;
-        }
-
-        uploadOut.innerHTML = "";
-        uploadRes.className = "";
-        const hideSpinner = showFor(uploadSpinner, 300);
-        uploadBtn.disabled = true;
-
-        try {
-          const fd = new FormData();
-          fd.append("files", fileEl.files[0]); // Backend erwartet "files"
-          if (tagsStr) {
-            tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
-          }
-
-          const resp = await fetch("/rag/index", {
-            method: "POST",
-            headers: { "x-api-key": apiKey }, // kein Content-Type setzen!
-            body: fd
-          });
-
-          const txt = await resp.text();
-          if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
-
-          let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-
-          // Erwartete Struktur: { indexed: N, files: [{filename, chunks}, ...] }
-          const indexed = data?.indexed;
-          const files = Array.isArray(data?.files) ? data.files : [];
-
-          let html = "";
-          html += `<div>✅ Fertig${typeof indexed === "number" ? `. Chunks: <strong>${indexed}</strong>` : ""}</div>`;
-
-          if (files.length > 0) {
-            html += `<div class="muted" style="margin-top:8px">Details:</div><ul class="sources">`;
-            files.forEach(f => {
-              const fn = f.filename || f.file || "Datei";
-              const ch = (typeof f.chunks === "number") ? ` – Chunks: ${f.chunks}` : "";
-              html += `<li><span class="mono">${escapeHtml(fn)}</span>${ch}</li>`;
-            });
-            html += `</ul>`;
-          }
-
-          // Wenn das Backend doch rohe Daten zurückgibt:
-          if (!indexed && files.length === 0 && data?.raw) {
-            html += `<pre class="mono" style="margin-top:8px">${escapeHtml(String(data.raw))}</pre>`;
-          }
-
-          uploadOut.innerHTML = html;
-          uploadRes.className = "success";
-        } catch (err) {
-          uploadOut.textContent = `❌ Upload fehlgeschlagen: ${err.message}`;
-          uploadRes.className = "error";
-        } finally {
-          hideSpinner();
-          uploadBtn.disabled = false;
-        }
-      });
-    });
-
-    // HTML-Escaping für sichere Ausgaben
-    function escapeHtml(str){
-      return String(str)
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#039;");
-    }
-      // ---------- Audio Upload (Transkription) ----------
-      const audioForm    = document.getElementById("audio-form");
-      const audioRes     = document.getElementById("audio-upload-result");
-      const audioOut     = document.getElementById("audio-upload-output");
-      const audioSpinner = document.getElementById("audio-upload-spinner");
-      const audioBtn     = document.getElementById("audio-upload-btn");
-
-      if (audioForm) {
-        audioForm.addEventListener("submit", async function (e) {
-          e.preventDefault();
-          const apiKey = document.getElementById("apiKey").value.trim();
-          const fileEl = document.getElementById("audioFile");
-          const tagsStr = document.getElementById("audioTags").value.trim();
-
-          if (!apiKey) {
-            audioOut.textContent = "⚠️ Bitte API-Key eintragen.";
-            audioRes.className = "error";
-            return;
-          }
-          if (!fileEl.files || fileEl.files.length === 0) {
-            audioOut.textContent = "⚠️ Bitte eine Audio-Datei auswählen.";
-            audioRes.className = "error";
-            return;
-          }
-
-          audioOut.innerHTML = "";
-          audioRes.className = "";
-          const hideSpinner = showFor(audioSpinner, 400);
-          audioBtn.disabled = true;
-
-          try {
-            const fd = new FormData();
-            fd.append("file", fileEl.files[0]); // Transcribe erwartet typischerweise "file"
-            if (tagsStr) {
-              tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
-            }
-
-            const resp = await fetch("/rag/transcribe", {
-              method: "POST",
-              headers: { "x-api-key": apiKey },
-              body: fd
-            });
-
-            const txt = await resp.text();
-            if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
-
-            let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-
-            // Versuche mögliche Felder
-            const transcript =
-              data?.text ||
-              data?.transcript ||
-              data?.transcription ||
-              data?.result ||
-              (typeof data === "string" ? data : "");
-
-            const usedTags = data?.used_tags || data?.tags || [];
-
-            // Optional: Zusatzinfos
-            const lang = data?.language || data?.lang;
-            const dur  = data?.duration || data?.audio_duration;
-            const model = data?.model || data?.whisper_model;
-
-            let html = "";
-            if (transcript) {
-              html += `<div>✅ Fertig – Transkript:</div>`;
-              html += `<pre class="mono" style="margin-top:6px;max-height:260px;overflow:auto">${escapeHtml(String(transcript))}</pre>`;
-            } else {
-              html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-              if (data?.raw) html += `<pre class="mono" style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
-            }
-
-            const metaBits = [];
-            if (lang)  metaBits.append = undefined
-            if (lang)  metaBits.push(`Sprache: ${escapeHtml(String(lang))}`);
-            if (dur)   metaBits.push(`Dauer: ${escapeHtml(String(dur))}`);
-            if (model) metaBits.push(`Modell: ${escapeHtml(String(model))}`);
-            if (metaBits.length) {
-              html += `<div class="muted" style="margin-top:6px">${metaBits.join(" · ")}</div>`;
-            }
-
-            if (Array.isArray(usedTags) && usedTags.length) {
-              html += `<div class="muted" style="margin-top:6px">Tags: ${usedTags.map(t=>`<code>${escapeHtml(t)}</code>`).join(", ")}</div>`;
-            }
-
-            audioOut.innerHTML = html;
-            audioRes.className = "success";
-          } catch (err) {
-            audioOut.textContent = `❌ Transkription fehlgeschlagen: ${err.message}`;
-            audioRes.className = "error";
-          } finally {
-            hideSpinner();
-            audioBtn.disabled = false;
-          }
-        });
-      }
-
-  </script>
+</script>
 </body>
 </html>
