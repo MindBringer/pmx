@@ -42,9 +42,9 @@ webrtcvad>=2.0.10
 pydub>=0.25.1
 numpy>=1.26
 scipy>=1.11
-speechbrain>=0.5.16
-torch==2.3.1+cpu ; platform_system=="Linux"
-torchaudio==2.3.1+cpu ; platform_system=="Linux"
+speechbrain<=1.0.3,>=0.5.16
+torch==2.3.1 ; platform_system=="Linux"
+torchaudio==2.3.1 ; platform_system=="Linux"
 # optional (später nutzbar)
 # pyannote.audio>=3.1.0
 # nemo_toolkit[asr]>=1.21.0
