@@ -90,7 +90,7 @@
     <!-- Tabs -->
     <div class="tabs">
       <button class="tab active" data-target="tab-prompt">Prompt</button>
-      <button class="tab" data-target="tab-docs">Dateien</button>
+      <button class="tab" data-target="tab-docs">Dokumente</button>
     </div>
 
     <!-- Panel: Prompt -->
@@ -176,37 +176,6 @@
           <div class="loading-text">Lade hoch<span class="dots"></span></div>
         </div>
       </div>
-
-      <!-- --- Audio Upload (Transkription) --- -->
-      <div style="height:1px;background:#eee;margin:18px 0"></div>
-      <form id="audio-form">
-        <div class="form-group">
-          <label for="audioFile">Audio auswählen</label>
-          <input type="file" id="audioFile" accept="audio/*" />
-          <div class="inline-help">Unterstützt: wav, mp3, m4a, ogg, webm, flac</div>
-        </div>
-
-        <div class="row">
-          <div class="form-group col">
-            <label for="audioTags">Tags</label>
-            <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
-            <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
-          </div>
-        </div>
-
-        <button type="submit" id="audio-upload-btn">Audio hochladen & transkribieren</button>
-      </form>
-
-      <div id="audio-upload-result">
-        <div id="audio-upload-output"></div>
-        <div class="loading-container" id="audio-upload-spinner">
-          <div class="spinner"></div>
-          <div class="loading-text">Transkribiere<span class="dots"></span></div>
-        </div>
-      </div>
-
-    </div>
-  </div>
     </div>
   </div>
 
@@ -428,103 +397,6 @@
         .replace(/"/g,"&quot;")
         .replace(/'/g,"&#039;");
     }
-      // ---------- Audio Upload (Transkription) ----------
-      const audioForm    = document.getElementById("audio-form");
-      const audioRes     = document.getElementById("audio-upload-result");
-      const audioOut     = document.getElementById("audio-upload-output");
-      const audioSpinner = document.getElementById("audio-upload-spinner");
-      const audioBtn     = document.getElementById("audio-upload-btn");
-
-      if (audioForm) {
-        audioForm.addEventListener("submit", async function (e) {
-          e.preventDefault();
-          const apiKey = document.getElementById("apiKey").value.trim();
-          const fileEl = document.getElementById("audioFile");
-          const tagsStr = document.getElementById("audioTags").value.trim();
-
-          if (!apiKey) {
-            audioOut.textContent = "⚠️ Bitte API-Key eintragen.";
-            audioRes.className = "error";
-            return;
-          }
-          if (!fileEl.files || fileEl.files.length === 0) {
-            audioOut.textContent = "⚠️ Bitte eine Audio-Datei auswählen.";
-            audioRes.className = "error";
-            return;
-          }
-
-          audioOut.innerHTML = "";
-          audioRes.className = "";
-          const hideSpinner = showFor(audioSpinner, 400);
-          audioBtn.disabled = true;
-
-          try {
-            const fd = new FormData();
-            fd.append("file", fileEl.files[0]); // Transcribe erwartet typischerweise "file"
-            if (tagsStr) {
-              tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
-            }
-
-            const resp = await fetch("/rag/transcribe", {
-              method: "POST",
-              headers: { "x-api-key": apiKey },
-              body: fd
-            });
-
-            const txt = await resp.text();
-            if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
-
-            let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-
-            // Versuche mögliche Felder
-            const transcript =
-              data?.text ||
-              data?.transcript ||
-              data?.transcription ||
-              data?.result ||
-              (typeof data === "string" ? data : "");
-
-            const usedTags = data?.used_tags || data?.tags || [];
-
-            // Optional: Zusatzinfos
-            const lang = data?.language || data?.lang;
-            const dur  = data?.duration || data?.audio_duration;
-            const model = data?.model || data?.whisper_model;
-
-            let html = "";
-            if (transcript) {
-              html += `<div>✅ Fertig – Transkript:</div>`;
-              html += `<pre class="mono" style="margin-top:6px;max-height:260px;overflow:auto">${escapeHtml(String(transcript))}</pre>`;
-            } else {
-              html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-              if (data?.raw) html += `<pre class="mono" style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
-            }
-
-            const metaBits = [];
-            if (lang)  metaBits.append = undefined
-            if (lang)  metaBits.push(`Sprache: ${escapeHtml(String(lang))}`);
-            if (dur)   metaBits.push(`Dauer: ${escapeHtml(String(dur))}`);
-            if (model) metaBits.push(`Modell: ${escapeHtml(String(model))}`);
-            if (metaBits.length) {
-              html += `<div class="muted" style="margin-top:6px">${metaBits.join(" · ")}</div>`;
-            }
-
-            if (Array.isArray(usedTags) && usedTags.length) {
-              html += `<div class="muted" style="margin-top:6px">Tags: ${usedTags.map(t=>`<code>${escapeHtml(t)}</code>`).join(", ")}</div>`;
-            }
-
-            audioOut.innerHTML = html;
-            audioRes.className = "success";
-          } catch (err) {
-            audioOut.textContent = `❌ Transkription fehlgeschlagen: ${err.message}`;
-            audioRes.className = "error";
-          } finally {
-            hideSpinner();
-            audioBtn.disabled = false;
-          }
-        });
-      }
-
   </script>
 </body>
 </html>
