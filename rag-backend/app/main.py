@@ -180,8 +180,10 @@ def query(payload: QueryRequest):
         top_docs = top_docs[: (payload.top_k or 5)]
 
     # 3) Prompt bauen & generieren – NICHT über die Pipeline, sondern direkt:
-    pb = PromptBuilder(template=PROMPT_TEMPLATE)
-    pb_out = pb.run({"query": payload.query, "documents": top_docs})
+    # 3) Prompt bauen & generieren – direkt via Jinja2 (robust, keine Haystack-Validierung nötig):
+    env = Environment(undefined=StrictUndefined, autoescape=False, trim_blocks=True, lstrip_blocks=True)
+    tmpl = env.from_string(PROMPT_TEMPLATE)
+    prompt = tmpl.render(query=payload.query, documents=top_docs)
     prompt = pb_out.get("prompt", "")
     gen = get_generator()
     # Normalize prompt to a plain string in case it's a dict like {'prompt': '...'}
