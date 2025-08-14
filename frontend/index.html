@@ -12,34 +12,73 @@
       min-height:100vh;padding:20px;display:flex;align-items:center;justify-content:center
     }
     .container{
-      background:rgba(255,255,255,.95);border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,.1);
-      padding:24px;max-width:860px;width:100%;backdrop-filter:blur(10px)
+      background:rgba(255,255,255,.96);
+      border-radius:20px;
+      box-shadow:0 20px 40px rgba(0,0,0,.12);
+      padding:24px;max-width:980px;width:100%;
+      backdrop-filter:blur(10px)
     }
     h2{margin-bottom:16px;color:#2d2d2d}
-    .tabs{display:flex;gap:8px;margin-bottom:14px}
-    .tab{border:1px solid #e0e0e0;background:#fff;padding:10px 14px;border-radius:999px;cursor:pointer}
-    .tab.active{border-color:#667eea;background:#eef1ff}
+
+    /* Tabs: volle Breite, gleich große Spalten */
+    .tabs{
+      display:grid;
+      grid-template-columns:repeat(2, 1fr);
+      gap:10px; margin-bottom:14px
+    }
+    .tab{
+      border:1px solid #dfe3f0;
+      background:#ffffff;
+      color:#2d2d2d;
+      padding:12px 16px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:600;
+      text-align:center;
+      transition:background .15s ease,border-color .15s ease, color .15s ease
+    }
+    .tab:hover{background:#f6f8ff}
+    .tab.active{
+      border-color:#667eea;
+      background:#eef1ff;
+      color:#334;
+    }
+
     .panel{display:none}
     .panel.active{display:block}
+
     .form-group{margin-bottom:12px}
     label{display:block;font-weight:600;margin-bottom:6px;color:#333}
     input[type="text"],input[type="password"],textarea,select{
-      width:100%;padding:10px 12px;border-radius:10px;border:1px solid #ddd;background:#fff
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid #ddd;background:#fff;color:#222
     }
     textarea{min-height:120px;resize:vertical}
-    button{background:#667eea;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
-    button[disabled]{opacity:.5;cursor:not-allowed}
+    button{
+      background:#667eea;color:#fff;border:none;border-radius:10px;
+      padding:12px 16px;font-weight:700;cursor:pointer;width:100%
+    }
+    button.secondary{
+      background:#f3f4ff;color:#333;border:1px solid #e0e0e0
+    }
+    button[disabled]{opacity:.55;cursor:not-allowed}
+
     .row{display:flex;gap:12px;flex-wrap:wrap}
     .col{flex:1 1 300px}
-    .result-box,.upload-box{margin-top:12px;border:1px solid #e0e0e0;border-radius:12px;padding:12px;background:#fff}
-    .loading-container{display:flex;align-items:center;gap:10px;margin-top:10px}
-    .spinner{width:16px;height:16px;border:2px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;animation:spin 0.8s linear infinite}
+
+    .result-box,.upload-box{
+      margin-top:12px;border:1px solid #e0e0e0;border-radius:12px;padding:12px;background:#fff
+    }
+    .loading-container{
+      display:flex;align-items:center;justify-content:center;gap:10px;margin-top:10px;min-height:40px
+    }
+    .spinner{width:18px;height:18px;border:2px solid #e0e0e0;border-top-color:#667eea;border-radius:50%;animation:spin .8s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .loading-text{margin-top:12px;color:#667eea;font-size:16px;font-weight:500}
+    .loading-text{color:#667eea;font-size:16px;font-weight:600}
     .dots{display:inline-block;width:20px;text-align:left}
     .dots::after{content:'';animation:dots 1.5s steps(4,end) infinite}
     @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}100%{content:''}}
-    .error{color:#dc3545;background:#f8d7da;border-color:#f5c6cb}
+
+    .error{color:#721c24;background:#f8d7da;border-color:#f5c6cb}
     .success{background:#d1ecf1;border-color:#bee5eb}
     .inline-help{font-size:12px;color:#666;margin-top:6px}
     .choices{display:flex;gap:12px}
@@ -47,16 +86,17 @@
     .choice input{display:none}
     .choice.active{border-color:#667eea;background:#eef1ff}
 
-    /* kleine Helfer */
-    .muted{color:#666}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    ul.sources{margin-top:10px;padding-left:18px}
-    ul.sources li{margin:4px 0}
-
     /* Segments timeline */
     .timeline{display:flex;flex-direction:column;gap:8px;margin-top:8px}
     .seg{background:#f6f8ff;border:1px solid #e0e3ff;border-radius:10px;padding:8px}
     .seg b{color:#4a5bff}
+
+    /* Buttons in Columns (optional auf großen Screens) */
+    .btn-grid{display:grid;grid-template-columns:1fr;gap:10px}
+    @media (min-width: 780px){
+      .btn-grid.cols-2{grid-template-columns:1fr 1fr}
+      .btn-grid.cols-3{grid-template-columns:1fr 1fr 1fr}
+    }
   </style>
 </head>
 <body>
@@ -105,7 +145,9 @@
           <div class="inline-help">Wenn „Ja“, wird <code>rag=true</code> an <code>/webhook/llm</code> übergeben.</div>
         </div>
 
-        <button type="submit" id="submit-btn">Senden</button>
+        <div class="btn-grid">
+          <button type="submit" id="submit-btn">Senden</button>
+        </div>
       </form>
 
       <div id="result" class="result-box">
@@ -124,8 +166,7 @@
           <label for="apiKey">API-Key (RAG)</label>
           <div class="row" style="gap:8px;align-items:center">
             <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
-            <button type="button" id="toggleKey" style="flex:0 0 auto;
-              background:#f3f4ff;color:#333;border:1px solid #e0e0e0">anzeigen</button>
+            <button type="button" id="toggleKey" class="secondary" style="flex:0 0 auto">anzeigen</button>
           </div>
           <div class="inline-help">Wird in <code>localStorage</code> gespeichert.</div>
         </div>
@@ -143,7 +184,9 @@
           </div>
         </div>
 
-        <button type="submit" id="upload-btn">Hochladen</button>
+        <div class="btn-grid cols-2">
+          <button type="submit" id="upload-btn">Hochladen</button>
+        </div>
       </form>
 
       <div id="upload-result" class="upload-box">
@@ -180,15 +223,15 @@
           <div class="inline-help">Bevorzugte Kandidaten (Komma-getrennt).</div>
         </div>
 
-        <div class="row">
-          <div class="form-group col">
-            <label for="audioTags">Tags</label>
-            <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
-            <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
-          </div>
+        <div class="form-group">
+          <label for="audioTags">Tags</label>
+          <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
+          <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
         </div>
 
-        <button type="submit" id="audio-upload-btn">Audio hochladen & transkribieren</button>
+        <div class="btn-grid cols-2">
+          <button type="submit" id="audio-upload-btn">Audio hochladen & transkribieren</button>
+        </div>
       </form>
 
       <div id="audio-upload-result" class="upload-box">
@@ -243,14 +286,8 @@
     }
 
     function fmtTime(sec){const h=String(Math.floor(sec/3600)).padStart(2,"0");const m=String(Math.floor((sec%3600)/60)).padStart(2,"0");const s=(sec%60).toFixed(1).padStart(4,"0");return `${h}:${m}:${s}`;}
-    // HTML-Escaping für sichere Ausgaben
     function escapeHtml(str){
-      return String(str)
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#039;");
+      return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
     }
 
     // ---------- Prompt senden ----------
@@ -289,14 +326,12 @@
 
         let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-        // Antworttext holen
         const answer =
           data?.answer ??
           data?.raw_response?.response ??
           data?.result ??
           (typeof data === "string" ? data : "");
 
-        // Quellen (falls vorhanden)
         const sources = data?.sources ?? data?.documents ?? [];
         let html = "";
         if (answer) {
@@ -304,11 +339,11 @@
           html += `<div style="margin-top:6px">${escapeHtml(String(answer))}</div>`;
         } else {
           html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-          if (data?.raw) html += `<pre class="mono" style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
+          if (data?.raw) html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
         }
         if (Array.isArray(sources) && sources.length){
-          html += `<div class="muted" style="margin-top:8px">Quellen:</div>`;
-          html += `<ul class="sources">` + sources.map(s=>`<li>${escapeHtml(String(s.title||s.name||s))}</li>`).join("") + `</ul>`;
+          html += `<div class="inline-help" style="margin-top:8px">Quellen:</div>`;
+          html += `<ul style="margin:6px 0 0 18px">` + sources.map(s=>`<li>${escapeHtml(String(s.title||s.name||s))}</li>`).join("") + `</ul>`;
         }
         resultOut.innerHTML = html;
         resultDiv.className = "success";
@@ -334,19 +369,10 @@
       const fileEl = document.getElementById("file");
       const tagsStr = document.getElementById("tags").value.trim();
 
-      if (!apiKey) {
-        uploadOut.textContent = "⚠️ Bitte API-Key eintragen.";
-        uploadRes.className = "error";
-        return;
-      }
-      if (!fileEl.files || fileEl.files.length === 0) {
-        uploadOut.textContent = "⚠️ Bitte eine Datei auswählen.";
-        uploadRes.className = "error";
-        return;
-      }
+      if (!apiKey) { uploadOut.textContent = "⚠️ Bitte API-Key eintragen."; uploadRes.className = "error"; return; }
+      if (!fileEl.files || fileEl.files.length === 0) { uploadOut.textContent = "⚠️ Bitte eine Datei auswählen."; uploadRes.className = "error"; return; }
 
-      uploadOut.innerHTML = "";
-      uploadRes.className = "";
+      uploadOut.innerHTML = ""; uploadRes.className = "";
       const hideSpinner = showFor(uploadSpinner, 300);
       uploadBtn.disabled = true;
 
@@ -367,22 +393,19 @@
         if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
 
         let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
-
-        // Erwartete Struktur: { indexed: [...], tags: [...] }
         const indexed = data?.indexed || data?.files || [];
         const tags = data?.tags || [];
         let html = "";
         if (indexed.length) {
           html += `<div>✅ Index erstellt:</div>`;
-          html += `<ul class="sources">` + indexed.map(x=>`<li>${escapeHtml(String(x))}</li>`).join("") + `</ul>`;
+          html += `<ul style="margin:6px 0 0 18px">` + indexed.map(x=>`<li>${escapeHtml(String(x))}</li>`).join("") + `</ul>`;
         } else {
           html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-          if (data?.raw) html += `<pre class="mono" style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
+          if (data?.raw) html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
         }
         if (tags.length) {
-          html += `<div class="muted" style="margin-top:6px">Tags: ${tags.map(escapeHtml).join(", ")}</div>`;
+          html += `<div class="inline-help" style="margin-top:6px">Tags: ${tags.map(escapeHtml).join(", ")}</div>`;
         }
-
         uploadOut.innerHTML = html;
         uploadRes.className = "success";
       } catch (err) {
@@ -408,25 +431,16 @@
         const fileEl = document.getElementById("audioFile");
         const tagsStr = document.getElementById("audioTags").value.trim();
 
-        if (!apiKey) {
-          audioOut.textContent = "⚠️ Bitte API-Key eintragen.";
-          audioRes.className = "error";
-          return;
-        }
-        if (!fileEl.files || fileEl.files.length === 0) {
-          audioOut.textContent = "⚠️ Bitte eine Audio-Datei auswählen.";
-          audioRes.className = "error";
-          return;
-        }
+        if (!apiKey) { audioOut.textContent = "⚠️ Bitte API-Key eintragen."; audioRes.className = "error"; return; }
+        if (!fileEl.files || fileEl.files.length === 0) { audioOut.textContent = "⚠️ Bitte eine Audio-Datei auswählen."; audioRes.className = "error"; return; }
 
-        audioOut.innerHTML = "";
-        audioRes.className = "";
+        audioOut.innerHTML = ""; audioRes.className = "";
         const hideSpinner = showFor(audioSpinner, 300);
         audioBtn.disabled = true;
 
         try {
           const fd = new FormData();
-          fd.append("file", fileEl.files[0]); // Transcribe erwartet typischerweise "file"
+          fd.append("file", fileEl.files[0]); // Transcribe erwartet "file"
           if (tagsStr) {
             tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
           }
@@ -449,7 +463,6 @@
           let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
 
           const segments = Array.isArray(data?.segments) ? data.segments : null;
-          // Versuche mögliche Felder
           const transcript =
             data?.text ??
             data?.transcript ??
@@ -458,8 +471,6 @@
             (typeof data === "string" ? data : "");
 
           const usedTags = data?.used_tags || data?.tags || [];
-
-          // Optional: Zusatzinfos
           const lang = data?.language || data?.lang;
           const dur  = data?.duration || data?.audio_duration;
           const model = data?.model || data?.whisper_model;
@@ -467,20 +478,19 @@
           let html = "";
           if (transcript) {
             html += `<div>✅ Fertig – Transkript:</div>`;
-            html += `<pre class="mono" style="margin-top:6px;max-height:260px;overflow:auto">${escapeHtml(String(transcript))}</pre>`;
+            html += `<pre style="margin-top:6px;max-height:260px;overflow:auto">${escapeHtml(String(transcript))}</pre>`;
           } else {
             html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-            if (data?.raw) html += `<pre class="mono" style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
+            if (data?.raw) html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
           }
 
           if (segments && segments.length){
-            html += `<div style="margin-top:10px;font-weight:600">Segmente</div>`;
-            const segHtml = segments.map(s => {
+            html += `<div style="margin-top:10px;font-weight:700">Segmente</div>`;
+            html += `<div class="timeline">` + segments.map(s => {
               const who = s.name || s.speaker || "spk";
               const t0 = fmtTime(s.start||0), t1 = fmtTime(s.end||0);
-              return `<div class="seg"><b>${escapeHtml(String(who))}</b> <span class="muted">[${t0}–${t1}]</span><div>${escapeHtml(String(s.text||""))}</div></div>`;
-            }).join("");
-            html += segHtml;
+              return `<div class="seg"><b>${escapeHtml(String(who))}</b> <span class="inline-help">[${t0}–${t1}]</span><div>${escapeHtml(String(s.text||""))}</div></div>`;
+            }).join("") + `</div>`;
           }
 
           const metaBits = [];
@@ -488,11 +498,11 @@
           if (dur)   metaBits.push(`Dauer: ${escapeHtml(String(dur))}`);
           if (model) metaBits.push(`Modell: ${escapeHtml(String(model))}`);
           if (metaBits.length) {
-            html += `<div class="muted" style="margin-top:6px">${metaBits.join(" · ")}</div>`;
+            html += `<div class="inline-help" style="margin-top:6px">${metaBits.join(" · ")}</div>`;
           }
 
           if (Array.isArray(usedTags) && usedTags.length) {
-            html += `<div class="muted" style="margin-top:6px">Tags: ${usedTags.map(escapeHtml).join(", ")}</div>`;
+            html += `<div class="inline-help" style="margin-top:6px">Tags: ${usedTags.map(escapeHtml).join(", ")}</div>`;
           }
 
           audioOut.innerHTML = html;
