@@ -1,0 +1,79 @@
+{
+  "name": "RAG_Prompt_Main",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "llm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-llm",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1888, 688],
+      "webhookId": "llm-router"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "model", "name": "model", "value": "={{ $json.body.model || $json.model }}", "type": "string" },
+            { "id": "prompt", "name": "prompt", "value": "={{ $json.body.prompt || $json.prompt }}", "type": "string" },
+            { "id": "system", "name": "system", "value": "={{ $json.body.system || $json.system || '' }}", "type": "string" },
+            { "id": "rag", "name": "rag", "value": "={{ $json.body.rag || $json.rag }}", "type": "string" },
+            { "id": "rag_top_k", "name": "rag_top_k", "value": "={{ $json.body.rag_top_k || 5 }}", "type": "string" },
+            { "id": "rag_score_threshold", "name": "rag_score_threshold", "value": "={{ $json.body.rag_score_threshold || 0.45 }}", "type": "string" },
+            { "id": "rag_api_key", "name": "rag_api_key", "value": "={{ $json.body.rag_api_key || $env.RAG_API_KEY || 'change-me' }}", "type": "string" },
+            { "id": "rag_tags", "name": "rag_tags", "value": "={{ $json.body.rag_tags || [] }}", "type": "string" },
+            { "id": "hf_model", "name": "hf_model", "value": "={{ $json.body.hf_model || $json.hf_model || 'microsoft/DialoGPT-medium' }}", "type": "string" },
+            { "id": "openai_model", "name": "openai_model", "value": "={{ $json.body.openai_model || $json.openai_model || 'gpt-4o-mini' }}", "type": "string" },
+            { "id": "claude_model", "name": "claude_model", "value": "={{ $json.body.claude_model || $json.claude_model || 'claude-3-5-sonnet-20240620' }}", "type": "string" },
+            { "id": "ollama_model", "name": "ollama_model", "value": "={{ $json.body.ollama_model || $json.ollama_model || $json.model || 'llama3' }}", "type": "string" },
+            { "id": "mistral_model", "name": "mistral_model", "value": "={{ $json.body.mistral_model || $json.mistral_model || 'codestral-2501' }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-fields",
+      "name": "Extract Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1664, 688]
+    },
+    {
+      "parameters": {
+        "workflowId": "RAG_Router_Subflow",
+        "options": {
+          "inputData": "={{ [$json] }}",
+          "waitForExecution": true
+        }
+      },
+      "id": "exec-subflow",
+      "name": "Execute RAG/Router Subflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [-1440, 688]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-1216, 688]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Extract Fields", "type": "main", "index": 0 }]] },
+    "Extract Fields": { "main": [[{ "node": "Execute RAG/Router Subflow", "type": "main", "index": 0 }]] },
+    "Execute RAG/Router Subflow": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": true
+}

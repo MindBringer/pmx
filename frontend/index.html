@@ -204,6 +204,7 @@
         <div class="btn-grid">
           <button type="submit" id="submit-btn">Senden</button>
         </div>
+        <div id="conv-status" class="inline-help" style="margin:8px 0"></div>
       </form>
 
       <div id="result" class="result-box">
@@ -422,6 +423,27 @@
     function fmtBytes(b){ if(typeof b!=="number") return "–"; const u=["B","KB","MB","GB","TB"]; let i=0,n=b; while(n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(n<10?2:(n<100?1:0))} ${u[i]}`; }
     function escapeHtml(str){ return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
+    // ---------- Conversation state ----------
+    const CONV_KEY = 'conversationId';
+    let conversationId = localStorage.getItem(CONV_KEY) || null;
+
+    function setConversationId(id){
+      conversationId = id || null;
+      if (id) localStorage.setItem(CONV_KEY, id); else localStorage.removeItem(CONV_KEY);
+      renderConvStatus();
+    }
+
+    function renderConvStatus(){
+      const el = document.getElementById('conv-status');
+      if (!el) return;
+      const idView = conversationId ? `<code>${escapeHtml(conversationId)}</code>` : `<i>neu</i>`;
+      el.innerHTML = `Konversation: ${idView} ${
+        conversationId ? `<button type="button" id="conv-reset" class="secondary" style="width:auto;margin-left:8px">Neue Unterhaltung</button>` : ''
+      }`;
+      document.getElementById('conv-reset')?.addEventListener('click', ()=> setConversationId(null));
+    }
+    renderConvStatus();
+
     // ---------- Prompt senden ----------
     const form = document.getElementById("prompt-form");
     const resultDiv = document.getElementById("result");
@@ -476,6 +498,14 @@
         if (!response.ok) throw new Error(text || `Fehler ${response.status}`);
 
         let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+        // <-- NEU: conversation_id aus der Antwort übernehmen (Server-generiert)
+        if (data?.conversation_id) {
+          setConversationId(data.conversation_id);
+        } else if (!conversationId && window.crypto?.randomUUID) {
+          // Fallback: falls Server keine ID liefert, lokal eine erzeugen,
+          // damit ab der nächsten Frage eine ID existiert.
+          setConversationId(crypto.randomUUID());
+        }
         const answer =
           data?.answer ??
           data?.raw_response?.response ??
