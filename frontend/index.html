@@ -492,7 +492,7 @@
         const response = await fetch("/webhook/llm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, system, model, rag: ragVal })
+          body: JSON.stringify({ prompt, system, model, rag: ragVal, conversationId })
         });
         const text = await response.text();
         if (!response.ok) throw new Error(text || `Fehler ${response.status}`);
