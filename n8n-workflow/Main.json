@@ -1,5 +1,5 @@
 {
-  "name": "RAG_Prompt_Main",
+  "name": "Main",
   "nodes": [
     {
       "parameters": {
@@ -8,53 +8,116 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "webhook-llm",
+      "id": "18cbbe9a-9cec-46ad-ae64-d2b5da6fd4c0",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1888, 688],
+      "position": [
+        0,
+        -240
+      ],
       "webhookId": "llm-router"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "model", "name": "model", "value": "={{ $json.body.model || $json.model }}", "type": "string" },
-            { "id": "prompt", "name": "prompt", "value": "={{ $json.body.prompt || $json.prompt }}", "type": "string" },
-            { "id": "system", "name": "system", "value": "={{ $json.body.system || $json.system || '' }}", "type": "string" },
-            { "id": "rag", "name": "rag", "value": "={{ $json.body.rag || $json.rag }}", "type": "string" },
-            { "id": "rag_top_k", "name": "rag_top_k", "value": "={{ $json.body.rag_top_k || 5 }}", "type": "string" },
-            { "id": "rag_score_threshold", "name": "rag_score_threshold", "value": "={{ $json.body.rag_score_threshold || 0.45 }}", "type": "string" },
-            { "id": "rag_api_key", "name": "rag_api_key", "value": "={{ $json.body.rag_api_key || $env.RAG_API_KEY || 'change-me' }}", "type": "string" },
-            { "id": "rag_tags", "name": "rag_tags", "value": "={{ $json.body.rag_tags || [] }}", "type": "string" },
-            { "id": "hf_model", "name": "hf_model", "value": "={{ $json.body.hf_model || $json.hf_model || 'microsoft/DialoGPT-medium' }}", "type": "string" },
-            { "id": "openai_model", "name": "openai_model", "value": "={{ $json.body.openai_model || $json.openai_model || 'gpt-4o-mini' }}", "type": "string" },
-            { "id": "claude_model", "name": "claude_model", "value": "={{ $json.body.claude_model || $json.claude_model || 'claude-3-5-sonnet-20240620' }}", "type": "string" },
-            { "id": "ollama_model", "name": "ollama_model", "value": "={{ $json.body.ollama_model || $json.ollama_model || $json.model || 'llama3' }}", "type": "string" },
-            { "id": "mistral_model", "name": "mistral_model", "value": "={{ $json.body.mistral_model || $json.mistral_model || 'codestral-2501' }}", "type": "string" }
+            {
+              "id": "model",
+              "name": "model",
+              "value": "={{ $json.body.model || $json.model }}",
+              "type": "string"
+            },
+            {
+              "id": "prompt",
+              "name": "prompt",
+              "value": "={{ $json.body.prompt || $json.prompt }}",
+              "type": "string"
+            },
+            {
+              "id": "system",
+              "name": "system",
+              "value": "={{ $json.body.system || $json.system || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "rag",
+              "name": "rag",
+              "value": "={{ $json.body.rag || $json.rag }}",
+              "type": "string"
+            },
+            {
+              "id": "rag_top_k",
+              "name": "rag_top_k",
+              "value": "={{ $json.body.rag_top_k || 5 }}",
+              "type": "string"
+            },
+            {
+              "id": "rag_score_threshold",
+              "name": "rag_score_threshold",
+              "value": "={{ $json.body.rag_score_threshold || 0.45 }}",
+              "type": "string"
+            },
+            {
+              "id": "rag_api_key",
+              "name": "rag_api_key",
+              "value": "={{ $json.body.rag_api_key || $env.RAG_API_KEY || 'change-me' }}",
+              "type": "string"
+            },
+            {
+              "id": "rag_tags",
+              "name": "rag_tags",
+              "value": "={{ $json.body.rag_tags || [] }}",
+              "type": "string"
+            },
+            {
+              "id": "hf_model",
+              "name": "hf_model",
+              "value": "={{ $json.body.hf_model || $json.hf_model || 'microsoft/DialoGPT-medium' }}",
+              "type": "string"
+            },
+            {
+              "id": "openai_model",
+              "name": "openai_model",
+              "value": "={{ $json.body.openai_model || $json.openai_model || 'gpt-4o-mini' }}",
+              "type": "string"
+            },
+            {
+              "id": "claude_model",
+              "name": "claude_model",
+              "value": "={{ $json.body.claude_model || $json.claude_model || 'claude-3-5-sonnet-20240620' }}",
+              "type": "string"
+            },
+            {
+              "id": "ollama_model",
+              "name": "ollama_model",
+              "value": "={{ $json.body.ollama_model || $json.ollama_model || $json.model || 'llama3' }}",
+              "type": "string"
+            },
+            {
+              "id": "mistral_model",
+              "name": "mistral_model",
+              "value": "={{ $json.body.mistral_model || $json.mistral_model || 'codestral-2501' }}",
+              "type": "string"
+            },
+            {
+              "id": "8bece766-e196-4628-9855-f2b7111e1460",
+              "name": "conversation_id",
+              "value": "=={{ String(\n     $json.body?.conversation_id\n  || $json.conversation_id\n  || $json.headers?.['x-conversation-id']\n  || $json.query?.conversation_id\n  || ''\n).replace(/^[=\\s]+/, '').trim() }}\n\n",
+              "type": "string"
+            }
           ]
         },
         "options": {}
       },
-      "id": "extract-fields",
+      "id": "3837510a-eb59-4504-96af-09d0bf430d96",
       "name": "Extract Fields",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-1664, 688]
-    },
-    {
-      "parameters": {
-        "workflowId": "RAG_Router_Subflow",
-        "options": {
-          "inputData": "={{ [$json] }}",
-          "waitForExecution": true
-        }
-      },
-      "id": "exec-subflow",
-      "name": "Execute RAG/Router Subflow",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1,
-      "position": [-1440, 688]
+      "position": [
+        224,
+        -240
+      ]
     },
     {
       "parameters": {
@@ -62,18 +125,174 @@
         "responseBody": "={{ $json }}",
         "options": {}
       },
-      "id": "respond",
+      "id": "8aabd514-83e2-4faf-8fc8-af8df51585e3",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [-1216, 688]
+      "position": [
+        1120,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "LaPkdCUyheq3rQnf",
+          "mode": "list",
+          "cachedResultName": "RAG_Router"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        -240
+      ],
+      "id": "e260583d-bfb1-4af4-9c8f-060e467760d1",
+      "name": "Run RAG_Router Sub"
+    },
+    {
+      "parameters": {
+        "jsCode": "function genId(){ if (globalThis.crypto?.randomUUID) return crypto.randomUUID();\n  const r=()=>Math.random().toString(16).slice(2,10); return `${Date.now().toString(16)}-${r()}-${r()}`; }\nfunction norm(x){ return String(x ?? '').replace(/^[=\\s]+/, '').trim(); }\nfunction valid(x){ return /^[A-Za-z0-9._:-]{8,200}$/.test(x); }\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData._memory = staticData._memory || {};\n\nconst b   = $json.body || {};\nlet cid = norm(b.conversation_id ?? $json.conversation_id ?? $json.headers?.['x-conversation-id'] ?? $json.query?.conversation_id);\nif (!valid(cid)) cid = genId();              // nur hier neu erzeugen\n\nconst mem = staticData._memory[cid] || { history: [], summary: '', updated_at: null };\nreturn [{ json: { ...$json, conversation_id: cid, memory: mem, _original_prompt: b?.prompt ?? $json?.prompt ?? '' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -240
+      ],
+      "id": "bc07c689-329c-4698-a257-f2c235d84b5a",
+      "name": "Load Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "function norm(x){ return String(x ?? '').replace(/^[=\\s]+/, '').trim(); }\nfunction valid(x){ return /^[A-Za-z0-9._:-]{8,200}$/.test(x); }\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData._memory = staticData._memory || {};\n\nconst items = $input.all();\nconst out = [];\n\nfor (const it of items) {\n  const j = it.json || {};\n  const cid = norm(j.conversation_id ?? j.body?.conversation_id ?? '');\n  if (!valid(cid)) { out.push({ json: { ...j, _mem_note: 'no_cid_in_update' } }); continue; }\n\n  const mem = staticData._memory[cid] || { history: [], summary: '', updated_at: null };\n  const userContent = j.original_prompt ?? j._original_prompt ?? j.prompt ?? '';\n  const botContent  = j.result ?? j.text ?? '';\n  if (userContent || botContent) {\n    const userMsg = { role:'user', content:String(userContent), t: Date.now() };\n    const botMsg  = { role:'assistant', content:String(botContent), t: Date.now() };\n    mem.history = [...(mem.history||[]), userMsg, botMsg].slice(-12);\n    mem.updated_at = new Date().toISOString();\n    staticData._memory[cid] = mem;\n  }\n  out.push({ json: { ...j, conversation_id: cid, memory: staticData._memory[cid] } });\n}\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -240
+      ],
+      "id": "2b5a3452-259e-49db-8367-f9190ef18cae",
+      "name": "Update Memory"
     }
   ],
-  "connections": {
-    "Webhook": { "main": [[{ "node": "Extract Fields", "type": "main", "index": 0 }]] },
-    "Extract Fields": { "main": [[{ "node": "Execute RAG/Router Subflow", "type": "main", "index": 0 }]] },
-    "Execute RAG/Router Subflow": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "connection": "upgrade",
+            "host": "ai.local",
+            "x-real-ip": "192.168.244.229",
+            "x-forwarded-for": "192.168.244.229",
+            "x-forwarded-proto": "https",
+            "content-length": "91",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0",
+            "sec-ch-ua": "\"Not;A=Brand\";v=\"99\", \"Microsoft Edge\";v=\"139\", \"Chromium\";v=\"139\"",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?0",
+            "accept": "*/*",
+            "origin": "https://ai.local",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://ai.local/ui/index.html",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "de,de-DE;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+            "cookie": "rl_page_init_referrer=RudderEncrypt%3AU2FsdGVkX18%2BUaadL%2F1nd1jk4fwcJtHgOKElOMoYd0g%3D; rl_page_init_referring_domain=RudderEncrypt%3AU2FsdGVkX19AQ8VVUuEv35hCFjVozq%2BEDvHupJPBNIA%3D; rl_anonymous_id=RudderEncrypt%3AU2FsdGVkX1%2BiUtFumoP2y%2FoOUL1xHPnLiq5AwwFUbz6cZJPAKjg0rF49U6nusBcN7PWatIwAHKlFe3KNEMeYAQ%3D%3D; rl_user_id=RudderEncrypt%3AU2FsdGVkX1%2BleOUVvj8pE%2FVndgnEJvGnfxTaX%2B5mfdiuM0NIdftH2Wb%2BsOPH3x31kQcznJeiIfAd%2B53aH2GZcmnc9HywfxKE38M0iMpxQJP%2FhXXTFQTXgAEREO5o%2FDr94prQuAvrYsM5MJcVIn9JblhDYpqTwwKt9QFPL0sJL6w%3D; rl_trait=RudderEncrypt%3AU2FsdGVkX19fH1WKoHUONYLejWxavZSKGfkF0LsKBqfM87c2L%2FT%2F1CfQTylFT6gOZbmXqCl1UkuOh%2FDqo%2BdSD1lOvVpyiaDySfV0PuMXNVldnEAOUYvn%2FFTOQyF2MuINUDVKJDU4y%2FOPnSMaQeE7NA%3D%3D; ph_phc_4URIAm1uYfJO7j8kWSe0J8lc8IqnstRLS7Jx8NcakHo_posthog=%7B%22distinct_id%22%3A%225e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4%2386228bc1-3d85-4e8b-a5ab-ccfe9ed47737%22%2C%22%24sesid%22%3A%5Bnull%2C%220198ad0e-57ae-7b1e-a0b3-41dfe380ab18%22%2C1755250055086%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fai.local%2Fhome%2Fworkflows%22%7D%7D; rl_session=RudderEncrypt%3AU2FsdGVkX1%2Bgten%2FQgGHuCH4x1hG9khPwtGj4921TbJSke3DrfuHLqt1Iqg2rPuvFYjm12EJ7u6KyXUqU%2BH5uHwwrcLj2h1344LupoJzlZfAdXcEpatGv9gRRpYe4ZkUwmcr1%2BGZFl6RyLiZ%2BYXfOA%3D%3D"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "prompt": "trage ich schuhe oder bin ich barfuß?",
+            "system": "",
+            "model": "llama3",
+            "rag": true
+          },
+          "webhookUrl": "http://localhost:5678/webhook/llm",
+          "executionMode": "production"
+        }
+      }
+    ]
   },
-  "settings": { "executionOrder": "v1" },
-  "active": true
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Fields": {
+      "main": [
+        [
+          {
+            "node": "Load Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run RAG_Router Sub": {
+      "main": [
+        [
+          {
+            "node": "Update Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Memory": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router Sub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Memory": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "11e96c96-715b-4a44-9a4b-5e9b798e8abb",
+  "meta": {
+    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+  },
+  "id": "O2xReG4YW9XJ4F62",
+  "tags": []
 }
