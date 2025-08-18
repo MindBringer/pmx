@@ -489,11 +489,19 @@
       submitBtn.disabled = true;
 
       try {
+        // Payload + Header mit conversation_id (falls vorhanden)
+        const payload = { prompt, system, model, rag: ragVal };
+        if (conversationId) payload.conversation_id = conversationId;
+
+        const headers = { "Content-Type": "application/json" };
+        if (conversationId) headers["x-conversation-id"] = conversationId;
+
         const response = await fetch("/webhook/llm", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, system, model, rag: ragVal, conversationId })
+          headers,
+          body: JSON.stringify(payload)
         });
+
         const text = await response.text();
         if (!response.ok) throw new Error(text || `Fehler ${response.status}`);
 
