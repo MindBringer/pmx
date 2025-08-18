@@ -71,15 +71,6 @@
     .panel{display:none}
     .panel.active{display:block}
 
-    /* Sub-Tabs inside Prompt */
-    .subtab-bar{display:flex;gap:10px;margin:8px 0 12px}
-    .subtab{flex:0 0 auto;border:1px solid #dfe3f0;background:#fff;color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700}
-    .subtab.active{background:var(--grad);color:#fff;border-color:transparent}
-    .subpanel{display:none}
-    .subpanel.active{display:block}
-    .persona-row{border:1px solid var(--bd);border-radius:12px;padding:10px;margin-bottom:10px;background:#fff}
-    .persona-head{display:block;font-weight:700;margin-bottom:6px}
-
     .form-group{margin-bottom:12px}
     label{display:block;font-weight:600;margin-bottom:6px;color:#333}
     input[type="text"],input[type="password"],textarea,select{
@@ -178,164 +169,30 @@
     <div class="panel active" id="tab-prompt">
       <form id="prompt-form">
         <div class="form-group">
+          <label for="model">Modell:</label>
+          <select id="model">
+            <option value="llama3">llama3</option>
+            <option value="mistral">mistral</option>
+            <option value="mistralapi">Codestral API</option>
+            <option value="groq">Groq API</option>
+            <option value="openrouter">OpenRouter API</option>
+            <option value="openai">OpenAI API</option>
+            <option value="huggingface">Hugging Face API</option>
+            <option value="anthropic">Anthropic API</option>
+          </select>
+        </div>
+
+        <div class="form-group">
           <label for="prompt">Frage / Prompt:</label>
           <textarea id="prompt" placeholder="Stell eine Frage an das Modell..."></textarea>
         </div>
 
-        
-        <!-- Unterbereich: Anweisungen mit Sub-Tabs -->
-        <div class="subtabs">
-          <div class="subtab-bar">
-            <button type="button" class="subtab active" data-target="subtab-sys">Systemverhalten</button>
-            <button type="button" class="subtab" data-target="subtab-agents">Agenten/Personas</button>
-          </div>
-
-          <!-- Systemverhalten -->
-          <div class="subpanel active" id="subtab-sys">
-            <div class="form-group">
-              <label for="model_sys">Modell:</label>
-              <select id="model_sys">
-                <option value="llama3">llama3</option>
-                <option value="mistral">mistral</option>
-                <option value="mistralapi">Codestral API</option>
-                <option value="groq">Groq API</option>
-                <option value="openrouter">OpenRouter API</option>
-                <option value="openai">OpenAI API</option>
-                <option value="huggingface">Hugging Face API</option>
-                <option value="anthropic">Anthropic API</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="system">Anweisungen für Systemverhalten (optional):</label>
-              <textarea id="system" placeholder="sei ein hilfsbereiter Spezialist für..."></textarea>
-            </div>
-          </div>
-
-          <!-- Agenten/Personas -->
-          <div class="subpanel" id="subtab-agents">
-            <div class="inline-help" style="margin:6px 0 12px">
-              Aktiviere bis zu 5 Personas. Leere Felder werden ignoriert. Beispiel-Rollen helfen beim Start.
-            </div>
-
-            <!-- Persona Row Template repeated 5x -->
-            <div class="persona-row">
-              <label class="persona-head"><input type="checkbox" id="p1_enabled" /> Persona 1</label>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="p1_label">Jobtitel / Beschreibung</label>
-                  <input type="text" id="p1_label" placeholder="z. B. Buchhalter – Kosten & Risiken prüfen" />
-                </div>
-                <div class="form-group col">
-                  <label for="p1_model">Modell</label>
-                  <select id="p1_model">
-                    <option value="groq">Groq API</option>
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="llama3">llama3</option>
-                    <option value="mistral">mistral</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="anthropic">Anthropic API</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="persona-row">
-              <label class="persona-head"><input type="checkbox" id="p2_enabled" /> Persona 2</label>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="p2_label">Jobtitel / Beschreibung</label>
-                  <input type="text" id="p2_label" placeholder="z. B. IT-Spezialist – Architektur & Aufwand" />
-                </div>
-                <div class="form-group col">
-                  <label for="p2_model">Modell</label>
-                  <select id="p2_model">
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="groq">Groq API</option>
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="llama3">llama3</option>
-                    <option value="mistral">mistral</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="anthropic">Anthropic API</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="persona-row">
-              <label class="persona-head"><input type="checkbox" id="p3_enabled" /> Persona 3</label>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="p3_label">Jobtitel / Beschreibung</label>
-                  <input type="text" id="p3_label" placeholder="z. B. Vertrieb – Kundennutzen & Upsell" />
-                </div>
-                <div class="form-group col">
-                  <label for="p3_model">Modell</label>
-                  <select id="p3_model">
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="groq">Groq API</option>
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="llama3">llama3</option>
-                    <option value="mistral">mistral</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="anthropic">Anthropic API</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="persona-row">
-              <label class="persona-head"><input type="checkbox" id="p4_enabled" /> Persona 4</label>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="p4_label">Jobtitel / Beschreibung</label>
-                  <input type="text" id="p4_label" placeholder="z. B. Recht – Compliance & DSGVO" />
-                </div>
-                <div class="form-group col">
-                  <label for="p4_model">Modell</label>
-                  <select id="p4_model">
-                    <option value="anthropic">Anthropic API</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="groq">Groq API</option>
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="llama3">llama3</option>
-                    <option value="mistral">mistral</option>
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="openrouter">OpenRouter API</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="persona-row">
-              <label class="persona-head"><input type="checkbox" id="p5_enabled" /> Persona 5</label>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="p5_label">Jobtitel / Beschreibung</label>
-                  <input type="text" id="p5_label" placeholder="z. B. Einkauf – Angebote & Rahmenverträge" />
-                </div>
-                <div class="form-group col">
-                  <label for="p5_model">Modell</label>
-                  <select id="p5_model">
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="llama3">llama3</option>
-                    <option value="mistral">mistral</option>
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="groq">Groq API</option>
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="anthropic">Anthropic API</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="form-group">
+          <label for="system">Anweisungen für Systemverhalten (optional):</label>
+          <textarea id="system" placeholder="sei ein hilfsbereiter Spezialist für..."></textarea>
         </div>
-<div class="form-group">
+
+        <div class="form-group">
           <label>Firmendaten mit einbeziehen?</label>
           <div class="choices" id="rag-choices">
             <label class="choice active"><input type="radio" name="rag" value="false" checked> Nein</label>
@@ -606,44 +463,6 @@
     }
     renderConvStatus();
 
-    // ---------- Subtabs (Anweisungen) ----------
-    document.querySelectorAll('.subtab').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        document.querySelectorAll('.subtab').forEach(b=>b.classList.remove('active'));
-        document.querySelectorAll('.subpanel').forEach(p=>p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.target).classList.add('active');
-      });
-    });
-
-    function collectPersonas(){
-      const rows = [1,2,3,4,5];
-      const list = [];
-      for (const i of rows){
-        const en = document.getElementById(`p${i}_enabled`);
-        const labEl = document.getElementById(`p${i}_label`);
-        const modEl = document.getElementById(`p${i}_model`);
-        if (!en || !labEl || !modEl) continue;
-        const checked = !!en.checked;
-        const label = (labEl.value||'').trim();
-        const provider = modEl.value;
-        if (checked){
-          if (!label){
-            throw new Error(`Bitte Jobtitel/Beschreibung für Persona ${i} eingeben.`);
-          }
-          list.push({ label, provider });
-        } else {
-          continue;
-        }
-      }
-      return list;
-    }
-
-    function activeSubtab(){
-      const a = document.querySelector('.subtab.active');
-      return a ? a.dataset.target : 'subtab-sys';
-    }
-
     // ---------- Prompt senden ----------
     const form = document.getElementById("prompt-form");
     const resultDiv = document.getElementById("result");
@@ -673,7 +492,7 @@
     form.addEventListener("submit", async function (e) {
       e.preventDefault();
       const prompt = document.getElementById("prompt").value.trim();
-      const model = document.getElementById("model_sys").value;
+      const model = document.getElementById("model").value;
       const system = document.getElementById("system").value.trim();
       const ragVal = document.querySelector('input[name="rag"]:checked')?.value === "true";
 
@@ -690,15 +509,7 @@
 
       try {
         // Payload + Header mit conversation_id (falls vorhanden)
-        const personas = collectPersonas();
-        const payload = { prompt, system, rag: ragVal };
-
-        if (personas.length > 0){
-          payload.personas = personas;
-          payload.writer = { provider: "groq", model: "deepseek-r1-distill-llama-70b" };
-        } else {
-          payload.model = model;
-        }
+        const payload = { prompt, system, model, rag: ragVal };
         const headers = { "Content-Type": "application/json" };
 
         if (isValidConversationId(conversationId)) {
@@ -706,9 +517,6 @@
           headers["x-conversation-id"] = conversationId;
         }
 
-        if (activeSubtab()==='subtab-agents' && (!Array.isArray(personas) || personas.length===0)){
-          throw new Error("Bitte mindestens eine Persona aktivieren oder auf Systemverhalten bleiben.");
-        }
         const response = await fetch("/webhook/llm", {
           method: "POST",
           headers,
