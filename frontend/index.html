@@ -425,11 +425,30 @@
 
     // ---------- Conversation state ----------
     const CONV_KEY = 'conversationId';
-    let conversationId = localStorage.getItem(CONV_KEY) || null;
 
-    function setConversationId(id){
-      conversationId = id || null;
-      if (id) localStorage.setItem(CONV_KEY, id); else localStorage.removeItem(CONV_KEY);
+    function isValidConversationId(id) {
+      return typeof id === 'string'
+        && id.length > 0
+        && id.length < 200
+        && !id.includes('$json')
+        && !id.includes('{{')
+        && /^[A-Za-z0-9._:-]+$/.test(id); // UUID & simple tokens
+    }
+
+    let conversationId = localStorage.getItem(CONV_KEY) || null;
+    if (!isValidConversationId(conversationId)) {
+      conversationId = null;
+      localStorage.removeItem(CONV_KEY);
+    }
+
+    function setConversationId(id) {
+      if (!isValidConversationId(id)) {
+        conversationId = null;
+        localStorage.removeItem(CONV_KEY);
+      } else {
+        conversationId = id;
+        localStorage.setItem(CONV_KEY, id);
+      }
       renderConvStatus();
     }
 
@@ -491,23 +510,25 @@
       try {
         // Payload + Header mit conversation_id (falls vorhanden)
         const payload = { prompt, system, model, rag: ragVal };
-        if (conversationId) payload.conversation_id = conversationId;
-
         const headers = { "Content-Type": "application/json" };
-        if (conversationId) headers["x-conversation-id"] = conversationId;
+
+        if (isValidConversationId(conversationId)) {
+          payload.conversation_id = conversationId;
+          headers["x-conversation-id"] = conversationId;
+        }
 
         const response = await fetch("/webhook/llm", {
           method: "POST",
           headers,
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
-
         const text = await response.text();
-        if (!response.ok) throw new Error(text || `Fehler ${response.status}`);
+        if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
 
         let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-        // <-- NEU: conversation_id aus der Antwort übernehmen (Server-generiert)
-        if (data?.conversation_id) {
+
+        // ID aus der Antwort nur übernehmen, wenn sie valide ist
+        if (data?.conversation_id && isValidConversationId(data.conversation_id)) {
           setConversationId(data.conversation_id);
         } else if (!conversationId && window.crypto?.randomUUID) {
           // Fallback: falls Server keine ID liefert, lokal eine erzeugen,
