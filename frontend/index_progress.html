@@ -72,8 +72,8 @@
     .panel.active{display:block}
 
     /* Sub-Tabs inside Prompt */
-    .subtab-bar{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:8px 0 12px}
-    .subtab{width:100%;text-align:center;border:1px solid #dfe3f0;background:#fff;color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700}
+    .subtab-bar{display:flex;gap:10px;margin:8px 0 12px}
+    .subtab{flex:0 0 auto;border:1px solid #dfe3f0;background:#fff;color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700}
     .subtab.active{background:var(--grad);color:#fff;border-color:transparent}
     .subpanel{display:none}
     .subpanel.active{display:block}
@@ -691,10 +691,11 @@
       try {
         // Payload + Header mit conversation_id (falls vorhanden)
         const isAgents = activeSubtab()==='subtab-agents';
-      const personas = isAgents ? collectPersonas() : [];
+        const personas = isAgents ? collectPersonas() : [];
+
         const payload = { prompt, system, rag: ragVal };
 
-        if (personas.length > 0){
+        if (isAgents && personas.length > 0) {
           payload.personas = personas;
           payload.writer = { provider: "groq", model: "deepseek-r1-distill-llama-70b" };
         } else {

@@ -1,0 +1,234 @@
+{
+  "name": "agent_orchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b265e8b5-c9ee-4898-b65c-09cb6dcf86ba",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Persona Items — FINAL (n8n JS v2)\n\n// 1) IMMER vom Preflight-Node lesen (genau den Namen anpassen, falls du ihn anders genannt hast)\nconst pre = (() => {\n  try {\n    const it = $items(\"Agents Preflight (Normalize)\", 0)[0];\n    if (it && it.json) return it.json;\n  } catch {}\n  return $json || {}; // Fallback, falls der Name abweicht\n})();\n\nconst b = pre.body || {};\n\n// 2) Personas nur aus dem Preflight ziehen (Top-Level bevorzugt)\nlet personas = Array.isArray(pre.personas) ? pre.personas\n             : Array.isArray(b.personas)   ? b.personas\n             : [];\n\n// 3) Harte Validierung + Debug, wenn leer\nif (!Array.isArray(personas) || personas.length === 0) {\n  return [{\n    json: {\n      error: \"No personas provided\",\n      info: \"Prepare Persona Items erwartet personas[] aus dem Preflight.\",\n      debug: {\n        pre_has_personas: Array.isArray(pre.personas) ? pre.personas.length : typeof pre.personas,\n        pre_body_has_personas: Array.isArray(b.personas) ? b.personas.length : typeof b.personas,\n        pre_keys: Object.keys(pre || {})\n      }\n    }\n  }];\n}\n\n// 4) Provider-Mapping → RAG_Router\nfunction mapProvider(provider, model){\n  const prov = String(provider || 'mistral').toLowerCase();\n  const mdl  = String(model || '').toLowerCase();\n  if (prov === 'openrouter')  return { model: 'openrouter',  openrouter_model: mdl || 'openai/gpt-oss-120b' };\n  if (prov === 'groq')        return { model: 'groq',        groq_model: mdl || 'deepseek-r1-distill-llama-70b' };\n  if (prov === 'mistralapi')  return { model: 'mistralapi',  mistral_model: mdl || 'codestral-2501' };\n  if (prov === 'openai')      return { model: 'openai',      openai_model: mdl || 'gpt-4o-mini' };\n  if (prov === 'anthropic')   return { model: 'anthropic',   claude_model: mdl || 'claude-3-5-sonnet-20240620' };\n  if (prov === 'huggingface') return { model: 'huggingface', hf_model: mdl || 'microsoft/DialoGPT-medium' };\n  return { model: 'mistral',  ollama_model: mdl || 'llama3' }; // Fallback lokal\n}\n\n// 5) Kontext einsammeln (aus Preflight)\nconst task      = String(pre.prompt ?? b.prompt ?? '').trim();\nconst globalSys = String(pre.system ?? b.system ?? '').trim();\nconst rag       = !!(pre.rag ?? b.rag);\nconst rag_tags  = Array.isArray(pre.rag_tags ?? b.rag_tags) ? (pre.rag_tags ?? b.rag_tags) : [];\nconst convId    = pre.conversation_id ?? null;\nconst memory    = pre.memory ?? null;\n\n// 6) Fan-out: Ein Item pro Persona\nconst items = personas.map((p, idx) => {\n  const label = String(p.label || `Persona ${idx+1}`).trim();\n  const mapped = mapProvider(p.provider, p.model);\n\n  const roleSystem = [globalSys, `Rolle: ${label}.`]\n    .filter(Boolean).join('\\n\\n');\n\n  const personaPrompt = [\n    `Teamaufgabe: ${task}`,\n    `Dein Beitrag:`,\n    `- Liefere einen fokussierten Abschnitt aus Sicht der Rolle \"${label}\".`,\n    `- Max. 12 Sätze.`,\n    `- Hänge am Ende 3 Bulletpoints \"Input für andere\" an (keine Interna).`\n  ].join('\\n');\n\n  return {\n    json: {\n      ...mapped,\n      label,\n      prompt: personaPrompt,\n      system: roleSystem,\n      rag, rag_tags,\n      conversation_id: convId,\n      memory\n    }\n  };\n});\n\nreturn items;\n"
+      },
+      "id": "f9b3224d-aba3-428b-ac02-a1f4fe907633",
+      "name": "Prepare Persona Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "2cmATLhSNBMN3a2H",
+          "mode": "list",
+          "cachedResultName": "RAG_router_v3"
+        },
+        "workflowInputs": {
+          "mappingMode": "passThrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "375d86c8-f113-4d43-bda4-1860c12a778c",
+      "name": "Run RAG_Router (Agents)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammle alle Outputs aus dem RAG_Router-Run (pro Persona ein Item)\nconst outs = $input.all();\n\n// Versuche zusätzlich, die ursprünglichen Persona-Labels aus dem Node\n// \"Prepare Persona Items\" zu holen, falls das Subflow-Format die Labels nicht durchreicht.\nlet upstream = [];\ntry {\n  upstream = $items(\"Prepare Persona Items\", 0) || [];\n} catch (e) {\n  upstream = [];\n}\n\nconst board = outs.map((it, idx) => {\n  const j = it.json || {};\n  // Bevorzugt direkter Label-Passthrough, sonst Upstream-Label, sonst Fallback\n  const label =\n    j.label ||\n    (upstream[idx] && upstream[idx].json && upstream[idx].json.label) ||\n    `Agent ${idx + 1}`;\n\n  const text = String(\n    j.result ?? j.text ?? j.output ?? j.message ?? \"\"\n  ).trim();\n\n  const model =\n    j.model_used || j.model_requested || j.provider || j.model || \"\";\n\n  return { label, text, model };\n});\n\n// Konsolidierter Text fürs Writer-Prompt\nconst boardText = board\n  .map(b => `### ${b.label}\\n${b.text}\\n`)\n  .join(\"\\n\");\n\nreturn [{\n  json: {\n    ...$json,     // behalte Konversation, RAG-Flags etc.\n    board,\n    boardText\n  }\n}];\n"
+      },
+      "id": "6dbc9060-a331-4ea7-8bb2-107203c0cfdd",
+      "name": "Collect Agent Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "5FK0rqL55HibBsfv",
+          "mode": "list",
+          "cachedResultName": "RAG_Router_V2"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "4acf0f92-8b60-4b00-8337-bfef52d8f099",
+      "name": "Run RAG_Router (Writer)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format Agent Response — per-item safe (no .first())\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\nfunction pickText(o){\n  if (typeof o.result === 'string') return o.result;\n  if (typeof o.response === 'string') return o.response;\n  if (typeof o.text === 'string') return o.text;\n  if (o.choices?.[0]?.message?.content) return o.choices[0].message.content;\n  if (o.generated_text) return o.generated_text;\n  if (Array.isArray(o) && o[0]?.generated_text) return o[0].generated_text;\n  return typeof o === 'string' ? o : '';\n}\n\nconst text = pickText(j).trim();\nconst label = j.label || j.persona?.label || 'Agent';\nconst provider = j.provider || j.model || j.model_used || 'unknown';\n\nreturn { json: { ...j, label, text } };\n"
+      },
+      "id": "50961beb-c2a3-480e-a093-bf65363db377",
+      "name": "Format Agent Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Agents Preflight (Normalize) — returns MULTIPLE items (use 'Run once for all items')\nconst base = ($json && typeof $json === 'object') ? $json : {};\n\nlet personas = base.personas ?? base.body?.personas ?? [];\nif (typeof personas === 'string') {\n  try { personas = JSON.parse(personas); }\n  catch {\n    personas = personas.split(/\\r?\\n|;|\\|/).map(s => ({ label: s.trim() })).filter(p => p.label);\n  }\n}\nif (!Array.isArray(personas) || personas.length === 0) {\n  personas = [{\n    label: base.persona_label || base.label || 'Agent',\n    provider: base.persona_provider || base.provider || base.model || 'groq',\n    model: base.persona_model || base.openai_model || base.groq_model || base.ollama_model || base.mistral_model || base.hf_model || base.model || 'llama3',\n    system: base.persona_system || base.system || '',\n    prompt: base.persona_prompt || ''\n  }];\n}\n\nfunction mapProvider(prov, model){\n  const p = String(prov || '').toLowerCase();\n  if (p === 'groq')        return { model: 'groq',       groq_model: model };\n  if (p === 'openai')      return { model: 'openai',     openai_model: model };\n  if (p === 'anthropic')   return { model: 'anthropic',  claude_model: model };\n  if (p === 'mistralapi')  return { model: 'mistralapi', mistral_model: model };\n  if (p === 'openrouter')  return { model: 'openrouter', openrouter_model: model || 'openai/gpt-oss-120b' };\n  if (p === 'huggingface') return { model: 'huggingface', hf_model: model };\n  return { model: 'mistral',  ollama_model: model || 'llama3' };\n}\n\nconst out = personas.map((p, idx) => {\n  const prov = p.provider || base.provider || 'groq';\n  const mdl  = p.model || base.model || 'llama3';\n  const mapped = mapProvider(prov, mdl);\n  const label = p.label || `Agent ${idx+1}`;\n\n  return {\n    json: {\n      ...base,\n      persona: { ...p, label, provider: prov, model: mdl },\n      label,\n      ...mapped,\n      system: p.system || base.system || '',\n      prompt: base.prompt || '',\n    }\n  };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -704
+      ],
+      "id": "f18d4877-ea5f-4c03-9e17-fb03f71b5b97",
+      "name": "Agents Preflight (Normalize)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Writer Prompt — align with Agents & promote prompt/system to top-level\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\n// Allowed providers; default to 'groq' like Agents\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral']);\nconst provIn  = String(j.writer?.provider || j.model || j.provider || '').toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'groq';\n\n// Map to provider-specific model field (reuse existing where possible)\nlet modelFields = {};\nswitch (provider) {\n  case 'groq':\n    modelFields = { model: 'groq',       groq_model: j.groq_model || j.writer?.model || 'llama-3.1-70b-versatile' };\n    break;\n  case 'openai':\n    modelFields = { model: 'openai',     openai_model: j.openai_model || j.writer?.model || 'gpt-4o-mini' };\n    break;\n  case 'anthropic':\n    modelFields = { model: 'anthropic',  claude_model: j.claude_model || j.writer?.model || 'claude-3-5-sonnet' };\n    break;\n  case 'mistralapi':\n    modelFields = { model: 'mistralapi', mistral_model: j.mistral_model || j.writer?.model || 'mistral-large-latest' };\n    break;\n  case 'openrouter':\n    modelFields = { model: 'openrouter', openrouter_model: j.openrouter_model || j.writer?.model || 'openai/gpt-oss-120b' };\n    break;\n  case 'huggingface':\n    modelFields = { model: 'huggingface', hf_model: j.hf_model || j.writer?.model || 'meta-llama/Meta-Llama-3-8B-Instruct' };\n    break;\n  case 'mistral':\n  default:\n    modelFields = { model: 'mistral',    ollama_model: j.ollama_model || j.writer?.model || 'llama3' };\n    break;\n}\n\n// Collect agent outputs for board\nconst boardText = j.boardText || (\n  Array.isArray(j.board)\n    ? j.board.map(b => `### ${b.label || 'Agent'}\\n${(b.text||'').trim()}\\n`).join('\\n')\n    : ''\n);\n\n// Base prompt fallback from multiple common places\nconst basePrompt = j.prompt ?? j.body?.prompt ?? j.input?.prompt ?? '';\n\n// Compose writer prompts\nconst writerSystem = [\n  (j.system || j.body?.system || ''),\n  'Du bist der **Writer**. Fasse die Team-Ergebnisse präzise zusammen.',\n  'Struktur:',\n  '1) Kurzfassung (5 Sätze)',\n  '2) Details je Bereich (Rollenabschnitte)',\n  '3) Entscheidungen',\n  '4) Offene Punkte / Risiken',\n  'Formatiere mit Überschriften und Listen, wo sinnvoll.'\n].filter(Boolean).join('\\n');\n\nconst writerPrompt = [\n  `Teamaufgabe: ${basePrompt}`,\n  '',\n  'Team-Ergebnisse:',\n  boardText\n].join('\\n');\n\n// Promote prompt/system to TOP-LEVEL for passThrough to RAG_Router\nconst promoted = {\n  ...modelFields,\n  prompt: writerPrompt,\n  system: writerSystem,\n  rag: !!j.rag,\n  rag_tags: Array.isArray(j.rag_tags) ? j.rag_tags : [],\n  conversation_id: j.conversation_id ?? null,\n  memory: j.memory ?? null,\n};\n\n// Keep writer_call for logging/debugging\nconst writer_call = { ...promoted };\n\nreturn { json: { ...j, ...promoted, writer_call } };\n"
+      },
+      "id": "c71c06a9-8ec3-40c1-85e9-49f8325190a8",
+      "name": "Build Writer Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -704
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Agents Preflight (Normalize)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Persona Items": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Agents)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run RAG_Router (Agents)": {
+      "main": [
+        [
+          {
+            "node": "Collect Agent Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Agent Outputs": {
+      "main": [
+        [
+          {
+            "node": "Build Writer Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run RAG_Router (Writer)": {
+      "main": [
+        [
+          {
+            "node": "Format Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agents Preflight (Normalize)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Persona Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Writer Prompt": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Writer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2ccc666a-4586-4d61-9178-dbc17b8d22f8",
+  "meta": {
+    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+  },
+  "id": "mpzLXE9aCdIXfdca",
+  "tags": [
+    {
+      "createdAt": "2025-08-15T08:00:40.082Z",
+      "updatedAt": "2025-08-15T08:00:40.082Z",
+      "id": "MIGc52SFD5ylOxsf",
+      "name": "Subflow"
+    }
+  ]
+}

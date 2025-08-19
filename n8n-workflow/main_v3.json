@@ -1,5 +1,5 @@
 {
-  "name": "Main",
+  "name": "main_v3",
   "nodes": [
     {
       "parameters": {
@@ -8,13 +8,13 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "18cbbe9a-9cec-46ad-ae64-d2b5da6fd4c0",
+      "id": "222f6857-0bdb-4310-82ff-d0e18c9a9146",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        0,
-        -240
+        -1296,
+        160
       ],
       "webhookId": "llm-router"
     },
@@ -105,18 +105,31 @@
               "name": "conversation_id",
               "value": "=={{ String(\n     $json.body?.conversation_id\n  || $json.conversation_id\n  || $json.headers?.['x-conversation-id']\n  || $json.query?.conversation_id\n  || ''\n).replace(/^[=\\s]+/, '').trim() }}\n\n",
               "type": "string"
+            },
+            {
+              "id": "a04860a2-cff8-4566-a8c6-ff660fc40849",
+              "name": "personas",
+              "value": "={{ $json.body?.personas ?? $json.personas ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "40ae0a34-296f-4b43-8e4d-8ebcfcfad660",
+              "name": "writer",
+              "value": "={{ $json.body?.writer ?? $json.writer ?? null }}\n",
+              "type": "string"
             }
           ]
         },
+        "includeOtherFields": true,
         "options": {}
       },
-      "id": "3837510a-eb59-4504-96af-09d0bf430d96",
+      "id": "ac7eccea-42c1-40e7-9e19-3ea0da02d3f3",
       "name": "Extract Fields",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        224,
-        -240
+        -1072,
+        160
       ]
     },
     {
@@ -125,25 +138,25 @@
         "responseBody": "={{ $json }}",
         "options": {}
       },
-      "id": "8aabd514-83e2-4faf-8fc8-af8df51585e3",
+      "id": "41fb6e4f-772f-4d75-b481-0c4c0ebd8a95",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1120,
-        -240
+        496,
+        160
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "LaPkdCUyheq3rQnf",
+          "value": "2cmATLhSNBMN3a2H",
           "mode": "list",
-          "cachedResultName": "RAG_Router"
+          "cachedResultName": "RAG_router_v3"
         },
         "workflowInputs": {
-          "mappingMode": "defineBelow",
+          "mappingMode": "passThrough",
           "value": {},
           "matchingColumns": [],
           "schema": [],
@@ -155,10 +168,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        672,
-        -240
+        48,
+        256
       ],
-      "id": "e260583d-bfb1-4af4-9c8f-060e467760d1",
+      "id": "d4c5ce71-cb20-4e1d-8f28-7de9f92aae3a",
       "name": "Run RAG_Router Sub"
     },
     {
@@ -168,10 +181,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        448,
-        -240
+        -176,
+        256
       ],
-      "id": "bc07c689-329c-4698-a257-f2c235d84b5a",
+      "id": "a1a8ee53-800c-426c-a7d2-d96b2b34cf5a",
       "name": "Load Memory"
     },
     {
@@ -181,11 +194,99 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        896,
-        -240
+        272,
+        160
       ],
-      "id": "2b5a3452-259e-49db-8367-f9190ef18cae",
+      "id": "f16688e5-804a-4436-bc60-e92030afafb6",
       "name": "Update Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeLabel(s){ s=String(s||'').trim(); s=s.replace(/^(ein|eine|einen|der|die|das)\\s+/i,''); return s.replace(/[,:;.\\s]+$/,'').trim(); }\nfunction parsePersonasString(s){\n  return String(s||'').split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n    const m=t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n    return { label:(m?.[1]||t).trim(), provider:String(m?.[2]||'mistral').toLowerCase() };\n  });\n}\nfunction tryJson(v){ if (typeof v!=='string') return v; try { return JSON.parse(v); } catch { return v; } }\nfunction toPersonaArray(x){\n  const v=tryJson(x);\n  if (Array.isArray(v)) return v;\n  if (typeof v==='string') return parsePersonasString(v);\n  return [];\n}\n\nconst raw = $json || {};\nconst b   = raw.body || {};\n\n// 🔧 NEU: Priorität = NICHT-LEERES Top-Level > NICHT-LEERES body > Strings/Fallback\nlet personas =\n  (Array.isArray(raw.personas) && raw.personas.length) ? raw.personas :\n  (Array.isArray(b.personas)   && b.personas.length)   ? b.personas   :\n  (toPersonaArray(raw.personas).length ? toPersonaArray(raw.personas) :\n   toPersonaArray(b.personas));\n\n// Fallback: aus system „Label (provider)“\nif (!Array.isArray(personas) || !personas.length) {\n  const sysText = String(raw.system ?? b.system ?? '').trim();\n  if (sysText){\n    const norm = sysText.replace(/\\s+(und|sowie|plus)\\s+/gi, ', ');\n    const rx = /([^(),;]+?)\\s*\\(([^)]+)\\)/g; const found=[]; let m;\n    while ((m = rx.exec(norm)) !== null) found.push({ label: normalizeLabel(m[1]), provider: String(m[2]).trim().toLowerCase() });\n    personas = found;\n  }\n}\n\n// Normieren & zählen\npersonas = Array.isArray(personas) ? personas.map((p,i)=>({\n  label: normalizeLabel(p.label || `Persona ${i+1}`),\n  provider: String(p.provider || 'mistral').toLowerCase(),\n  model: p.model || ''\n})) : [];\n\nconst count = personas.length;\n\nreturn [{\n  json: {\n    ...raw,\n    body: { ...b, personas },   // jetzt konsistent als Array\n    personas,                   // und auch Top-Level\n    persona_count: count,\n    multi_persona: count > 1\n  }\n}];\n"
+      },
+      "id": "5a7599d5-115d-4b6c-968e-bfbd08275562",
+      "name": "Parse Personas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "multi-persona",
+              "leftValue": "={{ $json.persona_count || 0 }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "790093c0-3cff-41c0-8cc7-10444f584714",
+      "name": "Multiple Personas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mpzLXE9aCdIXfdca",
+          "mode": "list",
+          "cachedResultName": "agent_orchestrator"
+        },
+        "workflowInputs": {
+          "mappingMode": "passThrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ff501a8a-20aa-44d6-b902-46ca56bb4850",
+      "name": "Run Agent_Orchestrator Sub",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalisiert personas (Array) & writer (Objekt) für den Orchestrator\n\nfunction parsePersonasString(s){\n  // \"Rolle (provider); Rolle2 (provider2)\"\n  return String(s||'')\n    .split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n      const m = t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n      return {\n        label: (m?.[1]||t).trim(),\n        provider: String(m?.[2]||'mistral').toLowerCase()\n      };\n    });\n}\n\nlet personas = $json.personas ?? $json.body?.personas ?? null;\nif (typeof personas === 'string') {\n  try {\n    const parsed = JSON.parse(personas);\n    personas = Array.isArray(parsed) ? parsed : parsePersonasString(personas);\n  } catch {\n    personas = parsePersonasString(personas);\n  }\n}\n\nlet writer = $json.writer ?? $json.body?.writer ?? null;\nif (typeof writer === 'string') {\n  try { writer = JSON.parse(writer); } catch { writer = null; }\n}\n\nreturn [{ json: { ...$json, personas, writer } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        160
+      ],
+      "id": "37860fd8-5e30-48ee-805e-671840165189",
+      "name": "Normalize Personas & Writer"
     }
   ],
   "pinData": {
@@ -244,7 +345,7 @@
       "main": [
         [
           {
-            "node": "Load Memory",
+            "node": "Normalize Personas & Writer",
             "type": "main",
             "index": 0
           }
@@ -283,16 +384,67 @@
           }
         ]
       ]
+    },
+    "Parse Personas": {
+      "main": [
+        [
+          {
+            "node": "Multiple Personas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Multiple Personas?": {
+      "main": [
+        [
+          {
+            "node": "Run Agent_Orchestrator Sub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Agent_Orchestrator Sub": {
+      "main": [
+        [
+          {
+            "node": "Update Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Personas & Writer": {
+      "main": [
+        [
+          {
+            "node": "Parse Personas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "11e96c96-715b-4a44-9a4b-5e9b798e8abb",
+  "versionId": "4e60e798-6c40-4f0c-b2a8-bc4729dcf0d1",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
-  "id": "O2xReG4YW9XJ4F62",
+  "id": "vPH5vQOIKaPEHHna",
   "tags": []
 }

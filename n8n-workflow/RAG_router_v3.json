@@ -1,15 +1,15 @@
 {
-  "name": "RAG_Router",
+  "name": "RAG_router_v3",
   "nodes": [
     {
       "parameters": {},
-      "id": "1eed496b-09ee-4510-8f72-99a91e6f806e",
+      "id": "4e89858a-f6c8-4c8e-a5b1-a3d187a1cfcb",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
       "position": [
-        -2752,
-        992
+        -2688,
+        944
       ]
     },
     {
@@ -105,13 +105,13 @@
         "includeOtherFields": true,
         "options": {}
       },
-      "id": "8b1080d4-2a49-4dbb-8a50-965fbb931c5b",
+      "id": "b400fcdf-de80-4d7f-a422-3236edd4b65a",
       "name": "Context (original fields)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -2528,
-        992
+        -2464,
+        944
       ]
     },
     {
@@ -138,13 +138,13 @@
         },
         "options": {}
       },
-      "id": "184a135b-bf06-4f60-81c9-c4ace19ef308",
+      "id": "36975b74-0b6f-45d4-ac2c-8a7901fae188",
       "name": "without rag?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -2304,
-        992
+        -2240,
+        944
       ]
     },
     {
@@ -174,23 +174,24 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -2080,
-        1088
+        -2016,
+        1040
       ],
-      "id": "cce7d5e2-c1a9-4694-a41f-62edc256f8b8",
+      "id": "97c7ea64-38d5-48c5-a616-d61823a4a43d",
       "name": "RAG Query"
     },
     {
       "parameters": {
-        "jsCode": "// Nimmt Input aus RAG- oder No-RAG-Pfad an und baut IMMER den finalen Prompt\nconst inData = $input.first().json || {};\nconst base   = $('Context (original fields)').first().json || {};\n\n// Quellen hübsch formatieren\nconst sources = Array.isArray(inData.sources) ? inData.sources : [];\nconst lines = sources.slice(0, 8).map((s, i) => {\n  const fn    = s?.meta?.filename || s?.filename || `Quelle ${i+1}`;\n  const score = (typeof s?.score === 'number') ? ` (score: ${s.score.toFixed(3)})` : '';\n  const snip  = s?.snippet ?? s?.content ?? s?.meta?.text ?? '';\n  const short = String(snip).replace(/\\s+/g, ' ').trim().slice(0, 600);\n  return `- ${fn}${score}: ${short}`;\n});\nconst contextBlock = lines.length ? `Kontext aus Daten:\\n${lines.join('\\n')}\\n\\n` : '';\n\n// Optional: Mini-Gedächtnis (falls du es schon eingebaut hast)\nconst mem = base.memory || { history: [], summary: '' };\nconst LAST_N = 8;\nconst histText = (Array.isArray(mem.history) ? mem.history : [])\n  .slice(-LAST_N)\n  .map(m => `${m.role === 'assistant' ? 'Assistent' : 'Nutzer'}: ${String(m.content||'').trim()}`)\n  .join('\\n');\n\nconst summaryBlock = mem.summary ? `Bisherige Zusammenfassung:\\n${mem.summary}\\n\\n` : '';\nconst historyBlock = histText ? `Letzte Nachrichten:\\n${histText}\\n\\n` : '';\n\nconst systemBlock  = (base.system && String(base.system).trim()) ? String(base.system).trim() + '\\n\\n' : '';\nconst userPrompt   = String(base.prompt ?? '').trim();\n\nconst augmented = `${systemBlock}${summaryBlock}${historyBlock}${contextBlock}Frage: ${userPrompt}`;\n\nconst modelOllama = base.ollama_model || base.model || 'llama3';\nconst temperature = typeof base.temperature === 'number' ? base.temperature : 0.7;\nconst top_p       = typeof base.top_p === 'number' ? base.top_p : 0.9;\nconst num_predict = typeof base.num_predict === 'number' ? base.num_predict : 600;\n\nreturn {\n  prompt: augmented,\n  system: base.system || '',\n  model: base.model,\n  ollama_model: modelOllama,\n  hf_model: base.hf_model,\n  openai_model: base.openai_model,\n  claude_model: base.claude_model,\n  mistral_model: base.mistral_model,\n  temperature, top_p, num_predict,\n  augmented_prompt: augmented,\n  sources,\n  used_tags: Array.isArray(inData.used_tags) ? inData.used_tags : []\n};\n"
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Build Augmented Prompt — per-item safe (no .first())\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\nconst useRag = !!j.rag;\nlet docs = [];\n\n// Try common places for retrieved docs\nif (Array.isArray(j.docs)) docs = j.docs;\nelse if (Array.isArray(j.documents)) docs = j.documents;\nelse if (Array.isArray(j.matches)) docs = j.matches.map(m => m.document || m);\n\n// Normalize to plain text + source\nfunction toEntry(d){\n  const text = d.text || d.content || d.page_content || d.pageContent || d.body || '';\n  const meta = d.metadata || d.meta || {};\n  const src = meta.source || meta.file || meta.path || meta.url || meta.name || '';\n  return { text: String(text), source: String(src) };\n}\n\nlet entries = docs.map(toEntry).filter(e => e.text);\nlet contextText = entries.map((e, i) => `#${i+1} ${e.text}`).join('\\n\\n');\n\nconst sources = entries.map((e, i) => ({\n  id: i+1, source: e.source\n})).filter(s => s.source);\n\nconst used_tags = Array.isArray(j.used_tags) ? j.used_tags : (Array.isArray(j.rag_tags) ? j.rag_tags : []);\n\nconst augmentedPrompt = useRag && contextText\n  ? `${j.prompt || ''}\\n\\nKontext:\\n${contextText}`\n  : (j.prompt || '');\n\nreturn { json: {\n  ...j,\n  prompt: augmentedPrompt,\n  sources,\n  used_tags\n}};\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1856,
-        992
+        -1792,
+        944
       ],
-      "id": "92948afd-8f16-4001-bdd7-5c892bae1cff",
+      "id": "d7f37b11-f439-483e-8f6d-bb78e000671f",
       "name": "Build Augmented Prompt"
     },
     {
@@ -217,13 +218,13 @@
         },
         "options": {}
       },
-      "id": "0e1f374e-62c9-472d-ad93-91a0f580cddc",
+      "id": "8f08a79c-d948-4334-9c3f-8ffe9e0c01d9",
       "name": "Is groq?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1632,
-        992
+        -1568,
+        944
       ]
     },
     {
@@ -250,13 +251,13 @@
         },
         "options": {}
       },
-      "id": "e0f282f3-5e5a-4fd7-b50e-fcd34e1afa44",
+      "id": "3ce39500-555f-449e-bb4c-9a72c6faa9d2",
       "name": "Is openrouter?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1408,
-        1184
+        -1344,
+        1136
       ]
     },
     {
@@ -283,13 +284,13 @@
         },
         "options": {}
       },
-      "id": "5f934a9e-c3dc-4e6c-942f-f3f47c0d98cb",
+      "id": "af90758a-b5b3-45be-bb1b-ef5cd7e4bd05",
       "name": "Is mistralAPI?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1184,
-        1328
+        -1120,
+        1280
       ]
     },
     {
@@ -316,13 +317,13 @@
         },
         "options": {}
       },
-      "id": "c449e0d3-e93b-44e1-8872-0c65a9cd1514",
+      "id": "81f0d0f0-8a68-4fcf-92f3-ba8fad049f37",
       "name": "Is OpenAI?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -960,
-        1424
+        -896,
+        1376
       ]
     },
     {
@@ -349,13 +350,13 @@
         },
         "options": {}
       },
-      "id": "6a5f9f1c-c461-465f-a163-5104e9360877",
+      "id": "64a8112a-581a-4275-b2d4-e7963e4fd145",
       "name": "Is Anthropic?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -736,
-        1520
+        -672,
+        1472
       ]
     },
     {
@@ -382,13 +383,13 @@
         },
         "options": {}
       },
-      "id": "ed1b8088-6f90-429b-a856-a256fa53a979",
+      "id": "ce078acc-6da4-4b85-bc38-f7811690933c",
       "name": "Is HuggingFace?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -512,
-        1616
+        -448,
+        1568
       ]
     },
     {
@@ -415,13 +416,13 @@
         },
         "options": {}
       },
-      "id": "7fafad6f-a9db-46d0-93a6-ab37e8ea12b8",
+      "id": "c67f4047-fffc-493a-be70-329b6629379e",
       "name": "Is Mistral?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -288,
-        1712
+        -224,
+        1664
       ]
     },
     {
@@ -435,13 +436,13 @@
         "jsonBody": "={{ ({\n  model: $json.openai_model,\n  messages: [\n    ...(($('Context (original fields)').first().json.system || '').trim() ? [{ role: 'system', content: $('Context (original fields)').first().json.system }] : []),\n    { role: 'user', content: $json.prompt }\n  ],\n  max_tokens: 1000,\n  temperature: 0.7\n}) }}",
         "options": {}
       },
-      "id": "3c207e51-dde6-418f-85dc-e15406beb39c",
+      "id": "77517c03-72e9-4246-8c8e-822c5009ed39",
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        0,
-        1040
+        64,
+        992
       ],
       "credentials": {
         "openAiApi": {
@@ -461,13 +462,13 @@
         "jsonBody": "={{ ({\n  model: $json.claude_model,\n  max_tokens: 1000,\n  messages: [{ role: 'user', content: $json.prompt }],\n  ...((($('Context (original fields)').first().json.system || '').trim()) ? { system: $('Context (original fields)').first().json.system } : {})\n}) }}",
         "options": {}
       },
-      "id": "65d32fc6-6502-481a-bb90-473b65537bbd",
+      "id": "c9526557-e087-4695-b2fd-1bc6d98964cd",
       "name": "Call Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        0,
-        1232
+        64,
+        1184
       ],
       "credentials": {
         "anthropicApi": {
@@ -487,13 +488,13 @@
         "jsonBody": "={{ ({\n  inputs: (($('Context (original fields)').first().json.system || '').trim()) ? ($('Context (original fields)').first().json.system + '\\n\\n' + $json.prompt) : $json.prompt,\n  parameters: { max_length: 500, temperature: 0.7, do_sample: true, return_full_text: false }\n}) }}",
         "options": {}
       },
-      "id": "f75139c9-5bae-481d-8ba7-4d5817a582f5",
+      "id": "54071bd9-3d9c-4a95-8d56-512ffdfb54b9",
       "name": "Call Hugging Face",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        0,
-        1424
+        64,
+        1376
       ],
       "credentials": {
         "huggingFaceApi": {
@@ -513,13 +514,13 @@
         "jsonBody": "={{ ({\n  model: $json.mistral_model,\n  messages: [\n    { role: 'system', content: ($('Context (original fields)').first().json.system || 'Du bist ein hilfsbereiter Assistent.') },\n    { role: 'user', content: $json.prompt }\n  ],\n  max_tokens: 200,\n  temperature: 0.7\n}) }}",
         "options": {}
       },
-      "id": "11f977f2-6462-4403-8217-ce8e303a2611",
+      "id": "6cf0a06e-f580-4773-b4fc-3bde1dd6b2e0",
       "name": "Call mistralAPI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        0,
-        848
+        64,
+        800
       ],
       "credentials": {
         "mistralCloudApi": {
@@ -539,13 +540,13 @@
           "timeout": 300000
         }
       },
-      "id": "01d9ebe8-4a17-4d5c-af16-7084896800c0",
+      "id": "54edbcb8-7cde-43d3-a49d-e91eaa2c01cc",
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        0,
-        1616
+        64,
+        1568
       ]
     },
     {
@@ -557,13 +558,13 @@
         "jsonBody": "={{ ({\n  model: 'llama3',\n  prompt: (($('Context (original fields)').first().json.system || '').trim()) ? ($('Context (original fields)').first().json.system + '\\n\\n' + $json.prompt) : $json.prompt,\n  stream: false,\n  options: { temperature: 0.7, num_predict: 500 }\n}) }}",
         "options": {}
       },
-      "id": "a499eaf2-357c-4f27-ae27-92850cd7015d",
+      "id": "72be1f85-6fc9-44df-a080-fee4e8a7b039",
       "name": "Call Llama (Default)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        0,
-        1808
+        64,
+        1760
       ]
     },
     {
@@ -576,23 +577,24 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        -64,
-        48
+        0,
+        0
       ],
-      "id": "aca2ce71-c3ba-4b61-aca4-4fe012c7a49d",
+      "id": "ab76abd5-0396-419d-8917-73fd4b6eb6bd",
       "name": "Basic LLM Chain"
     },
     {
       "parameters": {
-        "jsCode": "// Response Formatter (angepasst auf Subflow)\nconst requested = $('Context (original fields)').first().json || {};\nconst item = $input.first();\nlet data = item.json;\n\nfunction parseNdjsonString(s){try{const lines=String(s).trim().split('\\n').filter(Boolean);return lines.map(l=>JSON.parse(l));}catch{return null;}}\nfunction parseSseString(s){const out=[];for(const line of String(s).split('\\n')){const t=line.trim();if(!t||!t.toLowerCase().startsWith('data:'))continue;const p=t.slice(5).trim();if(!p||p==='[DONE]')continue;try{out.push(JSON.parse(p));}catch{}}return out.length?out:null;}\nfunction extractTextFromChunk(o){if(typeof o.response==='string')return o.response;const c=o.choices&&o.choices[0];if(c){if(c.delta&&typeof c.delta.content==='string')return c.delta.content;if(c.message&&typeof c.message.content==='string')return c.message.content;if(typeof c.text==='string')return c.text;if(Array.isArray(c.content))return c.content.map(x=>typeof x.text==='string'?x.text:'').join('');}\nif(typeof o.content==='string')return o.content; if(typeof o.output_text==='string')return o.output_text; if(typeof o.text==='string')return o.text; return '';}\n\nlet result, provider, actualModel, usage=null, raw=data;\nif(typeof data==='string'){raw={data};data={data};}\nif(data&&typeof data.data==='string'){\n  let chunks=parseNdjsonString(data.data);\n  if(chunks&&chunks.length){provider='Ollama';actualModel=(chunks.find(o=>o.done===true)?.model)||chunks[0]?.model||requested.ollama_model;result=chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();raw={ndjson:chunks};}\n  else{chunks=parseSseString(data.data);if(chunks&&chunks.length){provider=(chunks.find(o=>o?.provider)?'OpenRouter':'Groq/OpenAI-like');actualModel=(chunks.find(o=>o?.model)?.model)||requested.model||requested.openai_model||requested.ollama_model;result=chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();raw={sse:chunks};}}\n}\nif(!result){\n  if(data&&data.choices?.[0]?.message){result=data.choices[0].message.content;provider='OpenAI';actualModel=data.model||requested.openai_model;usage=data.usage||null;}\n  else if(data&&Array.isArray(data.content)&&data.content[0]){result=data.content[0].text||data.content[0].content;provider='Claude/Anthropic';actualModel=data.model||requested.claude_model;}\n  else if(Array.isArray(data)&&data[0]?.generated_text){result=data[0].generated_text;provider='Hugging Face';actualModel=requested.hf_model;}\n  else if(data&&data.generated_text){result=data.generated_text;provider='Hugging Face';actualModel=requested.hf_model;}\n  else if(data&&typeof data.response==='string'){result=data.response;provider='Ollama';actualModel=data.model||requested.ollama_model;}\n  else if(data&&data.text){result=data.text;provider='OpenRouter';actualModel=requested.model||requested.openai_model||requested.ollama_model;}\n  else if(data&&data.error){result=`Error: ${data.error.message||JSON.stringify(data.error)}`;provider='Error';actualModel='N/A';}\n  else {result=`Unexpected response format: ${JSON.stringify(data)}`;provider='Unknown';actualModel='N/A';}\n}\n\nlet sources=[], used_tags=[]; try{const rag=$('Build Augmented Prompt').first().json||{}; if(Array.isArray(rag.sources))sources=rag.sources; if(Array.isArray(rag.used_tags))used_tags=rag.used_tags;}catch{}\n\nreturn {\n  result:(result||'').trim(),\n  status:(provider==='Error')?'error':'success',\n  provider,\n  model_requested: requested.model,\n  model_used: actualModel,\n  timestamp: new Date().toISOString(),\n  usage,\n  raw_response: raw,\n  sources,\n  used_tags,\n  original_prompt: $('Context (original fields)').first().json.prompt,\n  conversation_id: $('Context (original fields)').first().json.conversation_id\n};"
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Response Formatter — per-item safe (no .first())\nconst requested = ($json && typeof $json === 'object') ? $json : {};\nlet data = requested;\n\n// If provider wrapped the payload under `data`\nif (typeof requested.data !== 'undefined') {\n  data = requested;\n}\n\n// Helpers\nfunction parseNdjsonString(s){\n  try {\n    const lines = String(s).trim().split('\\n').filter(Boolean);\n    return lines.map(l=>JSON.parse(l));\n  } catch { return null; }\n}\nfunction parseSseString(s){\n  const out=[];\n  for (const line of String(s).split('\\n')) {\n    const t=line.trim();\n    if (!t || !t.toLowerCase().startsWith('data:')) continue;\n    const p=t.slice(5).trim();\n    if (!p || p==='[DONE]') continue;\n    try { out.push(JSON.parse(p)); } catch {}\n  }\n  return out.length ? out : null;\n}\nfunction extractTextFromChunk(o){\n  if (typeof o.response === 'string') return o.response;\n  const c = o.choices && o.choices[0];\n  if (c) {\n    if (c.delta && typeof c.delta.content === 'string') return c.delta.content;\n    if (c.message && typeof c.message.content === 'string') return c.message.content;\n    if (typeof c.text === 'string') return c.text;\n    if (Array.isArray(c.content)) return c.content.map(x => typeof x.text==='string' ? x.text : '').join('');\n  }\n  if (typeof o.content === 'string') return o.content;\n  if (typeof o.output_text === 'string') return o.output_text;\n  if (typeof o.text === 'string') return o.text;\n  return '';\n}\n\nlet result, provider, actualModel, usage=null, raw=data;\n\nif (typeof data === 'string') { raw={data}; data={data}; }\n\nif (data && typeof data.data === 'string') {\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o=>o.done===true)?.model) || chunks[0]?.model || requested.ollama_model;\n    result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o=>o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o=>o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model;\n      result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    result = data.choices[0].message.content;\n    provider = 'OpenAI';\n    actualModel = data.model || requested.openai_model;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    result = data.content[0].text || data.content[0].content;\n    provider = 'Claude/Anthropic';\n    actualModel = data.model || requested.claude_model;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    result = data[0].generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model;\n  } else if (data && data.generated_text) {\n    result = data.generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model;\n  } else if (data && data.response) {\n    result = data.response;\n    provider = 'Ollama';\n    actualModel = data.model || requested.ollama_model;\n  } else if (data && data.text) {\n    result = data.text;\n    provider = 'OpenRouter/Groq-like';\n    actualModel = requested.model || requested.openai_model || requested.ollama_model;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`;\n    provider = 'Error';\n    actualModel = 'N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`;\n    provider = 'Unknown';\n    actualModel = 'N/A';\n  }\n}\n\nconst sources = Array.isArray(requested.sources) ? requested.sources : [];\nconst used_tags = Array.isArray(requested.used_tags) ? requested.used_tags : (Array.isArray(requested.rag_tags) ? requested.rag_tags : []);\n\nconst inputLabel = requested.label;\n\nreturn { json: {\n  result: (result || '').trim(),\n  status: (provider === 'Error') ? 'error' : 'success',\n  provider,\n  model_requested: requested.model,\n  model_used: actualModel,\n  timestamp: new Date().toISOString(),\n  usage,\n  raw_response: raw,\n  sources,\n  used_tags,\n  original_prompt: requested.prompt,\n  conversation_id: requested.conversation_id,\n  label: inputLabel\n}};\n"
       },
-      "id": "a7bb59ad-d4fe-4511-a2b2-ae2541b7f6f1",
+      "id": "acd667a3-53fa-4389-896e-25fba92e4e31",
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        288,
-        1136
+        352,
+        1088
       ]
     },
     {
@@ -605,91 +607,11 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        -64,
-        448
+        0,
+        400
       ],
-      "id": "ee05aa01-89ad-4ac2-8cb9-b2584904add7",
+      "id": "99f7ec4d-07d7-42f9-8404-8dfd3a049dc7",
       "name": "Basic LLM Chain1"
-    },
-    {
-      "parameters": {
-        "model": "moonshotai/kimi-k2-instruct",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
-      "typeVersion": 1,
-      "position": [
-        -64,
-        272
-      ],
-      "id": "210d34b9-4acb-4814-865f-6aec29359e9c",
-      "name": "Moonshot/Kimi",
-      "credentials": {
-        "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
-          "name": "Groq account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "model": "deepseek-r1-distill-llama-70b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
-      "typeVersion": 1,
-      "position": [
-        80,
-        272
-      ],
-      "id": "ac257db7-1e88-4c4e-aa04-05d5f605671a",
-      "name": "Deepseek",
-      "credentials": {
-        "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
-          "name": "Groq account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "model": "openai/gpt-oss-120b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
-      "typeVersion": 1,
-      "position": [
-        -64,
-        672
-      ],
-      "id": "e7e38820-4267-4d5e-b434-a7b33a1dedbc",
-      "name": "GPT-OSS",
-      "credentials": {
-        "openRouterApi": {
-          "id": "h5qqZ7le0CZSkkCh",
-          "name": "OpenRouter account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "model": "qwen/qwen3-32b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
-      "typeVersion": 1,
-      "position": [
-        80,
-        672
-      ],
-      "id": "51e56f88-b840-4fdb-baae-d35c5942b0da",
-      "name": "qwen3",
-      "credentials": {
-        "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
-          "name": "Groq account"
-        }
-      }
     },
     {
       "parameters": {
@@ -715,11 +637,91 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -2080,
-        896
+        -2016,
+        848
       ],
-      "id": "b082cb25-3b3b-44d4-8ac6-6bad916bcbcb",
+      "id": "17675d88-b0fc-4e8d-9aa3-1d1efb3828d0",
       "name": "No RAG Context"
+    },
+    {
+      "parameters": {
+        "model": "moonshotai/kimi-k2-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        16,
+        224
+      ],
+      "id": "d2502226-41dc-4da0-b3bf-458e63aa72d9",
+      "name": "Moonshot / Kimi K2",
+      "credentials": {
+        "groqApi": {
+          "id": "mhumLW1ZXnpB1MfM",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        144,
+        224
+      ],
+      "id": "d83c61d6-6ee3-4338-936f-f9fa6ca4415f",
+      "name": "GPT-OSS-120b",
+      "credentials": {
+        "groqApi": {
+          "id": "mhumLW1ZXnpB1MfM",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "qwen/qwen3-32b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        16,
+        624
+      ],
+      "id": "05d1a3f1-34fa-4ecc-a619-ccda6146691e",
+      "name": "qwen3",
+      "credentials": {
+        "groqApi": {
+          "id": "mhumLW1ZXnpB1MfM",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gemma2-9b-it",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        144,
+        624
+      ],
+      "id": "1eb79001-e890-4a6a-bfd5-c16a648d6375",
+      "name": "gemma-it",
+      "credentials": {
+        "groqApi": {
+          "id": "mhumLW1ZXnpB1MfM",
+          "name": "Groq account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -1000,50 +1002,6 @@
         ]
       ]
     },
-    "Moonshot/Kimi": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Basic LLM Chain",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deepseek": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Basic LLM Chain",
-            "type": "ai_languageModel",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "GPT-OSS": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Basic LLM Chain1",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "qwen3": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Basic LLM Chain1",
-            "type": "ai_languageModel",
-            "index": 1
-          }
-        ]
-      ]
-    },
     "No RAG Context": {
       "main": [
         [
@@ -1054,18 +1012,61 @@
           }
         ]
       ]
+    },
+    "Moonshot / Kimi K2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-OSS-120b": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "qwen3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gemma-it": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "c9999e81-c2b9-4974-a743-8ad865b0adbc",
+  "versionId": "aebaebcc-e5b2-4e6c-847c-469cff1b4697",
   "meta": {
-    "templateCredsSetupCompleted": true,
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
-  "id": "LaPkdCUyheq3rQnf",
+  "id": "2cmATLhSNBMN3a2H",
   "tags": [
     {
       "createdAt": "2025-08-15T08:00:40.082Z",
