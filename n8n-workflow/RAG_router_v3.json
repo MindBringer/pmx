@@ -183,7 +183,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Build Augmented Prompt — per-item safe (no .first())\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\nconst useRag = !!j.rag;\nlet docs = [];\n\n// Try common places for retrieved docs\nif (Array.isArray(j.docs)) docs = j.docs;\nelse if (Array.isArray(j.documents)) docs = j.documents;\nelse if (Array.isArray(j.matches)) docs = j.matches.map(m => m.document || m);\n\n// Normalize to plain text + source\nfunction toEntry(d){\n  const text = d.text || d.content || d.page_content || d.pageContent || d.body || '';\n  const meta = d.metadata || d.meta || {};\n  const src = meta.source || meta.file || meta.path || meta.url || meta.name || '';\n  return { text: String(text), source: String(src) };\n}\n\nlet entries = docs.map(toEntry).filter(e => e.text);\nlet contextText = entries.map((e, i) => `#${i+1} ${e.text}`).join('\\n\\n');\n\nconst sources = entries.map((e, i) => ({\n  id: i+1, source: e.source\n})).filter(s => s.source);\n\nconst used_tags = Array.isArray(j.used_tags) ? j.used_tags : (Array.isArray(j.rag_tags) ? j.rag_tags : []);\n\nconst augmentedPrompt = useRag && contextText\n  ? `${j.prompt || ''}\\n\\nKontext:\\n${contextText}`\n  : (j.prompt || '');\n\nreturn { json: {\n  ...j,\n  prompt: augmentedPrompt,\n  sources,\n  used_tags\n}};\n"
+        "jsCode": "// Build Augmented Prompt — per-item safe + Memory injection\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\n// 1) Basis-Prompt (unverfälscht, falls vorhanden)\nconst basePrompt = j._original_prompt ?? j.prompt ?? \"\";\n\n// 2) Memory aufbereiten\nconst mem = j.memory || {};\nconst summary = (mem.summary || \"\").trim();\nconst history = Array.isArray(mem.history) ? mem.history.slice(-8) : []; // letzte 8 Einträge\n\nfunction fmt(m) {\n  const role = (m.role === 'assistant') ? 'Assistant' : 'User';\n  return `${role}: ${String(m.content || '').trim()}`;\n}\nconst histText = history.map(fmt).join('\\n');\n\nconst memParts = [];\nif (summary) memParts.push(`Zusammenfassung:\\n${summary}`);\nif (histText) memParts.push(`Letzte Nachrichten:\\n${histText}`);\n\nconst memoryBlock = memParts.length\n  ? `\\n\\n# Gesprächsspeicher\\n${memParts.join('\\n\\n')}`\n  : \"\";\n\n// 3) RAG-Kontext (falls vorhanden)\nlet docs = [];\nif (Array.isArray(j.docs)) docs = j.docs;\nelse if (Array.isArray(j.documents)) docs = j.documents;\nelse if (Array.isArray(j.matches)) docs = j.matches.map(m => m.document || m);\n\nfunction toEntry(d){\n  const text = d.text || d.content || d.page_content || d.pageContent || d.body || '';\n  const meta = d.metadata || d.meta || {};\n  const src  = meta.source || meta.file || meta.path || meta.url || meta.name || '';\n  return { text: String(text), source: String(src) };\n}\nconst entries = docs.map(toEntry).filter(e => e.text);\nconst contextText = entries.map((e, i) => `#${i+1} ${e.text}`).join('\\n\\n');\n\nconst sources = entries\n  .map((e, i) => ({ id: i+1, source: e.source }))\n  .filter(s => s.source);\n\nconst used_tags = Array.isArray(j.used_tags) ? j.used_tags\n                  : (Array.isArray(j.rag_tags) ? j.rag_tags : []);\n\nconst useRag = !!j.rag;\nconst contextBlock = (useRag && contextText)\n  ? `\\n\\n# Kontext (RAG)\\n${contextText}`\n  : \"\";\n\n// 4) Finaler Prompt = Basis + Memory + (optional) RAG\nconst augmentedPrompt = [basePrompt, memoryBlock, contextBlock]\n  .filter(Boolean)\n  .join(\"\");\n\nreturn { json: {\n  ...j,\n  prompt: augmentedPrompt,\n  sources,\n  used_tags\n}};\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -569,52 +569,6 @@
     },
     {
       "parameters": {
-        "promptType": "define",
-        "text": "={{ (($('Context (original fields)').first().json.system || '').trim()) ? $('Context (original fields)').first().json.system + \"\\n\\n\" + $json.prompt : $json.prompt }}",
-        "needsFallback": true,
-        "batching": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.7,
-      "position": [
-        0,
-        0
-      ],
-      "id": "ab76abd5-0396-419d-8917-73fd4b6eb6bd",
-      "name": "Basic LLM Chain"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// Response Formatter — per-item safe (no .first())\nconst requested = ($json && typeof $json === 'object') ? $json : {};\nlet data = requested;\n\n// If provider wrapped the payload under `data`\nif (typeof requested.data !== 'undefined') {\n  data = requested;\n}\n\n// Helpers\nfunction parseNdjsonString(s){\n  try {\n    const lines = String(s).trim().split('\\n').filter(Boolean);\n    return lines.map(l=>JSON.parse(l));\n  } catch { return null; }\n}\nfunction parseSseString(s){\n  const out=[];\n  for (const line of String(s).split('\\n')) {\n    const t=line.trim();\n    if (!t || !t.toLowerCase().startsWith('data:')) continue;\n    const p=t.slice(5).trim();\n    if (!p || p==='[DONE]') continue;\n    try { out.push(JSON.parse(p)); } catch {}\n  }\n  return out.length ? out : null;\n}\nfunction extractTextFromChunk(o){\n  if (typeof o.response === 'string') return o.response;\n  const c = o.choices && o.choices[0];\n  if (c) {\n    if (c.delta && typeof c.delta.content === 'string') return c.delta.content;\n    if (c.message && typeof c.message.content === 'string') return c.message.content;\n    if (typeof c.text === 'string') return c.text;\n    if (Array.isArray(c.content)) return c.content.map(x => typeof x.text==='string' ? x.text : '').join('');\n  }\n  if (typeof o.content === 'string') return o.content;\n  if (typeof o.output_text === 'string') return o.output_text;\n  if (typeof o.text === 'string') return o.text;\n  return '';\n}\n\nlet result, provider, actualModel, usage=null, raw=data;\n\nif (typeof data === 'string') { raw={data}; data={data}; }\n\nif (data && typeof data.data === 'string') {\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o=>o.done===true)?.model) || chunks[0]?.model || requested.ollama_model;\n    result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o=>o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o=>o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model;\n      result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    result = data.choices[0].message.content;\n    provider = 'OpenAI';\n    actualModel = data.model || requested.openai_model;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    result = data.content[0].text || data.content[0].content;\n    provider = 'Claude/Anthropic';\n    actualModel = data.model || requested.claude_model;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    result = data[0].generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model;\n  } else if (data && data.generated_text) {\n    result = data.generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model;\n  } else if (data && data.response) {\n    result = data.response;\n    provider = 'Ollama';\n    actualModel = data.model || requested.ollama_model;\n  } else if (data && data.text) {\n    result = data.text;\n    provider = 'OpenRouter/Groq-like';\n    actualModel = requested.model || requested.openai_model || requested.ollama_model;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`;\n    provider = 'Error';\n    actualModel = 'N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`;\n    provider = 'Unknown';\n    actualModel = 'N/A';\n  }\n}\n\nconst sources = Array.isArray(requested.sources) ? requested.sources : [];\nconst used_tags = Array.isArray(requested.used_tags) ? requested.used_tags : (Array.isArray(requested.rag_tags) ? requested.rag_tags : []);\n\nconst inputLabel = requested.label;\n\nreturn { json: {\n  result: (result || '').trim(),\n  status: (provider === 'Error') ? 'error' : 'success',\n  provider,\n  model_requested: requested.model,\n  model_used: actualModel,\n  timestamp: new Date().toISOString(),\n  usage,\n  raw_response: raw,\n  sources,\n  used_tags,\n  original_prompt: requested.prompt,\n  conversation_id: requested.conversation_id,\n  label: inputLabel\n}};\n"
-      },
-      "id": "acd667a3-53fa-4389-896e-25fba92e4e31",
-      "name": "Format Response",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        352,
-        1088
-      ]
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "={{ (($('Context (original fields)').first().json.system || '').trim()) ? $('Context (original fields)').first().json.system + \"\\n\\n\" + $json.prompt : $json.prompt }}",
-        "needsFallback": true,
-        "batching": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.7,
-      "position": [
-        0,
-        400
-      ],
-      "id": "99f7ec4d-07d7-42f9-8404-8dfd3a049dc7",
-      "name": "Basic LLM Chain1"
-    },
-    {
-      "parameters": {
         "assignments": {
           "assignments": [
             {
@@ -722,6 +676,52 @@
           "name": "Groq account"
         }
       }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Response Formatter — per-item safe (no .first(), no .item())\n// Liest den Original-Kontext über $items('Context (original fields)') ein,\n// damit prompt/system/conversation_id zuverlässig vorhanden sind – auch wenn\n// der Provider-Call $json überschreibt.\n\n//// ------ Kontext holen ------\nlet requested = {};\ntry {\n  const ctx = $items('Context (original fields)', 0) || [];\n  requested = (Array.isArray(ctx) && ctx[0] && ctx[0].json) ? ctx[0].json : {};\n} catch { requested = {}; }\n\n// Provider-Rohdaten sind im aktuellen Item:\nlet data = $json;\n\n//// ------ Stream-Parser (NDJSON / SSE) ------\nfunction parseNdjsonString(s){\n  try {\n    const lines = String(s).trim().split('\\n').filter(Boolean);\n    return lines.map(l=>JSON.parse(l));\n  } catch { return null; }\n}\nfunction parseSseString(s){\n  const out=[];\n  for (const line of String(s).split('\\n')) {\n    const t=line.trim();\n    if (!t || !t.toLowerCase().startsWith('data:')) continue;\n    const p=t.slice(5).trim();\n    if (!p || p==='[DONE]') continue;\n    try { out.push(JSON.parse(p)); } catch {}\n  }\n  return out.length ? out : null;\n}\nfunction extractTextFromChunk(o){\n  if (typeof o?.response === 'string') return o.response;\n  const c = o?.choices && o.choices[0];\n  if (c) {\n    if (c.delta && typeof c.delta.content === 'string') return c.delta.content;\n    if (c.message && typeof c.message.content === 'string') return c.message.content;\n    if (typeof c.text === 'string') return c.text;\n    if (Array.isArray(c.content)) return c.content.map(x => typeof x.text==='string' ? x.text : '').join('');\n  }\n  if (typeof o?.content === 'string') return o.content;\n  if (typeof o?.output_text === 'string') return o.output_text;\n  if (typeof o?.text === 'string') return o.text;\n  return '';\n}\n\n//// ------ Normalisierung & Extraktion ------\nlet result, provider, actualModel, usage=null, raw=data;\n\n// Wenn der Provider ein String ist, in {data} packen\nif (typeof data === 'string') { raw={data}; data={data}; }\n\n// Streaming-Formate erkennen\nif (data && typeof data.data === 'string') {\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o=>o.done===true)?.model) || chunks[0]?.model || requested.ollama_model;\n    result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o=>o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o=>o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model;\n      result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\n// Non-Streaming-Formate\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    // OpenAI-like\n    result = data.choices[0].message.content;\n    provider = 'OpenAI';\n    actualModel = data.model || requested.openai_model;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    // Anthropic-like\n    result = data.content[0].text || data.content[0].content;\n    provider = 'Claude/Anthropic';\n    actualModel = data.model || requested.claude_model;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    // HF pipeline (array)\n    result = data[0].generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model;\n  } else if (data && data.generated_text) {\n    // HF pipeline (object)\n    result = data.generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model;\n  } else if (data && typeof data.response === 'string') {\n    // Ollama\n    result = data.response;\n    provider = 'Ollama';\n    actualModel = data.model || requested.ollama_model;\n  } else if (data && data.text) {\n    // OpenRouter/Groq-like plain\n    result = data.text;\n    provider = 'OpenRouter/Groq-like';\n    actualModel = requested.model || requested.openai_model || requested.ollama_model;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`;\n    provider = 'Error';\n    actualModel = 'N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`;\n    provider = 'Unknown';\n    actualModel = 'N/A';\n  }\n}\n\n//// ------ Quellen, Tags & Label übernehmen ------\nconst sources = Array.isArray(requested.sources)\n  ? requested.sources\n  : (Array.isArray($json.sources) ? $json.sources : []);\nconst used_tags = Array.isArray(requested.used_tags)\n  ? requested.used_tags\n  : (Array.isArray(requested.rag_tags) ? requested.rag_tags : (Array.isArray($json.used_tags) ? $json.used_tags : []));\n\nconst inputLabel = requested.label ?? $json.label;\n\n//// ------ Rückgabe ------\nreturn { json: {\n  result: (result || '').trim(),\n  status: (provider === 'Error') ? 'error' : 'success',\n  provider,\n  model_requested: requested.model,\n  model_used: actualModel,\n  timestamp: new Date().toISOString(),\n  usage,\n  raw_response: raw,\n  sources,\n  used_tags,\n  original_prompt: requested._original_prompt ?? requested.prompt ?? $json.original_prompt ?? $json.prompt,\n  conversation_id: requested.conversation_id ?? $json.conversation_id,\n  label: inputLabel\n}};\n"
+      },
+      "id": "4c354ee7-9cde-4727-b8e6-d5038672d9c4",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ (($('Context (original fields)').first().json.system || '').trim()) ? $('Context (original fields)').first().json.system + \"\\n\\n\" + $json.prompt : $json.prompt }}",
+        "needsFallback": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ab76abd5-0396-419d-8917-73fd4b6eb6bd",
+      "name": "groq"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ (($('Context (original fields)').first().json.system || '').trim()) ? $('Context (original fields)').first().json.system + \"\\n\\n\" + $json.prompt : $json.prompt }}",
+        "needsFallback": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        0,
+        400
+      ],
+      "id": "99f7ec4d-07d7-42f9-8404-8dfd3a049dc7",
+      "name": "openrouter"
     }
   ],
   "pinData": {},
@@ -792,7 +792,7 @@
       "main": [
         [
           {
-            "node": "Basic LLM Chain",
+            "node": "groq",
             "type": "main",
             "index": 0
           }
@@ -810,7 +810,7 @@
       "main": [
         [
           {
-            "node": "Basic LLM Chain1",
+            "node": "openrouter",
             "type": "main",
             "index": 0
           }
@@ -980,28 +980,6 @@
         ]
       ]
     },
-    "Basic LLM Chain": {
-      "main": [
-        [
-          {
-            "node": "Format Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Basic LLM Chain1": {
-      "main": [
-        [
-          {
-            "node": "Format Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "No RAG Context": {
       "main": [
         [
@@ -1017,7 +995,7 @@
       "ai_languageModel": [
         [
           {
-            "node": "Basic LLM Chain",
+            "node": "groq",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -1028,7 +1006,7 @@
       "ai_languageModel": [
         [
           {
-            "node": "Basic LLM Chain",
+            "node": "groq",
             "type": "ai_languageModel",
             "index": 1
           }
@@ -1039,7 +1017,7 @@
       "ai_languageModel": [
         [
           {
-            "node": "Basic LLM Chain1",
+            "node": "openrouter",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -1050,9 +1028,31 @@
       "ai_languageModel": [
         [
           {
-            "node": "Basic LLM Chain1",
+            "node": "openrouter",
             "type": "ai_languageModel",
             "index": 1
+          }
+        ]
+      ]
+    },
+    "groq": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "openrouter": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -1062,7 +1062,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "aebaebcc-e5b2-4e6c-847c-469cff1b4697",
+  "versionId": "23426ad2-3db5-465c-b793-87ed3057f0e3",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },

@@ -218,71 +218,7 @@
               Aktiviere bis zu 5 Personas. Leere Felder werden ignoriert. Beispiel-Rollen helfen beim Start.
             </div>
 
-            
-            <!-- Ablauf: Runden -->
-            <div class="persona-row" style="margin-top:10px">
-              <span class="persona-head">Ablauf</span>
-              <div class="row">
-                <div class="form-group col" style="max-width:220px">
-                  <label for="agent_rounds">Anzahl Runden</label>
-                  <input type="number" id="agent_rounds" min="1" max="10" step="1" value="1"/>
-                  <div class="inline-help">Wie viele Durchläufe die Personas diskutieren (1–10).</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Facilitator / Critic Auswahl -->
-            <div class="persona-row">
-              <span class="persona-head">Facilitator / Critic</span>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="critic_provider">Provider</label>
-                  <select id="critic_provider">
-                    <option value="">(Standard)</option>
-                    <option value="groq">Groq API</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="anthropic">Anthropic API</option>
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="mistral">mistral</option>
-                    <option value="llama3">llama3</option>
-                  </select>
-                </div>
-                <div class="form-group col">
-                  <label for="critic_model">Modell</label>
-                  <input type="text" id="critic_model" placeholder="z. B. claude-3-5-sonnet oder llama-3.1-70b-versatile"/>
-                  <div class="inline-help">Optional, wird je Provider automatisch gemappt.</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Writer Auswahl -->
-            <div class="persona-row">
-              <span class="persona-head">Writer</span>
-              <div class="row">
-                <div class="form-group col">
-                  <label for="writer_provider">Provider</label>
-                  <select id="writer_provider">
-                    <option value="">(Standard)</option>
-                    <option value="groq">Groq API</option>
-                    <option value="openai">OpenAI API</option>
-                    <option value="anthropic">Anthropic API</option>
-                    <option value="mistralapi">Codestral API</option>
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="huggingface">Hugging Face API</option>
-                    <option value="mistral">mistral</option>
-                    <option value="llama3">llama3</option>
-                  </select>
-                </div>
-                <div class="form-group col">
-                  <label for="writer_model">Modell</label>
-                  <input type="text" id="writer_model" placeholder="z. B. gpt-4o-mini oder llama-3.1-70b-versatile"/>
-                  <div class="inline-help">Optional, wird je Provider automatisch gemappt.</div>
-                </div>
-              </div>
-            </div>
-<!-- Persona Row Template repeated 5x -->
+            <!-- Persona Row Template repeated 5x -->
             <div class="persona-row">
               <label class="persona-head"><input type="checkbox" id="p1_enabled" /> Persona 1</label>
               <div class="row">
@@ -757,36 +693,10 @@
         const isAgents = activeSubtab()==='subtab-agents';
       const personas = isAgents ? collectPersonas() : [];
         const payload = { prompt, system, rag: ragVal };
-        // Personas-spezifische Optionen
-        if (isAgents) {
-          // Runden
-          const roundsEl = document.getElementById("agent_rounds");
-          const roundsVal = Number(roundsEl?.value || 1);
-          if (Number.isFinite(roundsVal) && roundsVal >= 1) {
-            payload.agent_rounds = Math.max(1, Math.min(10, Math.round(roundsVal)));
-          }
-
-          // Critic/Facilitator (separater Provider/Modell)
-          const criticProv = document.getElementById("critic_provider")?.value || "";
-          const criticModel = (document.getElementById("critic_model")?.value || "").trim();
-          if (criticProv || criticModel) {
-            payload.critic = {};
-            if (criticProv) payload.critic.provider = criticProv;
-            if (criticModel) payload.critic.model = criticModel;
-          }
-        }
-
 
         if (personas.length > 0){
           payload.personas = personas;
-          // Writer (optional aus UI)
-          const wProv = document.getElementById('writer_provider')?.value || '';
-          const wModel = (document.getElementById('writer_model')?.value || '').trim();
-          if (wProv || wModel) {
-            payload.writer = {};
-            if (wProv) payload.writer.provider = wProv;
-            if (wModel) payload.writer.model = wModel;
-          }
+          payload.writer = { provider: "groq", model: "deepseek-r1-distill-llama-70b" };
         } else {
           payload.model = model;
         }
