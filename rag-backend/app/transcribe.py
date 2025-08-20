@@ -3,6 +3,8 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional, List, Dict, Any, Tuple
 import os, tempfile, shutil, subprocess
 import numpy as np
+from uuid import uuid4
+from datetime import datetime
 
 # --- ASR (faster-whisper) ---
 from faster_whisper import WhisperModel
@@ -33,12 +35,19 @@ _asr_model: Optional[WhisperModel] = None
 _spk_model: Optional[EncoderClassifier] = None
 _qdrant: Optional[QdrantClient] = None
 
-def _ffmpeg_to_wav_mono16k(in_path: str) -> str:
-    """Konvertiert jede Audiodatei robust in 16kHz/mono/PCM16 WAV."""
-    out_path = tempfile.mktemp(suffix=".wav")
+# --------- Audio IO / FFMPEG ---------
+def _ffmpeg_to_wav_mono16k(path: str) -> str:
+    """
+    Konvertiert beliebige Eingaben nach WAV mono 16k (PCM 16-bit).
+    """
+    tmpdir = tempfile.mkdtemp(prefix="asr_")
+    out_path = os.path.join(tmpdir, "audio_mono16k.wav")
     cmd = [
-        "ffmpeg","-nostdin","-y","-i",in_path,
-        "-ac","1","-ar","16000","-vn",
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", path,
+        "-ac", "1",
+        "-ar", "16000",
+        "-vn",
         "-acodec","pcm_s16le",  # FIX: explizit PCM 16-bit little endian
         out_path
     ]
@@ -86,11 +95,25 @@ def speakers_list() -> List[Dict[str, Any]]:
     pts, _ = qdrant().scroll(collection_name=SPEAKER_COLLECTION, limit=1000)
     return [{"id": p.id, "name": (p.payload or {}).get("name")} for p in pts]
 
-def speakers_enroll(name: str, file_path: str) -> Dict[str, Any]:
+def speakers_enroll(name: str, file_path: str, spk_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Legt einen Sprecher in Qdrant an. Wenn keine ID übergeben wurde,
+    wird eine UUID (String-ID) erzeugt, um PointStruct-Validierungsfehler zu vermeiden.
+    """
     emb = _embed_audio(file_path)
-    point = PointStruct(id=None, vector=emb.tolist(), payload={"name": name})
-    qdrant().upsert(SPEAKER_COLLECTION, [point])
-    return {"name": name, "dim": EMBED_DIM}
+    sid = spk_id or str(uuid4())
+    point = PointStruct(
+        id=sid,
+        vector=emb.tolist(),
+        payload={
+            "name": name,
+            "type": "speaker",
+            "created_at": datetime.utcnow().isoformat() + "Z"
+        }
+    )
+    # upsert mit benannten Parametern (kompatibel mit aktuellen qdrant-client Versionen)
+    qdrant().upsert(collection_name=SPEAKER_COLLECTION, points=[point])
+    return {"ok": True, "id": sid, "speaker_id": sid, "name": name, "dim": EMBED_DIM}
 
 def speakers_delete(spk_id: str) -> bool:
     try:
@@ -121,202 +144,111 @@ import contextlib, wave, collections
 
 def _read_wave_mono16k(path):
     with contextlib.closing(wave.open(path, 'rb')) as wf:
-        assert wf.getnchannels() == 1, "WAV must be mono"
-        assert wf.getsampwidth() == 2, "WAV must be 16-bit PCM"
-        assert wf.getframerate() == 16000, "WAV must be 16kHz"
-        return wf.readframes(wf.getnframes()), 16000
+        assert wf.getnchannels() == 1
+        assert wf.getsampwidth() == 2
+        assert wf.getframerate() == 16000
+        frames = wf.getnframes()
+        pcm = wf.readframes(frames)
+        return np.frombuffer(pcm, dtype=np.int16)
 
-import webrtcvad
-
-def _vad_segments(wav_path: str, aggressiveness: int = 2):
+def diarize_segments(wav_mono16k_path: str, window_ms: int = 8000, step_ms: int = 4000, energy_threshold: float = 0.01):
     """
-    FIX: Nur volle Frames (10/20/30ms) an webrtcvad übergeben.
-    Zu kurze letzte Frame wird verworfen, damit 'Error while processing frame' nicht mehr auftritt.
+    Sehr einfache Energie-basierte "Diarization" (VAD-ähnlich) ohne externe Modelle.
+    Liefert Segmente [(start_ms, end_ms)].
     """
-    pcm, sr = _read_wave_mono16k(wav_path)
-    vad = webrtcvad.Vad(aggressiveness)
-    frame_ms = 30  # 10/20/30 erlaubt
-    bytes_per_frame = int(sr * (frame_ms/1000.0)) * 2  # 16-bit mono -> *2
-    total = (len(pcm) // bytes_per_frame) * bytes_per_frame  # nur volle Frames
-    if total <= 0:
-        return []
-    step_sec = frame_ms / 1000.0
-
+    pcm = _read_wave_mono16k(wav_mono16k_path).astype(np.float32) / 32768.0
+    win = int((16000 * window_ms) / 1000)
+    step = int((16000 * step_ms) / 1000)
     segs = []
-    rb = collections.deque(maxlen=10)  # ~300ms
-    triggered = False
-    t = 0.0
-    seg_start = 0.0
+    start = None
+    for i in range(0, len(pcm) - win, step):
+        frame = pcm[i:i+win]
+        e = float(np.mean(frame * frame))
+        if e >= energy_threshold and start is None:
+            start = i
+        if e < energy_threshold and start is not None:
+            segs.append((int(start * 1000 / 16000), int(i * 1000 / 16000)))
+            start = None
+    if start is not None:
+        segs.append((int(start * 1000 / 16000), int(len(pcm) * 1000 / 16000)))
+    return segs
 
-    for i in range(0, total, bytes_per_frame):
-        frame = pcm[i:i+bytes_per_frame]
-        # Safety: webrtcvad darf hier nicht crashen
-        try:
-            is_speech = vad.is_speech(frame, sr)
-        except Exception:
-            # Bei unerwarteten Frames (sollte nicht passieren) -> stumm behandeln
-            is_speech = False
-
-        if not triggered:
-            rb.append((t, is_speech))
-            # Start wenn >90% der Pufferframes Sprachanteil haben
-            if sum(1 for _, sp in rb if sp) > 0.9 * rb.maxlen:
-                triggered = True
-                seg_start = rb[0][0]  # Zeitpunkt der ersten Puffer-Frame
-                rb.clear()
-        else:
-            rb.append((t, is_speech))
-            # Ende wenn >90% non-speech
-            if sum(1 for _, sp in rb if not sp) > 0.9 * rb.maxlen:
-                segs.append((seg_start, t))
-                rb.clear()
-                triggered = False
-        t += step_sec
-
-    if triggered:
-        segs.append((seg_start, t))
-
-    # Kleine Lücken (<250ms) zusammenführen
-    merged = []
-    for s, e in segs:
-        if not merged:
-            merged.append([s, e])
-        else:
-            if s - merged[-1][1] < 0.25:
-                merged[-1][1] = e
-            else:
-                merged.append([s, e])
-    return [(float(s), float(e)) for s, e in merged]
-
-def _slice_to_wav(src: str, start: float, end: float) -> str:
-    out = tempfile.mktemp(suffix=".wav")
-    dur = max(0.01, end - start)
-    subprocess.run(
-        ["ffmpeg","-nostdin","-y","-i",src,"-ss",f"{start:.3f}","-t",f"{dur:.3f}",
-         "-ac","1","-ar","16000","-vn","-acodec","pcm_s16le", out],
-        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    return out
-
-def diarize_local(path: str, identify: bool, hints: Optional[List[str]] = None) -> List[Dict[str,Any]]:
-    base_wav = _ffmpeg_to_wav_mono16k(path)
-    segs = _vad_segments(base_wav)
-    if not segs:
-        return []
-    # Embeddings + Online-Clustering
-    centroids: List[np.ndarray] = []
-    counts: List[int] = []
-    assign: List[int] = []
-    embs_per_seg: List[np.ndarray] = []
-
-    def cosine(a,b): return float(np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b)+1e-9))
-    thr_new = 0.75
-
-    for (s,e) in segs:
-        clip = _slice_to_wav(path, s, e)
-        emb = _embed_audio(clip)
-        embs_per_seg.append(emb)
-        if not centroids:
-            centroids.append(emb.copy()); counts.append(1); assign.append(0)
-        else:
-            sims = [cosine(emb,c) for c in centroids]; j=int(np.argmax(sims))
-            if sims[j] < thr_new:
-                centroids.append(emb.copy()); counts.append(1); assign.append(len(centroids)-1)
-            else:
-                k=counts[j]; centroids[j]=(centroids[j]*k+emb)/(k+1); counts[j]+=1; assign.append(j)
-
-    # Label-Mapping spk1/spk2/…
-    label_map: Dict[int,str] = {}; next_id=1
-    segments: List[Dict[str,Any]] = []
-    for i,(s,e) in enumerate(segs):
-        cid = assign[i]
-        if cid not in label_map: label_map[cid]=f"spk{next_id}"; next_id+=1
-        segments.append({"speaker":label_map[cid], "start":float(s), "end":float(e), "conf":0.6})
-
-    # (Optional) Identifikation gegen Qdrant
-    if identify and segments:
-        for lab in set(x["speaker"] for x in segments):
-            idxs = [i for i,(s,e) in enumerate(segs) if label_map[assign[i]]==lab]
-            if not idxs: continue
-            m = np.mean(np.stack([embs_per_seg[i] for i in idxs], axis=0), axis=0)
-            name, dist = speakers_identify(m, hints=hints, threshold=0.25)
-            if name:
-                for seg in segments:
-                    if seg["speaker"]==lab:
-                        seg["name"]=name
-                        seg["conf"]=max(seg.get("conf",0.6), 1.0-float(dist))
-    return segments
-
-# --------- Merge ASR & Diar ---------
-def _merge(asr_segments: List[Dict[str,Any]], spk_segments: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
-    if not spk_segments:
-        return [{"speaker":"spk1","start":s["start"],"end":s["end"],"text":s["text"]} for s in asr_segments]
-    out=[]
-    for a in asr_segments:
-        mid=(a["start"]+a["end"])/2.0
-        covering=[s for s in spk_segments if s["start"]<=mid<=s["end"]]
-        s = covering[0] if covering else min(spk_segments, key=lambda x: abs(((x["start"]+x["end"])/2.0)-mid))
-        item={"speaker":s["speaker"],"start":a["start"],"end":a["end"],"text":a["text"]}
-        if "name" in s: item["name"]=s["name"]
-        out.append(item)
-    return out
-
-def _to_srt(items: List[Dict[str,Any]]) -> str:
-    def fmt(t):
-        h=int(t//3600); m=int((t%3600)//60); s=t%60
-        return f"{h:02d}:{m:02d}:{s:06.3f}".replace('.',',')
-    lines=[]
-    for i,it in enumerate(items, start=1):
-        lines.append(str(i))
-        lines.append(f"{fmt(it['start'])} --> {fmt(it['end'])}")
-        who = it.get("name") or it.get("speaker","spk")
-        lines.append(f"[{who}] {it['text']}")
-        lines.append("")
-    return "\n".join(lines)
-
-# --------- Routes ---------
+# --------- API ---------
 @router.post("/transcribe")
 async def do_transcribe(
     file: UploadFile = File(...),
     diarize_flag: bool = Form(False),
     identify: bool = Form(False),
     language: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),
-    speaker_hints: Optional[str] = Form(None),
 ):
+    """
+    Transkribiert Audio. Optional: naive Diarisierung + Sprecher-Identifikation
+    (per Qdrant-Similarität).
+    """
     try:
+        # Datei in tmp schreiben
         tmp = tempfile.mktemp(suffix=os.path.splitext(file.filename or '')[-1] or ".bin")
         with open(tmp, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        # ASR
+        # nach WAV mono16k
         wav = _ffmpeg_to_wav_mono16k(tmp)
-        model = asr_model()
-        segs, info = model.transcribe(wav, language=language)
-        asr_segments = [{"start": float(s.start), "end": float(s.end), "text": s.text.strip()} for s in segs]
-        text = " ".join([s["text"] for s in asr_segments]).strip()
 
-        spk_segments: List[Dict[str,Any]] = []
+        # ggf. Segmente bilden
+        segments = None
         if diarize_flag:
-            hints = [h.strip() for h in (speaker_hints or "").split(",") if h.strip()] or None
-            spk_segments = diarize_local(tmp, identify=identify, hints=hints)
+            segments = diarize_segments(wav)
 
-        merged = _merge(asr_segments, spk_segments)
-        srt = _to_srt(merged)
+        # ASR
+        model = asr_model()
+        text_total = ""
+        results = []
+
+        if segments:
+            for (s_ms, e_ms) in segments:
+                # via ffmpeg schneiden
+                cut = tempfile.mktemp(suffix=".wav")
+                dur = max(0.0, (e_ms - s_ms) / 1000.0)
+                cmd = [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-ss", f"{s_ms/1000.0:.3f}",
+                    "-t", f"{dur:.3f}",
+                    "-i", wav,
+                    "-acodec","pcm_s16le",
+                    "-ar","16000",
+                    "-ac","1",
+                    cut
+                ]
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                seg_text, _ = model.transcribe(cut, language=language if language else None)
+                seg_text = "".join([c.text for c in seg_text])
+                os.remove(cut)
+                text_total += seg_text + " "
+                results.append({"start_ms": s_ms, "end_ms": e_ms, "text": seg_text})
+        else:
+            it, info = model.transcribe(wav, language=language if language else None)
+            text_total = "".join([c.text for c in it])
+            results = [{"start_ms": 0, "end_ms": 0, "text": text_total}]
+
+        # optionale Identifikation auf gesamtem File
+        ident = None
+        if identify:
+            emb = _embed_audio(tmp)
+            who, dist = speakers_identify(emb)
+            ident = {"name": who, "distance": dist}
 
         return {
-            "ok": True,
-            "language": getattr(info, "language", None),
-            "text": text,
-            "segments": merged,
-            "speakers_detected": sorted(list({(x.get("name") or x["speaker"]) for x in merged})),
-            "tags": [t.strip() for t in (tags or "").split(",") if t.strip()],
-            "artifacts": {"srt_inline": srt}
+            "text": text_total.strip(),
+            "segments": results,
+            "identify": ident
         }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Transcribe failed: {e}")
     finally:
         try: os.remove(tmp)
+        except Exception: pass
+        try: os.remove(wav)
         except Exception: pass
 
 # --- Speaker management (Qdrant) ---
@@ -325,12 +257,18 @@ def api_speakers_list():
     return speakers_list()
 
 @router.post("/speakers/enroll")
-async def api_speakers_enroll(name: str = Form(...), file: UploadFile = File(...)):
+async def api_speakers_enroll(
+    name: str = Form(...),
+    file: UploadFile = File(...),
+    id: Optional[str] = Form(None),
+    speaker_id: Optional[str] = Form(None),
+):
     try:
         tmp = tempfile.mktemp(suffix=os.path.splitext(file.filename or '')[-1] or ".bin")
         with open(tmp, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        return speakers_enroll(name, tmp)
+        sid = id or speaker_id
+        return speakers_enroll(name, tmp, spk_id=sid)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
