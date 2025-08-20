@@ -1,0 +1,495 @@
+{
+  "name": "agent_orchestrator_v2",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "016d19ba-6957-44db-aad4-e64977f95cbc",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Persona Items — LOOP-AWARE (n8n JS v2)\nconst base = ($json && typeof $json === 'object') ? $json : {};\nlet pre = base;\nif (!base.personas && !base.body?.personas) {\n  try {\n    const it = $items(\"Agents Preflight (Normalize)\", 0)[0];\n    if (it && it.json) pre = it.json;\n  } catch {}\n}\nconst b = pre.body || {};\nlet personas = Array.isArray(pre.personas) ? pre.personas\n             : Array.isArray(b.personas)   ? b.personas\n             : [];\nif (!Array.isArray(personas) || personas.length === 0) {\n  return [{ json: { error: \"No personas provided\", info: \"Prepare Persona Items erwartet personas[]\" } }];\n}\nfunction mapProvider(provider, model){\n  const prov = String(provider || 'mistral').toLowerCase();\n  const mdl  = String(model || '').toLowerCase();\n  if (prov === 'openrouter')  return { model: 'openrouter',  openrouter_model: mdl || 'openai/gpt-oss-120b' };\n  if (prov === 'groq')        return { model: 'groq',        groq_model: mdl || 'deepseek-r1-distill-llama-70b' };\n  if (prov === 'mistralapi')  return { model: 'mistralapi',  mistral_model: mdl || 'codestral-2501' };\n  if (prov === 'openai')      return { model: 'openai',      openai_model: mdl || 'gpt-4o-mini' };\n  if (prov === 'anthropic')   return { model: 'anthropic',   claude_model: mdl || 'claude-3-5-sonnet-20240620' };\n  if (prov === 'huggingface') return { model: 'huggingface', hf_model: mdl || 'microsoft/DialoGPT-medium' };\n  return { model: 'mistral',  ollama_model: mdl || 'llama3' };\n}\nconst task      = String(base.prompt ?? pre.prompt ?? b.prompt ?? '').trim();\nconst globalSys = String(base.system ?? pre.system ?? b.system ?? '').trim();\nconst rag       = !!(base.rag ?? pre.rag ?? b.rag);\nconst rag_tags  = Array.isArray(base.rag_tags ?? pre.rag_tags ?? b.rag_tags) ? (base.rag_tags ?? pre.rag_tags ?? b.rag_tags) : [];\nconst convId    = base.conversation_id ?? pre.conversation_id ?? null;\nconst memory    = base.memory ?? pre.memory ?? null;\nconst round          = Number(base.round ?? 1);\nconst agent_rounds   = Number(base.agent_rounds ?? pre.agent_rounds ?? 1);\nconst boardText      = base.boardText || '';\nconst board          = Array.isArray(base.board) ? base.board : [];\nconst items = personas.map((p, idx) => {\n  const label = String(p.label || `Persona ${idx+1}`).trim();\n  const mapped = mapProvider(p.provider, p.model);\n  const roleSystem = [globalSys, `Rolle: ${label}.`].filter(Boolean).join('\\n\\n');\n  const personaPrompt = [\n    `Teamaufgabe: ${task}`,\n    `Dein Beitrag:`,\n    `- Runde ${round} von ${agent_rounds}.`,\n    `- Liefere einen fokussierten Abschnitt aus Sicht der Rolle \"${label}\".`,\n    `- Max. 12 Sätze.`,\n    `- Beziehe dich auf die bisherigen Team-Ergebnisse.`\n  ].join('\\n') + (boardText ? `\\n\\nBisherige Team-Ergebnisse:\\n${boardText}` : '');\n  return {\n    json: {\n      ...mapped,\n      label,\n      prompt: personaPrompt,\n      system: roleSystem,\n      rag, rag_tags,\n      conversation_id: convId,\n      memory,\n      round,\n      agent_rounds,\n      board, boardText\n    }\n  };\n});\nreturn items;"
+      },
+      "id": "4a3f8c68-33a5-4f2a-9cdb-af3c94e32498",
+      "name": "Prepare Persona Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "2cmATLhSNBMN3a2H",
+          "mode": "list",
+          "cachedResultName": "RAG_router_v3"
+        },
+        "workflowInputs": {
+          "mappingMode": "passThrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "af4779a0-d10f-457f-9916-d77c4ea65f99",
+      "name": "Run RAG_Router (Agents)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        512,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate Board — State aus Prepare Persona Items holen (nicht aus Subflow-Output)\nconst agentResults = $input.all();\n\n// Ersten Input-Item der \"Prepare Persona Items\" nehmen – dort sind round/agent_rounds sicher vorhanden\nconst preItems = $items('Prepare Persona Items', 0);\nconst state = preItems?.[0]?.json ?? {};\n\n// Board aus den Subflow-Ergebnissen bauen\nconst board = agentResults.map(it => {\n  const j = it.json || {};\n  const txt = (j.text || j.result || '').trim();\n  if (!txt) return null;\n  return {\n    label: j.label || j.persona?.label || 'Agent',\n    text: txt,\n    provider: j.provider || j.model || j.model_used || ''\n  };\n}).filter(Boolean);\n\nconst boardText = board.map(b => `### ${b.label}\\n${b.text}`).join('\\n\\n');\n\nreturn [{\n  json: {\n    ...state,     // <- round/agent_rounds zuverlässig behalten\n    board,\n    boardText\n  }\n}];\n"
+      },
+      "id": "8409e106-2b43-42eb-af49-4bd98b50a719",
+      "name": "Collect Agent Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "2cmATLhSNBMN3a2H",
+          "mode": "list",
+          "cachedResultName": "RAG_router_v3"
+        },
+        "workflowInputs": {
+          "mappingMode": "passThrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "551f7f21-2929-42fd-b580-f325e75ad80b",
+      "name": "Run RAG_Router (Writer)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2960,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format Agent Response — per-item safe (no .first())\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\nfunction pickText(o){\n  if (typeof o.result === 'string') return o.result;\n  if (typeof o.response === 'string') return o.response;\n  if (typeof o.text === 'string') return o.text;\n  if (o.choices?.[0]?.message?.content) return o.choices[0].message.content;\n  if (o.generated_text) return o.generated_text;\n  if (Array.isArray(o) && o[0]?.generated_text) return o[0].generated_text;\n  return typeof o === 'string' ? o : '';\n}\n\nconst text = pickText(j).trim();\nconst label = j.label || j.persona?.label || 'Agent';\nconst provider = j.provider || j.model || j.model_used || 'unknown';\n\nreturn { json: { ...j, label, text } };\n"
+      },
+      "id": "d8411de4-f532-421f-ac57-a0af730438a9",
+      "name": "Format Agent Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3184,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Agents Preflight (Normalize) — SINGLE item with personas[]\nconst base = ($json && typeof $json === 'object') ? $json : {};\n\nlet personas = base.personas ?? base.body?.personas ?? [];\nif (typeof personas === 'string') {\n  try { personas = JSON.parse(personas); }\n  catch {\n    personas = personas.split(/\\r?\\n|;|\\|/).map(s => ({ label: s.trim() })).filter(p => p.label);\n  }\n}\nif (!Array.isArray(personas) || personas.length === 0) {\n  personas = [{\n    label: base.persona_label || base.label || 'Agent',\n    provider: base.persona_provider || base.provider || base.model || 'groq',\n    model: base.persona_model || base.openai_model || base.groq_model || base.ollama_model || base.mistral_model || base.hf_model || base.model || 'llama3',\n    system: base.persona_system || base.system || '',\n    prompt: base.persona_prompt || ''\n  }];\n}\n\n// optional: Mapping beibehalten, aber NICHT mehr pro Item ausgeben\nfunction mapProvider(prov, model){\n  const p = String(prov || '').toLowerCase();\n  if (p === 'groq')        return { model: 'groq',       groq_model: model };\n  if (p === 'openai')      return { model: 'openai',     openai_model: model };\n  if (p === 'anthropic')   return { model: 'anthropic',  claude_model: model };\n  if (p === 'mistralapi')  return { model: 'mistralapi', mistral_model: model };\n  if (p === 'openrouter')  return { model: 'openrouter', openrouter_model: model || 'openai/gpt-oss-120b' };\n  if (p === 'huggingface') return { model: 'huggingface', hf_model: model };\n  return { model: 'mistral',  ollama_model: model || 'llama3' };\n}\n\npersonas = personas.map((p, i) => {\n  const prov = p.provider || base.provider || 'groq';\n  const mdl  = p.model || base.model || 'llama3';\n  const mapped = mapProvider(prov, mdl);\n  return { ...p, label: p.label || `Agent ${i+1}`, provider: prov, model: mdl, ...mapped };\n});\n\n// EIN Item mit personas[]\nreturn [{ json: { ...base, personas } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -144
+      ],
+      "id": "c8a0b65d-7075-43a1-be63-d788111f3d36",
+      "name": "Agents Preflight (Normalize)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Writer Prompt — align with Agents & promote prompt/system to top-level\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\n// Allowed providers; default to 'groq' like Agents\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral']);\nconst provIn  = String(j.writer?.provider || j.model || j.provider || '').toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'groq';\n\n// Map to provider-specific model field (reuse existing where possible)\nlet modelFields = {};\nswitch (provider) {\n  case 'groq':\n    modelFields = { model: 'groq',       groq_model: j.groq_model || j.writer?.model || 'llama-3.1-70b-versatile' };\n    break;\n  case 'openai':\n    modelFields = { model: 'openai',     openai_model: j.openai_model || j.writer?.model || 'gpt-4o-mini' };\n    break;\n  case 'anthropic':\n    modelFields = { model: 'anthropic',  claude_model: j.claude_model || j.writer?.model || 'claude-3-5-sonnet' };\n    break;\n  case 'mistralapi':\n    modelFields = { model: 'mistralapi', mistral_model: j.mistral_model || j.writer?.model || 'mistral-large-latest' };\n    break;\n  case 'openrouter':\n    modelFields = { model: 'openrouter', openrouter_model: j.openrouter_model || j.writer?.model || 'openai/gpt-oss-120b' };\n    break;\n  case 'huggingface':\n    modelFields = { model: 'huggingface', hf_model: j.hf_model || j.writer?.model || 'meta-llama/Meta-Llama-3-8B-Instruct' };\n    break;\n  case 'mistral':\n  default:\n    modelFields = { model: 'mistral',    ollama_model: j.ollama_model || j.writer?.model || 'llama3' };\n    break;\n}\n\n// Collect agent outputs for board\nconst boardText = j.boardText || (\n  Array.isArray(j.board)\n    ? j.board.map(b => `### ${b.label || 'Agent'}\\n${(b.text||'').trim()}\\n`).join('\\n')\n    : ''\n);\n\n// Base prompt fallback from multiple common places\nconst basePrompt = j.prompt ?? j.body?.prompt ?? j.input?.prompt ?? '';\n\n// Compose writer prompts\nconst writerSystem = [\n  (j.system || j.body?.system || ''),\n  'Du bist der **Writer**. Fasse die Team-Ergebnisse präzise zusammen.',\n  'Struktur:',\n  '1) Kurzfassung (5 Sätze)',\n  '2) Details je Bereich (Rollenabschnitte)',\n  '3) Entscheidungen',\n  '4) Offene Punkte / Risiken',\n  'Formatiere mit Überschriften und Listen, wo sinnvoll.'\n].filter(Boolean).join('\\n');\n\nconst writerPrompt = [\n  `Teamaufgabe: ${basePrompt}`,\n  '',\n  'Team-Ergebnisse:',\n  boardText\n].join('\\n');\n\n// Promote prompt/system to TOP-LEVEL for passThrough to RAG_Router\nconst promoted = {\n  ...modelFields,\n  prompt: writerPrompt,\n  system: writerSystem,\n  rag: !!j.rag,\n  rag_tags: Array.isArray(j.rag_tags) ? j.rag_tags : [],\n  conversation_id: j.conversation_id ?? null,\n  memory: j.memory ?? null,\n};\n\n// Keep writer_call for logging/debugging\nconst writer_call = { ...promoted };\n\nreturn { json: { ...j, ...promoted, writer_call } };\n"
+      },
+      "id": "0eb5272d-96d3-4ea0-8fed-afa5a69341c8",
+      "name": "Build Writer Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2736,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Init Round State\nconst j = $json || {};\nconst rounds = Number(j.agent_rounds ?? j.body?.agent_rounds ?? 1);\nreturn [{\n  json: {\n    ...j,\n    round: 1,\n    agent_rounds: Math.max(1, rounds),\n    board: Array.isArray(j.board) ? j.board : [],\n    boardText: String(j.boardText || ''),\n  }\n}];"
+      },
+      "id": "3390e9b9-e5a9-4cc8-a0b9-9d8acb670c1c",
+      "name": "Init Round State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Critic/Facilitator Prompt — keine Resets von round/agent_rounds\nconst j = $json || {};\n\n// Provider-Mapping (separat steuerbar über j.critic)\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral']);\nconst provIn  = String(j.critic?.provider || j.model || j.provider || '').toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'groq';\nconst mdlIn   = String(j.critic?.model || '').toLowerCase();\n\nlet mapped = {};\nswitch (provider) {\n  case 'groq':       mapped = { model: 'groq',       groq_model: mdlIn || j.groq_model || 'llama-3.1-70b-versatile' }; break;\n  case 'openai':     mapped = { model: 'openai',     openai_model: mdlIn || j.openai_model || 'gpt-4o-mini' }; break;\n  case 'anthropic':  mapped = { model: 'anthropic',  claude_model: mdlIn || j.claude_model || 'claude-3-5-sonnet' }; break;\n  case 'mistralapi': mapped = { model: 'mistralapi', mistral_model: mdlIn || j.mistral_model || 'mistral-large-latest' }; break;\n  case 'openrouter': mapped = { model: 'openrouter', openrouter_model: mdlIn || j.openrouter_model || 'openai/gpt-oss-120b' }; break;\n  case 'huggingface':mapped = { model: 'huggingface',hf_model: mdlIn || j.hf_model || 'meta-llama/Meta-Llama-3-8B-Instruct' }; break;\n  default:           mapped = { model: 'mistral',    ollama_model: mdlIn || j.ollama_model || 'llama3' };\n}\n\n// State sicher beibehalten\nconst round = Number(j.round ?? 1);\nconst total = Number(j.agent_rounds ?? 1);\n\n// Base-Prompt des Users für Anzeige/Memory konservieren\nconst basePrompt = j._original_prompt ?? j.prompt ?? '';\n\n// Prompt für den Critic\nconst criticSystem = [\n  'Du bist der **Facilitator/Critic** einer Agentenbesprechung.',\n  'Aufgaben:',\n  '- Verdichte die bisherigen Team-Ergebnisse,',\n  '- markiere Widersprüche/Lücken,',\n  '- formuliere max. 3 konkrete Fokusaufgaben für die nächste Runde,',\n  '- entscheide, ob eine weitere Runde nötig ist (stop=true/false).'\n].join('\\n');\n\nconst boardText = j.boardText || '';\nconst criticUser = [\n  `Aufgabe (User): ${basePrompt}`,\n  '',\n  `Runde ${round} von ${total}`,\n  '',\n  'Bisherige Team-Ergebnisse:',\n  boardText || '(noch keine)',\n  '',\n  'Erwarte JSON: { \"summary\": string, \"focus\": [string], \"stop\": boolean }'\n].join('\\n');\n\nreturn {\n  json: {\n    ...j,\n    ...mapped,\n    // WICHTIG: State-Felder explizit mitgeben\n    round,\n    agent_rounds: total,\n    // Anzeige/Memory: _original_prompt setzen, prompt für den Critic setzen\n    _original_prompt: basePrompt,\n    prompt: criticUser,\n    system: criticSystem\n  }\n};\n"
+      },
+      "id": "d9f684a0-7546-42e2-b2f7-0456871d0c05",
+      "name": "Prepare Critic Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "2cmATLhSNBMN3a2H",
+          "mode": "list",
+          "cachedResultName": "RAG_router_v3"
+        },
+        "workflowInputs": {
+          "mappingMode": "passThrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "271ea56b-3a1a-45a0-830c-7b6ecba858a0",
+      "name": "Run RAG_Router (Critic)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1184,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Apply Critic Feedback — CONSOLIDATE to a single state item\nconst inputs = $input.all();\nconst state  = ($items('Prepare Critic Prompt', 0)?.[0]?.json) || {};\n\nfunction firstValidJson(arr) {\n  for (const it of arr) {\n    const raw = it.json?.result || it.json?.text || '';\n    if (!raw) continue;\n    try { return JSON.parse(raw); } catch {}\n    const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n    if (m) { try { return JSON.parse(m[0]); } catch {} }\n  }\n  return null;\n}\n\nconst parsed = firstValidJson(inputs) || {};\nconst summary = String(parsed.summary || '').trim();\nconst focus   = Array.isArray(parsed.focus) ? parsed.focus : [];\nconst stop    = Boolean(parsed.stop);\n\nconst addBlock = [\n  summary ? `## Facilitator-Summary\\n${summary}` : '',\n  focus.length ? `## Fokus für nächste Runde\\n- ${focus.join('\\n- ')}` : ''\n].filter(Boolean).join('\\n\\n');\n\nconst newBoardText = [state.boardText || '', addBlock].filter(Boolean).join('\\n\\n');\n\nreturn [{\n  json: { ...state, boardText: newBoardText, critic_summary: summary || undefined, critic_focus: focus, stop }\n}];\n"
+      },
+      "id": "2fa88c52-73ad-410d-82fe-80772e7aae38",
+      "name": "Apply Critic Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STATE MANAGER NODE - Zentraler Rundenzähler\n// Dieser Node sammelt ALLE Inputs und gibt nur EIN State-Item weiter\nconst allItems = $input.all();\n\nconsole.log(`=== STATE MANAGER ===`);\nconsole.log(`Received ${allItems.length} items`);\n\n// Den besten/aktuellsten State finden\nlet currentState = null;\nlet highestRound = 0;\nlet hasBoard = false;\n\n// Alle Items durchgehen und den besten State finden\nfor (const item of allItems) {\n  const data = item.json || {};\n  const round = Number(data.round || 1);\n  \n  // Kriterien für \"besten\" State:\n  // 1. Höchste Rundenzahl\n  // 2. Hat Board-Daten (von Collect Agent Outputs)\n  // 3. Hat Critic Feedback (stop flag)\n  \n  const itemHasBoard = Array.isArray(data.board) && data.board.length > 0;\n  const itemHasCriticFeedback = data.hasOwnProperty('stop');\n  \n  if (round > highestRound || \n      (round === highestRound && itemHasBoard && !hasBoard) ||\n      (round === highestRound && itemHasCriticFeedback)) {\n    \n    highestRound = round;\n    currentState = data;\n    hasBoard = itemHasBoard;\n    \n    console.log(`Updated state: Round ${round}, Board: ${itemHasBoard}, Critic: ${itemHasCriticFeedback}`);\n  }\n}\n\n// Fallback wenn kein State gefunden\nif (!currentState) {\n  currentState = {\n    round: 1,\n    agent_rounds: 2,\n    board: [],\n    boardText: '',\n    stop: false\n  };\n  console.log(`Using fallback state`);\n}\n\n// State normalisieren\nconst finalState = {\n  ...currentState,\n  round: Number(currentState.round || 1),\n  agent_rounds: Number(currentState.agent_rounds || 1),\n  board: Array.isArray(currentState.board) ? currentState.board : [],\n  boardText: String(currentState.boardText || ''),\n  stop: Boolean(currentState.stop),\n  _state_manager: {\n    inputCount: allItems.length,\n    selectedRound: Number(currentState.round || 1),\n    timestamp: new Date().toISOString()\n  }\n};\n\nconsole.log(`Final State - Round: ${finalState.round}/${finalState.agent_rounds}, Stop: ${finalState.stop}`);\n\n// NUR EIN ITEM zurückgeben!\nreturn [{ json: finalState }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        -208
+      ],
+      "id": "41427986-dd1c-4863-a182-2a758a97d77c",
+      "name": "State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json || {};\n\nconst round = Number(j.round || 1);\nconst maxRounds = Number(j.agent_rounds || 1);\nconst criticStop = Boolean(j.stop);\n\n// Einfache Abbruchlogik\nconst shouldContinue = !criticStop && round <= maxRounds;\n\n// Stop-Gründe sammeln\nconst stopReasons = [];\nif (criticStop) stopReasons.push(\"Critic Stop\");\nif (round > maxRounds) stopReasons.push(`Max Rounds (${round}>${maxRounds})`);\n\nconsole.log(`=== LOOP CHECKER ===`);\nconsole.log(`Round: ${round}/${maxRounds}`);\nconsole.log(`Critic Stop: ${criticStop}`);\nconsole.log(`Should Continue: ${shouldContinue}`);\nif (stopReasons.length > 0) {\n  console.log(`Stop Reasons: ${stopReasons.join(', ')}`);\n}\n\nreturn [{\n  json: {\n    ...j,\n    shouldContinue,\n    _loop_info: {\n      round,\n      maxRounds,\n      criticStop,\n      stopReasons: stopReasons.length > 0 ? stopReasons : null,\n      decision: shouldContinue ? 'CONTINUE' : 'STOP',\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        -208
+      ],
+      "id": "f04a318b-0948-43be-afe6-f32738cd7a4e",
+      "name": "Loop Checker"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Round Incrementer — collapse to single state & bump round\nconst items = $input.all();\nconst base  = (items[items.length - 1]?.json) || ($json || {});\nconst currentMax = Math.max(...items.map(it => Number(it.json?.round ?? 1)), Number(base.round ?? 1));\nconst total = Number(base.agent_rounds ?? items[0]?.json?.agent_rounds ?? 1);\n\nreturn [{ json: { ...base, round: currentMax + 1, agent_rounds: total } }];\n"
+      },
+      "id": "3819c219-8ef5-46ee-b0e8-51386deff4f1",
+      "name": "Round Incrementer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        -208
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        64,
+        -144
+      ],
+      "id": "7bfbc1fb-fe1e-4090-a3a3-7b8213c3f7df",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "761fd3b9-13a5-4825-b268-020062e0eac2",
+              "leftValue": "={{ $json.shouldContinue === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2288,
+        -208
+      ],
+      "id": "7fb6a304-f7d7-496b-bbef-f18629f3d4f9",
+      "name": "Loop Gate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Agents Preflight (Normalize)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Init Round State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Persona Items": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Agents)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run RAG_Router (Agents)": {
+      "main": [
+        [
+          {
+            "node": "Collect Agent Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Agent Outputs": {
+      "main": [
+        [
+          {
+            "node": "Prepare Critic Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run RAG_Router (Writer)": {
+      "main": [
+        [
+          {
+            "node": "Format Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agents Preflight (Normalize)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Build Writer Prompt": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Writer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Critic Prompt": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Critic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run RAG_Router (Critic)": {
+      "main": [
+        [
+          {
+            "node": "Apply Critic Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Critic Feedback": {
+      "main": [
+        [
+          {
+            "node": "Round Incrementer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Round State": {
+      "main": [
+        [
+          {
+            "node": "State Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "State Manager": {
+      "main": [
+        [
+          {
+            "node": "Loop Checker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Checker": {
+      "main": [
+        [
+          {
+            "node": "Loop Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Round Incrementer": {
+      "main": [
+        [
+          {
+            "node": "State Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Prepare Persona Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Gate": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Writer Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d39219d5-49e0-412b-ac9a-9ce4483fe717",
+  "meta": {
+    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+  },
+  "id": "sbK9V2KSnyb2GGxG",
+  "tags": [
+    {
+      "createdAt": "2025-08-15T08:00:40.082Z",
+      "updatedAt": "2025-08-15T08:00:40.082Z",
+      "id": "MIGc52SFD5ylOxsf",
+      "name": "Subflow"
+    }
+  ]
+}
