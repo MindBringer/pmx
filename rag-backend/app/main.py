@@ -16,7 +16,6 @@ from .pipelines import (
 
 from .transcribe import router as transcribe_router  # Audio: /transcribe + /speakers
 from .jobs import router as jobs_router
-app.include_router(jobs_router, prefix="/rag")
 
 # -----------------------------
 # Settings & App
@@ -28,7 +27,8 @@ app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
 # Neue Audio-/Speaker-Routen einhängen (aus transcribe.py)
 app.include_router(transcribe_router, prefix="", tags=["audio"])
-
+# async jobs display
+app.include_router(jobs_router, prefix="/rag")
 
 def require_key(x_api_key: Optional[str] = Header(None)):
     """
