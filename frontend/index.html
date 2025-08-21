@@ -20,6 +20,9 @@
       --grad: linear-gradient(135deg,var(--g1) 0%,var(--g2) 100%);
     }
 
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono","Courier New", monospace}
+    pre.prewrap{white-space:pre-wrap;word-wrap:break-word;overflow:auto;max-height:none}
+
     *{margin:0;padding:0;box-sizing:border-box}
     body{
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;
@@ -630,6 +633,27 @@
     function fmtBytes(b){ if(typeof b!=="number") return "–"; const u=["B","KB","MB","GB","TB"]; let i=0,n=b; while(n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(n<10?2:(n<100?1:0))} ${u[i]}`; }
     function escapeHtml(str){ return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
 
+
+    // --- Streaming-/NDJSON-/SSE-Parser (robust gegen lange Antworten) ---
+    function parseNdjsonToText(s){
+      const lines = String(s).split(/\r?\n/).filter(Boolean);
+      let out = "";
+      for(const ln of lines){
+        try{
+          const obj = JSON.parse(ln);
+          if (obj?.response != null) out += String(obj.response);
+          else if (obj?.data?.response != null) out += String(obj.data.response);
+          else if (obj?.choices?.[0]?.delta?.content != null) out += String(obj.choices[0].delta.content);
+        }catch{/* ignore */}
+      }
+      return out || null;
+    }
+    function parseSseToNdjson(s){
+      const events = String(s).split('\n\n');
+      const dataLines = events.flatMap(ev => ev.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()));
+      return dataLines.join('\n');
+    }
+
     // ---------- Conversation state ----------
     const CONV_KEY = 'conversationId';
 
@@ -805,10 +829,38 @@
           headers,
           body: JSON.stringify(payload),
         });
-        const text = await response.text();
-        if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
+        const rawText = await response.text();
+        if (!response.ok) throw new Error(rawText || `HTTP ${response.status}`);
 
-        let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+        // --- Robustes Parsing: JSON | NDJSON | SSE -> NDJSON | Plaintext ---
+        let data = null;
+        let answer = "";
+        const ctype = (response.headers.get('content-type')||"").toLowerCase();
+        const tryJsonFirst = ()=>{ try{ data = JSON.parse(rawText); }catch{} };
+        if (ctype.includes('application/json')) {
+          tryJsonFirst();
+        } else if (ctype.includes('text/event-stream')) {
+          const nd = parseSseToNdjson(rawText);
+          const txt = parseNdjsonToText(nd);
+          answer = txt || nd || rawText;
+        } else {
+          // könnte normales JSON oder NDJSON sein
+          tryJsonFirst();
+          if (!data) {
+            const txt = parseNdjsonToText(rawText);
+            answer = txt || rawText;
+          }
+        }
+
+        // Aus JSON bekannte Felder extrahieren
+        if (data && typeof data === 'object') {
+          answer =
+            data?.answer ??
+            data?.raw_response?.response ??
+            data?.result ??
+            data?.text ??
+            "";
+        }
 
         // ID aus der Antwort nur übernehmen, wenn sie valide ist
         if (data?.conversation_id && isValidConversationId(data.conversation_id)) {
@@ -818,24 +870,46 @@
           // damit ab der nächsten Frage eine ID existiert.
           setConversationId(crypto.randomUUID());
         }
-        const answer =
-          data?.answer ??
-          data?.raw_response?.response ??
-          data?.result ??
-          (typeof data === "string" ? data : "");
-        const sources = data?.sources ?? data?.documents ?? [];
+        const sources   = (data?.sources ?? data?.documents ?? []);
+        const artifacts = (data?.artifacts ?? {});
 
-        let html = "";
-        if (answer) {
-          html += `<div>✅ Fertig – Antwort:</div>`;
-          html += `<div style="margin-top:6px">${escapeHtml(String(answer))}</div>`;
-        } else {
-          html += `<div>✅ Fertig – Antwort erhalten.</div>`;
-          if (data?.raw) html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
-        }
+        // --- Ausgabe (vollständig, ohne Abschneiden) ---
+        let html = `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div>✅ Fertig – Antwort:</div>
+            <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
+          </div>
+          <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
+        `;
+
+        // Quellen
         html += renderSources(sources);
 
+        // Artefakte: Code + Dateien (Base64 oder Link)
+        if (artifacts?.code) {
+          html += `<div style="margin-top:12px;font-weight:700">Code</div>
+                   <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
+        }
+        if (Array.isArray(artifacts?.files) && artifacts.files.length){
+          html += `<div style="margin-top:12px;font-weight:700">Dateien</div><ul>`;
+          html += artifacts.files.map(f=>{
+            if (f?.base64 && f?.name){
+              const mime = f.mime || 'application/octet-stream';
+              return `<li><a download="${escapeHtml(String(f.name))}" href="data:${mime};base64,${f.base64}">${escapeHtml(String(f.name))}</a></li>`;
+            }
+            if (f?.url && f?.name){
+              return `<li><a href="${escapeHtml(String(f.name))}" target="_blank" rel="noopener">${escapeHtml(String(f.name))}</a></li>`;
+            }
+            return `<li>${escapeHtml(String(f?.name || 'Datei'))}</li>`;
+          }).join('') + `</ul>`;
+        }
+
         resultOut.innerHTML = html;
+        const pre = document.getElementById('answer-pre');
+        pre.textContent = String(answer || (data && !answer ? JSON.stringify(data, null, 2) : rawText));
+        document.getElementById('copy-answer')?.addEventListener('click', ()=>{
+          navigator.clipboard.writeText(pre.textContent||"");
+        });
         resultDiv.className = "success";
       } catch (err) {
         resultOut.textContent = `❌ Fehler: ${err.message}`;
@@ -963,7 +1037,7 @@
           let html = "";
           if (transcript) {
             html += `<div>✅ Fertig – Transkript:</div>`;
-            html += `<pre style="margin-top:6px;max-height:260px;overflow:auto">${escapeHtml(String(transcript))}</pre>`;
+            html += `<pre class="prewrap mono" style="margin-top:6px;">${escapeHtml(String(transcript))}</pre>`;
           } else {
             html += `<div>✅ Fertig – Antwort erhalten.</div>`;
             if (data?.raw) html += `<pre style="margin-top:6px">${escapeHtml(String(data.raw))}</pre>`;
