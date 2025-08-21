@@ -9,7 +9,7 @@
       "typeVersion": 1,
       "position": [
         -384,
-        -64
+        -288
       ]
     },
     {
@@ -22,7 +22,7 @@
       "typeVersion": 2,
       "position": [
         288,
-        -208
+        -432
       ]
     },
     {
@@ -50,7 +50,7 @@
       "typeVersion": 1.2,
       "position": [
         512,
-        -208
+        -432
       ]
     },
     {
@@ -63,7 +63,7 @@
       "typeVersion": 2,
       "position": [
         736,
-        -208
+        -432
       ]
     },
     {
@@ -89,8 +89,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2960,
-        -144
+        3424,
+        -368
       ]
     },
     {
@@ -103,8 +103,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3184,
-        -144
+        3648,
+        -368
       ]
     },
     {
@@ -115,7 +115,7 @@
       "typeVersion": 2,
       "position": [
         -160,
-        -144
+        -368
       ],
       "id": "c8a0b65d-7075-43a1-be63-d788111f3d36",
       "name": "Agents Preflight (Normalize)"
@@ -129,8 +129,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2736,
-        -144
+        3200,
+        -368
       ]
     },
     {
@@ -142,8 +142,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1632,
-        80
+        2304,
+        -144
       ]
     },
     {
@@ -155,8 +155,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        960,
-        -208
+        1632,
+        -432
       ]
     },
     {
@@ -182,8 +182,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1184,
-        -208
+        1856,
+        -432
       ]
     },
     {
@@ -195,8 +195,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1408,
-        -208
+        2080,
+        -432
       ]
     },
     {
@@ -206,8 +206,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1856,
-        -208
+        2528,
+        -432
       ],
       "id": "41427986-dd1c-4863-a182-2a758a97d77c",
       "name": "State Manager"
@@ -219,8 +219,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
-        -208
+        2752,
+        -432
       ],
       "id": "f04a318b-0948-43be-afe6-f32738cd7a4e",
       "name": "Loop Checker"
@@ -234,8 +234,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1632,
-        -208
+        2304,
+        -432
       ]
     },
     {
@@ -244,7 +244,7 @@
       "typeVersion": 3.2,
       "position": [
         64,
-        -144
+        -368
       ],
       "id": "7bfbc1fb-fe1e-4090-a3a3-7b8213c3f7df",
       "name": "Merge"
@@ -277,11 +277,64 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2288,
-        -208
+        2976,
+        -368
       ],
       "id": "7fb6a304-f7d7-496b-bbef-f18629f3d4f9",
       "name": "Loop Gate"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Tool Calls from LLM text — robust, mehrere JSON-Objekte erlaubt\n// Erwartet in den Agenten-Antworten eingebettete Blöcke wie:\n// {\"tool\":\"web.search\",\"input\":{\"query\":\"...\", \"top_k\":3, \"recency_days\":30}}\n// {\"tool\":\"db.query\",\"input\":{\"kind\":\"postgres\",\"conn\":\"cred:pg_ro\",\"sql\":\"SELECT ... LIMIT 25\"}}\n\nconst MAX_CALLS = 3;\n\nfunction extractJsonObjects(s) {\n  const out = [];\n  const text = String(s || \"\");\n  // Simple JSON object finder (tolerant)\n  const regex = /\\{[\\s\\S]*?\\}/g;\n  let m;\n  while ((m = regex.exec(text)) !== null) {\n    try { out.push(JSON.parse(m[0])); } catch {}\n  }\n  return out;\n}\n\nconst items = $input.all();\nconst calls = [];\n\nfor (const it of items) {\n  const j = it.json || {};\n  const raw = j.text || j.result || j.response || \"\";\n  const found = extractJsonObjects(raw).filter(o => o && o.tool && o.input);\n  for (const f of found) calls.push(f);\n}\n\n// Limit & normalize\nconst allowed = calls.slice(0, MAX_CALLS).map((c, i) => ({\n  tool: String(c.tool).toLowerCase().trim(),\n  input: c.input || {},\n  _tool_idx: i + 1\n}));\n\nreturn [{\n  json: {\n    ...($json || {}),\n    tools: allowed,\n    _tools_info: { requested: calls.length, allowed: allowed.length, max: MAX_CALLS }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -432
+      ],
+      "id": "a025293a-5821-4bcf-b267-6f55cbe0e697",
+      "name": "Parse Tool Calls"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "7TJSkMtcQ9WBo4YM",
+          "mode": "list",
+          "cachedResultName": "tools_router_v1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1184,
+        -432
+      ],
+      "id": "785f05ea-2008-49bf-aeff-7b378c3d048e",
+      "name": "Execute Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Tool Observations into State & BoardText\n\n// Aktueller State kommt bei dir aus vorherigen Nodes (z. B. Collect Agent Outputs / State Manager)\nconst state = ($items('Collect Agent Outputs', 0)?.[0]?.json) \n           || ($items('State Manager', 0)?.[0]?.json) \n           || ($json || {});\n\nconst toolsIn = ($json && Array.isArray($json.tool_observations)) ? $json.tool_observations : [];\n\nfunction fmtObs(o, idx) {\n  if (o.tool === 'web.search' && Array.isArray(o.items)) {\n    const lines = o.items.slice(0, 5).map((it,i)=>`- ${it.title || '(ohne Titel)'} — ${it.url || ''}\\n  ${it.snippet ? String(it.snippet).slice(0,240) : ''}`);\n    return `## Tool #${idx+1}: Websuche\\n${lines.join('\\n')}`;\n  }\n  if (o.tool === 'db.query') {\n    const rc = Number(o.rowCount || (o.rows?.length || 0));\n    const sample = Array.isArray(o.rows) ? o.rows.slice(0, 1)[0] : null;\n    return `## Tool #${idx+1}: DB-Query (${rc} Zeilen)\\n` + (sample ? \"Beispiel:\\n\" + JSON.stringify(sample, null, 2) : \"\");\n  }\n  if (o.tool === 'program.run') {\n    const out = String(o.stdout || '').slice(0, 1500);\n    const note = o.truncated ? '\\n[... gekürzt ...]' : '';\n    return `## Tool #${idx+1}: Programm-Ausgabe (Exit ${o.exitCode})\\n${out}${note}`;\n  }\n  return `## Tool #${idx+1}: ${o.tool}\\n${JSON.stringify(o).slice(0, 1000)}`;\n}\n\nconst toolsBlock = toolsIn.length ? `\\n\\n# Werkzeuge\\n${toolsIn.map(fmtObs).join('\\n\\n')}` : \"\";\n\nconst merged = {\n  ...state,\n  tool_observations: toolsIn,\n  boardText: [state.boardText || '', toolsBlock].filter(Boolean).join('\\n\\n')\n};\n\nreturn [{ json: merged }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -432
+      ],
+      "id": "f5925164-aa96-4a56-ab6d-ffe15feb34c0",
+      "name": "Merge Tool Observations"
     }
   ],
   "pinData": {},
@@ -328,7 +381,7 @@
       "main": [
         [
           {
-            "node": "Prepare Critic Prompt",
+            "node": "Parse Tool Calls",
             "type": "main",
             "index": 0
           }
@@ -473,13 +526,46 @@
           }
         ]
       ]
+    },
+    "Parse Tool Calls": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow": {
+      "main": [
+        [
+          {
+            "node": "Merge Tool Observations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Tool Observations": {
+      "main": [
+        [
+          {
+            "node": "Prepare Critic Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "d39219d5-49e0-412b-ac9a-9ce4483fe717",
+  "versionId": "c72021d0-6dce-453f-9e85-b5e38dcc3c5b",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
