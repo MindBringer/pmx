@@ -85,14 +85,14 @@
 
     .form-group{margin-bottom:12px}
     label{display:block;font-weight:600;margin-bottom:6px;color:#333}
-    input[type="text"],input[type="password"],textarea,select{
+    input[type="text"],input[type="password"],textarea,select,input[type="number"]{
       width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--bd);background:#fff;color:#222;
       transition: box-shadow .2s ease, border-color .15s ease
     }
-    input[type="text"]:hover,input[type="password"]:hover,textarea:hover,select:hover{
+    input[type="text"]:hover,input[type="password"]:hover,textarea:hover,select:hover,input[type="number"]:hover{
       box-shadow:var(--shadow-sm);
     }
-    input[type="text"]:focus,input[type="password"]:focus,textarea:focus,select:focus{
+    input[type="text"]:focus,input[type="password"]:focus,textarea:focus,select:focus,input[type="number"]:focus{
       outline:none;border-color:#b9c1ff;box-shadow:0 0 0 3px rgba(102,126,234,.18);
     }
     textarea{min-height:120px;resize:vertical}
@@ -185,7 +185,6 @@
           <textarea id="prompt" placeholder="Stell eine Frage an das Modell..."></textarea>
         </div>
 
-        
         <!-- Unterbereich: Anweisungen mit Sub-Tabs -->
         <div class="subtabs">
           <div class="subtab-bar">
@@ -221,7 +220,6 @@
               Aktiviere bis zu 5 Personas. Leere Felder werden ignoriert. Beispiel-Rollen helfen beim Start.
             </div>
 
-            
             <!-- Ablauf: Runden -->
             <div class="persona-row" style="margin-top:10px">
               <span class="persona-head">Ablauf</span>
@@ -254,7 +252,7 @@
                 </div>
                 <div class="form-group col">
                   <label for="critic_model">Modell</label>
-                  <input type="text" id="critic_model" placeholder="z. B. claude-3-5-sonnet oder llama-3.1-70b-versatile"/>
+                  <input type="text" id="critic_model" placeholder="z. B. claude-3-5-sonnet oder llama-3.1-70b-versatile"/>
                   <div class="inline-help">Optional, wird je Provider automatisch gemappt.</div>
                 </div>
               </div>
@@ -280,12 +278,13 @@
                 </div>
                 <div class="form-group col">
                   <label for="writer_model">Modell</label>
-                  <input type="text" id="writer_model" placeholder="z. B. gpt-4o-mini oder llama-3.1-70b-versatile"/>
+                  <input type="text" id="writer_model" placeholder="z. B. gpt-4o-mini oder llama-3.1-70b-versatile"/>
                   <div class="inline-help">Optional, wird je Provider automatisch gemappt.</div>
                 </div>
               </div>
             </div>
-<!-- Persona Row Template repeated 5x -->
+
+            <!-- Persona Row Template repeated 5x -->
             <div class="persona-row">
               <label class="persona-head"><input type="checkbox" id="p1_enabled" /> Persona 1</label>
               <div class="row">
@@ -402,7 +401,8 @@
             </div>
           </div>
         </div>
-<div class="form-group">
+
+        <div class="form-group">
           <label>Firmendaten mit einbeziehen?</label>
           <div class="choices" id="rag-choices">
             <label class="choice active"><input type="radio" name="rag" value="false" checked> Nein</label>
@@ -416,6 +416,14 @@
         </div>
         <div id="conv-status" class="inline-help" style="margin:8px 0"></div>
       </form>
+
+      <!-- Live-Status für Async-Jobs (SSE) -->
+      <section id="job-status" class="result-box" style="display:none">
+        <div style="font-weight:700;margin-bottom:6px">Live-Status</div>
+        <div id="job-title" style="margin-bottom:4px;">—</div>
+        <div id="job-statusline" style="margin-bottom:8px;">Warte auf Start …</div>
+        <div id="job-log" class="mono" style="border:1px solid #ddd; padding:8px; max-height:240px; overflow:auto; background:#fafafa; font-size: 12px;"></div>
+      </section>
 
       <div id="result" class="result-box">
         <div id="result-output"></div>
@@ -605,10 +613,10 @@
     const toggleKeyBtn = document.getElementById('toggleKey');
     const savedKey = localStorage.getItem('ragApiKey');
     if (savedKey) apiKeyInput.value = savedKey;
-    apiKeyInput.addEventListener('input', () => {
+    apiKeyInput?.addEventListener('input', () => {
       localStorage.setItem('ragApiKey', apiKeyInput.value.trim());
     });
-    toggleKeyBtn.addEventListener('click', () => {
+    toggleKeyBtn?.addEventListener('click', () => {
       const hidden = apiKeyInput.type === 'password';
       apiKeyInput.type = hidden ? 'text' : 'password';
       toggleKeyBtn.textContent = hidden ? 'verbergen' : 'anzeigen';
@@ -632,7 +640,6 @@
     function fmtMs(ms){ if(ms==null) return "–"; if(ms<1000) return `${Math.round(ms)} ms`; return `${(ms/1000).toFixed(2)} s`; }
     function fmtBytes(b){ if(typeof b!=="number") return "–"; const u=["B","KB","MB","GB","TB"]; let i=0,n=b; while(n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(n<10?2:(n<100?1:0))} ${u[i]}`; }
     function escapeHtml(str){ return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
-
 
     // --- Streaming-/NDJSON-/SSE-Parser (robust gegen lange Antworten) ---
     function parseNdjsonToText(s){
@@ -720,8 +727,6 @@
             throw new Error(`Bitte Jobtitel/Beschreibung für Persona ${i} eingeben.`);
           }
           list.push({ label, provider });
-        } else {
-          continue;
         }
       }
       return list;
@@ -758,6 +763,134 @@
       return `<div class="inline-help" style="margin-top:8px">Quellen:</div><ul class="sources">${items}</ul>`;
     }
 
+    // === Async Job (SSE) UI helpers ===
+    const jobBox   = document.getElementById('job-status');
+    const jobTitleEl = document.getElementById('job-title');
+    const jobLine  = document.getElementById('job-statusline');
+    const jobLog   = document.getElementById('job-log');
+
+    function showJob(title){
+      jobTitleEl.textContent = title || 'Agentenlauf';
+      jobLine.textContent  = 'Gestartet …';
+      jobLog.innerHTML     = '';
+      jobBox.style.display = 'block';
+    }
+    function logJob(msg){
+      const div = document.createElement('div');
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      jobLog.appendChild(div);
+      jobLog.scrollTop = jobLog.scrollHeight;
+    }
+    function sseLabel(jobTitle, evt){
+      const parts = [];
+      if (jobTitle) parts.push(jobTitle);
+      if (evt.persona) parts.push(evt.persona);
+      if (evt.role) parts.push('/'+evt.role);
+      if (evt.round && evt.rounds_total) parts.push(` – Runde ${evt.round}/${evt.rounds_total}`);
+      return parts.join(' ');
+    }
+
+    async function startAsyncRun(job_title, payload){
+      // 1) Starten (Webhook mit async=true)
+      const headers = { "Content-Type": "application/json" };
+      if (isValidConversationId(conversationId)) {
+        payload.conversation_id = conversationId;
+        headers["x-conversation-id"] = conversationId;
+      }
+      payload.async = true;
+      payload.title = job_title;
+
+      const res = await fetch("/webhook/llm", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const ack = await res.json().catch(()=> ({}));
+      if (!res.ok || !ack?.job_id) {
+        throw new Error(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
+      }
+
+      showJob(job_title || payload?.prompt || 'Agentenlauf');
+
+      // 2) Ereignis-Stream öffnen
+      const eventsUrl = ack.events || `/rag/jobs/${ack.job_id}/events`;
+      const src = new EventSource(eventsUrl);
+
+      const onDone = new Promise((resolve) => {
+        src.onmessage = (e)=>{
+          try{
+            const evt = JSON.parse(e.data);
+            if (evt.type === "started"){
+              jobLine.textContent = "Gestartet.";
+              logJob("Job gestartet.");
+            } else if (evt.type === "progress"){
+              jobLine.textContent = sseLabel(job_title, evt) || "In Arbeit …";
+              if (evt.message) logJob(evt.message);
+            } else if (evt.type === "complete"){
+              logJob("Abgeschlossen.");
+              src.close();
+              resolve(true);
+            }
+          }catch{
+            // ignoriere unlesbare Events
+          }
+        };
+        src.onerror = ()=>{
+          logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …");
+          // Browser reconnectet EventSource automatisch
+        };
+      });
+
+      // 3) Finale Ergebnisse holen & rendern
+      await onDone;
+      const resultUrl = ack.result || `/rag/jobs/${ack.job_id}/result`;
+      const final = await fetch(resultUrl).then(r=>r.json());
+      if (final?.status === "done"){
+        const answer = final.result?.answer || "";
+        const artifacts = final.result?.artifacts || {};
+        const sources   = final.result?.sources || final.result?.documents || [];
+
+        // Ausgabe wie im Sync-Fall:
+        let html = `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div>✅ Finale Antwort:</div>
+            <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
+          </div>
+          <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
+        `;
+        html += renderSources(sources);
+
+        if (artifacts?.code) {
+          html += `<div style="margin-top:12px;font-weight:700">Code</div>
+                   <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
+        }
+        if (Array.isArray(artifacts?.files) && artifacts.files.length){
+          html += `<div style="margin-top:12px;font-weight:700">Dateien</div><ul>`;
+          html += artifacts.files.map(f=>{
+            if (f?.base64 && f?.name){
+              const mime = f.mime || 'application/octet-stream';
+              return `<li><a download="${escapeHtml(String(f.name))}" href="data:${mime};base64,${f.base64}">${escapeHtml(String(f.name))}</a></li>`;
+            }
+            if (f?.url && f?.name){
+              return `<li><a href="${escapeHtml(String(f.name))}" target="_blank" rel="noopener">${escapeHtml(String(f.name))}</a></li>`;
+            }
+            return `<li>${escapeHtml(String(f?.name || 'Datei'))}</li>`;
+          }).join('') + `</ul>`;
+        }
+
+        resultOut.innerHTML = html;
+        const pre = document.getElementById('answer-pre');
+        pre.textContent = String(answer || "[leer]");
+        document.getElementById('copy-answer')?.addEventListener('click', ()=>{
+          navigator.clipboard.writeText(pre.textContent||"");
+        });
+        resultDiv.className = "success";
+        jobLine.textContent = "Fertig.";
+      } else {
+        jobLine.textContent = "Noch in Arbeit …";
+      }
+    }
+
     form.addEventListener("submit", async function (e) {
       e.preventDefault();
       const prompt = document.getElementById("prompt").value.trim();
@@ -777,11 +910,12 @@
       submitBtn.disabled = true;
 
       try {
-        // Payload + Header mit conversation_id (falls vorhanden)
+        // Modus bestimmen
         const isAgents = activeSubtab()==='subtab-agents';
-      const personas = isAgents ? collectPersonas() : [];
+        const personas = isAgents ? collectPersonas() : [];
+
+        // Payload bauen
         const payload = { prompt, system, rag: ragVal };
-        // Personas-spezifische Optionen
         if (isAgents) {
           // Runden
           const roundsEl = document.getElementById("agent_rounds");
@@ -789,8 +923,7 @@
           if (Number.isFinite(roundsVal) && roundsVal >= 1) {
             payload.agent_rounds = Math.max(1, Math.min(10, Math.round(roundsVal)));
           }
-
-          // Critic/Facilitator (separater Provider/Modell)
+          // Critic/Facilitator
           const criticProv = document.getElementById("critic_provider")?.value || "";
           const criticModel = (document.getElementById("critic_model")?.value || "").trim();
           if (criticProv || criticModel) {
@@ -800,10 +933,9 @@
           }
         }
 
-
         if (personas.length > 0){
           payload.personas = personas;
-          // Writer (optional aus UI)
+          // Writer (optional)
           const wProv = document.getElementById('writer_provider')?.value || '';
           const wModel = (document.getElementById('writer_model')?.value || '').trim();
           if (wProv || wModel) {
@@ -814,16 +946,26 @@
         } else {
           payload.model = model;
         }
-        const headers = { "Content-Type": "application/json" };
 
+        // === Async für Agentenmodus ===
+        if (isAgents && personas.length>0){
+          // Jobtitel aus Prompt oder Personas
+          const titleFromPrompt = prompt.split('\n')[0].slice(0, 80);
+          const titleFromPersonas = personas.map(p=>p.label).slice(0,3).join(', ');
+          const jobTitle = titleFromPersonas || titleFromPrompt || 'Agentenlauf';
+          // Spinner weg, Status anzeigen
+          hideSpinner();
+          await startAsyncRun(jobTitle, payload);
+          return;
+        }
+
+        // === Sync-Fallback (Systemverhalten oder keine Personas) ===
+        const headers = { "Content-Type": "application/json" };
         if (isValidConversationId(conversationId)) {
           payload.conversation_id = conversationId;
           headers["x-conversation-id"] = conversationId;
         }
 
-        if (activeSubtab()==='subtab-agents' && (!Array.isArray(personas) || personas.length===0)){
-          throw new Error("Bitte mindestens eine Persona aktivieren oder auf Systemverhalten bleiben.");
-        }
         const response = await fetch("/webhook/llm", {
           method: "POST",
           headers,
@@ -844,7 +986,6 @@
           const txt = parseNdjsonToText(nd);
           answer = txt || nd || rawText;
         } else {
-          // könnte normales JSON oder NDJSON sein
           tryJsonFirst();
           if (!data) {
             const txt = parseNdjsonToText(rawText);
@@ -852,7 +993,6 @@
           }
         }
 
-        // Aus JSON bekannte Felder extrahieren
         if (data && typeof data === 'object') {
           answer =
             data?.answer ??
@@ -862,14 +1002,13 @@
             "";
         }
 
-        // ID aus der Antwort nur übernehmen, wenn sie valide ist
+        // Conversation-ID mergen
         if (data?.conversation_id && isValidConversationId(data.conversation_id)) {
           setConversationId(data.conversation_id);
         } else if (!conversationId && window.crypto?.randomUUID) {
-          // Fallback: falls Server keine ID liefert, lokal eine erzeugen,
-          // damit ab der nächsten Frage eine ID existiert.
           setConversationId(crypto.randomUUID());
         }
+
         const sources   = (data?.sources ?? data?.documents ?? []);
         const artifacts = (data?.artifacts ?? {});
 
@@ -882,10 +1021,8 @@
           <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
         `;
 
-        // Quellen
         html += renderSources(sources);
 
-        // Artefakte: Code + Dateien (Base64 oder Link)
         if (artifacts?.code) {
           html += `<div style="margin-top:12px;font-weight:700">Code</div>
                    <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;

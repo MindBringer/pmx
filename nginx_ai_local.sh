@@ -81,6 +81,24 @@ cat <<EOF | sudo tee $NGINX_AVAILABLE/ai.local > /dev/null
     proxy_connect_timeout 600s;
     proxy_send_timeout 600s;
   }
+  # Streams für Job-Events (SSE) – granular, ohne globales Buffering-Off
+  location ^~ /rag/jobs/ {
+    proxy_pass         http://localhost:8082/;   # /rag/jobs/* -> /jobs/* (Upstream-Root bleibt korrekt)
+    proxy_http_version 1.1;
+
+    # dieselben Forward-Header wie im /rag/-Block
+    proxy_set_header   Host $host;
+    proxy_set_header   X-Real-IP $remote_addr;
+    proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+
+    # SSE-essentiell:
+    proxy_set_header   Connection "";
+    proxy_buffering    off;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+    add_header         Cache-Control no-cache;
+  }
 }
 
 server {

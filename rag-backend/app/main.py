@@ -15,6 +15,8 @@ from .pipelines import (
 )
 
 from .transcribe import router as transcribe_router  # Audio: /transcribe + /speakers
+from .jobs import router as jobs_router
+app.include_router(jobs_router, prefix="/rag")
 
 # -----------------------------
 # Settings & App
