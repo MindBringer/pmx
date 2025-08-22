@@ -800,19 +800,19 @@
       payload.async = true;
       payload.title = job_title;
 
+      // 1) Request & robustes ACK-Parsing
       const res = await fetch("/webhook/llm", {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
       });
 
-      // Robustes Parsing: egal ob der Server "text/plain" oder "application/json" sendet
       const ackText = await res.text();
       let ack = {};
-      try { ack = JSON.parse(ackText); } catch { /* lassen wir ack = {} */ }
+      try { ack = JSON.parse(ackText); } catch {}
       console.debug("[ACK]", res.status, ackText);
 
-      // job_id sicher bestimmen – notfalls aus events/result extrahieren
+      // 2) job_id EINMAL ermitteln (Fallback: aus events/result extrahieren)
       const jobId =
         ack.job_id ||
         (typeof ack.events === "string" && ack.events.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
@@ -822,76 +822,36 @@
       if (!res.ok || !jobId) {
         throw new Error(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
       }
-      ack.job_id = jobId; // für die nachfolgenden Schritte verfügbar machen
+      ack.job_id = jobId; // für Folge-Schritte verfügbar machen
 
       showJob(job_title || payload?.prompt || "Agentenlauf");
 
-      // 2) Ereignis-Stream öffnen (robust: ignoriert n8n-Platzhalter / falsche Hosts)
-      const jobId = String(ack.job_id || '').trim();
-      if (!jobId) throw new Error('Backend-Antwort ohne job_id – kann SSE nicht öffnen.');
-
-      // „Gute“ Events-/Result-URLs nur akzeptieren, wenn sie zur Origin passen und keine Platzhalter enthalten
-      const looksOk = (u) => {
-        if (typeof u !== 'string' || !u) return false;
-        if (u.includes('{{') || u.includes('$json')) return false;              // n8n-Placeholder
-        try {
-          const url = new URL(u, location.href);                               // relative od. absolute URL
-          return url.origin === location.origin && url.pathname.startsWith('/rag/jobs/');
-        } catch {
-          return false;
-        }
-      };
-
-      // akzeptiere ack.events nur, wenn keine Platzhalter drin sind und die Origin passt
+      // 3) Hilfsfunktion nur 1x definieren
       const looksOk = (u) => {
         if (typeof u !== "string" || !u) return false;
-        if (u.includes("{{") || u.includes("$json")) return false;
+        if (u.includes("{{") || u.includes("$json")) return false; // n8n-Platzhalter
         try {
           const url = new URL(u, location.href);
           return url.origin === location.origin && url.pathname.startsWith("/rag/jobs/");
         } catch { return false; }
       };
 
+      // 4) SSE-URL stabil bauen (keine zweite jobId-Definition!)
       const eventsUrl = looksOk(ack.events)
         ? ack.events
-        : `/rag/jobs/${encodeURIComponent(ack.job_id)}/events`;
+        : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
 
+      // 5) EventSource öffnen
       try { window.__es?.close(); } catch {}
       const src = new EventSource(eventsUrl, { withCredentials: true });
       window.__es = src;
 
       logJob(`Verbinde: ${eventsUrl}`);
-      src.onopen  = () => logJob('SSE verbunden.');
-      src.onerror = () => logJob('Stream-Fehler (SSE) – versuche verbunden zu bleiben …');
+      src.onopen  = () => logJob("SSE verbunden.");
+      src.onerror = () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …");
+      // src.onmessage = (e) => { ... dein Handler ... };
 
-
-      const onDone = new Promise((resolve) => {
-        src.onmessage = (e)=>{
-          try{
-            const evt = JSON.parse(e.data);
-            if (evt.type === "started"){
-              jobLine.textContent = "Gestartet.";
-              logJob("Job gestartet.");
-            } else if (evt.type === "progress"){
-              jobLine.textContent = sseLabel(job_title, evt) || "In Arbeit …";
-              if (evt.message) logJob(evt.message);
-            } else if (evt.type === "complete"){
-              logJob("Abgeschlossen.");
-              src.close();
-              resolve(true);
-            }
-          }catch{
-            // ignoriere unlesbare Events
-          }
-        };
-        src.onerror = ()=>{
-          logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …");
-          // Browser reconnectet EventSource automatisch
-        };
-      });
-
-      // 3) Finale Ergebnisse holen & rendern
-      await onDone;
+      // (optional später fürs Ergebnis)
       const resultUrl = looksOk(ack.result)
         ? ack.result
         : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
