@@ -805,12 +805,26 @@
         headers,
         body: JSON.stringify(payload),
       });
-      const ack = await res.json().catch(()=> ({}));
-      if (!res.ok || !ack?.job_id) {
+
+      // Robustes Parsing: egal ob der Server "text/plain" oder "application/json" sendet
+      const ackText = await res.text();
+      let ack = {};
+      try { ack = JSON.parse(ackText); } catch { /* lassen wir ack = {} */ }
+      console.debug("[ACK]", res.status, ackText);
+
+      // job_id sicher bestimmen – notfalls aus events/result extrahieren
+      const jobId =
+        ack.job_id ||
+        (typeof ack.events === "string" && ack.events.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
+        (typeof ack.result === "string" && ack.result.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
+        "";
+
+      if (!res.ok || !jobId) {
         throw new Error(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
       }
+      ack.job_id = jobId; // für die nachfolgenden Schritte verfügbar machen
 
-      showJob(job_title || payload?.prompt || 'Agentenlauf');
+      showJob(job_title || payload?.prompt || "Agentenlauf");
 
       // 2) Ereignis-Stream öffnen (robust: ignoriert n8n-Platzhalter / falsche Hosts)
       const jobId = String(ack.job_id || '').trim();
@@ -828,9 +842,19 @@
         }
       };
 
+      // akzeptiere ack.events nur, wenn keine Platzhalter drin sind und die Origin passt
+      const looksOk = (u) => {
+        if (typeof u !== "string" || !u) return false;
+        if (u.includes("{{") || u.includes("$json")) return false;
+        try {
+          const url = new URL(u, location.href);
+          return url.origin === location.origin && url.pathname.startsWith("/rag/jobs/");
+        } catch { return false; }
+      };
+
       const eventsUrl = looksOk(ack.events)
         ? ack.events
-        : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
+        : `/rag/jobs/${encodeURIComponent(ack.job_id)}/events`;
 
       try { window.__es?.close(); } catch {}
       const src = new EventSource(eventsUrl, { withCredentials: true });
