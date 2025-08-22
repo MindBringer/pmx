@@ -812,9 +812,34 @@
 
       showJob(job_title || payload?.prompt || 'Agentenlauf');
 
-      // 2) Ereignis-Stream öffnen
-      const eventsUrl = ack.events || `/rag/jobs/${ack.job_id}/events`;
-      const src = new EventSource(eventsUrl);
+      // 2) Ereignis-Stream öffnen (robust: ignoriert n8n-Platzhalter / falsche Hosts)
+      const jobId = String(ack.job_id || '').trim();
+      if (!jobId) throw new Error('Backend-Antwort ohne job_id – kann SSE nicht öffnen.');
+
+      // „Gute“ Events-/Result-URLs nur akzeptieren, wenn sie zur Origin passen und keine Platzhalter enthalten
+      const looksOk = (u) => {
+        if (typeof u !== 'string' || !u) return false;
+        if (u.includes('{{') || u.includes('$json')) return false;              // n8n-Placeholder
+        try {
+          const url = new URL(u, location.href);                               // relative od. absolute URL
+          return url.origin === location.origin && url.pathname.startsWith('/rag/jobs/');
+        } catch {
+          return false;
+        }
+      };
+
+      const eventsUrl = looksOk(ack.events)
+        ? ack.events
+        : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
+
+      try { window.__es?.close(); } catch {}
+      const src = new EventSource(eventsUrl, { withCredentials: true });
+      window.__es = src;
+
+      logJob(`Verbinde: ${eventsUrl}`);
+      src.onopen  = () => logJob('SSE verbunden.');
+      src.onerror = () => logJob('Stream-Fehler (SSE) – versuche verbunden zu bleiben …');
+
 
       const onDone = new Promise((resolve) => {
         src.onmessage = (e)=>{
@@ -843,7 +868,10 @@
 
       // 3) Finale Ergebnisse holen & rendern
       await onDone;
-      const resultUrl = ack.result || `/rag/jobs/${ack.job_id}/result`;
+      const resultUrl = looksOk(ack.result)
+        ? ack.result
+        : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
+
       const final = await fetch(resultUrl).then(r=>r.json());
       if (final?.status === "done"){
         const answer = final.result?.answer || "";
