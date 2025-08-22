@@ -809,7 +809,9 @@
 
       const ackText = await res.text();
       let ack = {};
-      try { ack = JSON.parse(ackText); } catch {}
+      try { 
+        ack = JSON.parse(ackText.trim().replace(/^=\s*/, "")); 
+      } catch {}
       console.debug("[ACK]", res.status, ackText);
 
       // 2) job_id EINMAL ermitteln (Fallback: aus events/result extrahieren)
@@ -849,7 +851,15 @@
       logJob(`Verbinde: ${eventsUrl}`);
       src.onopen  = () => logJob("SSE verbunden.");
       src.onerror = () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …");
-      // src.onmessage = (e) => { ... dein Handler ... };
+      src.onmessage = (e) => {
+        try {
+          const evt = JSON.parse(e.data);
+          jobLine.textContent = sseLabel(job_title, evt);
+          if (evt.message) logJob(evt.message);
+        } catch {
+          logJob(String(e.data || 'Event ohne JSON'));
+        }
+      };
 
       // (optional später fürs Ergebnis)
       const resultUrl = looksOk(ack.result)
