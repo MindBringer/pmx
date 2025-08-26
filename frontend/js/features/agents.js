@@ -77,16 +77,35 @@ export async function startAsyncRun(job_title, payload){
     if (finished) return;
     finished = true;
     try { src.close(); } catch {}
-    const final = await waitForResult(resultUrl);
-    if (final?.status === "done"){
-      const answer    = final.result?.answer || "";
-      const artifacts = final.result?.artifacts || {};
-      const sources   = final.result?.sources || final.result?.documents || [];
-      setFinalAnswer({ answer, sources, artifacts });
-    } else {
-      setError("Unerwartetes Ergebnisformat.");
+
+    try {
+      const final = await waitForResult(resultUrl);
+
+      // tolerant: manche Backends setzen kein status:"done"
+      const answer =
+        (final?.result?.answer ??
+         final?.answer ??
+         final?.result?.text ??
+         final?.text ??
+         "").trim();
+
+      const sources =
+        final?.result?.sources ??
+        final?.sources ??
+        final?.result?.documents ??
+        final?.documents ??
+        [];
+
+      const artifacts =
+        final?.result?.artifacts ??
+        final?.artifacts ??
+        {};
+
+      // WICHTIG: setFinalAnswer erwartet einen STRING als 1. Arg
+      setFinalAnswer(answer || "[leer]", { sources, artifacts });
+    } catch (e) {
+      console.error("waitForResult failed", e);
+      setFinalAnswer("[leer]");
     }
   }
 
-  setTimeout(()=>{ if (!finished) finalize(); }, 60000);
-}
