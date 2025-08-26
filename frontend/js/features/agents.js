@@ -60,7 +60,7 @@ export async function startAsyncRun(job_title, payload){
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
 
   // SSE verbinden
-    const src = startEventSource(eventsUrl, {
+  const src = startEventSource(eventsUrl, {
     onOpen:  () => logJob("SSE verbunden."),
     onError: () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …"),
     onEvent: (e) => {
@@ -70,8 +70,9 @@ export async function startAsyncRun(job_title, payload){
         if (line) line.textContent = sseLabel(job_title, evt);
         if (evt.message) logJob(evt.message);
 
+        // Falls das Backend "done" im Event signalisiert -> sofort finalisieren
         if (evt.status === 'done' || evt.stage === 'done' || evt.done === true) {
-          completeNow();
+          completeNow(); // guarded
         }
       } catch {
         logJob(String(e.data || 'Event ohne JSON'));
@@ -79,93 +80,50 @@ export async function startAsyncRun(job_title, payload){
     }
   });
 
-  // ---------- robuste Extraktion ----------
-  function get(o, path) {
-    return path.split('.').reduce((a,k)=> (a && a[k]!==undefined ? a[k] : undefined), o);
-  }
-  function pickStr(...vals){
-    for (const v of vals) if (typeof v === 'string' && v.trim()) return v.trim();
-    return '';
-  }
-  function extractAnyResult(raw){
-    const answer = pickStr(
-      get(raw,'result.result.answer'),
-      get(raw,'result.answer'),
-      raw?.answer,
-      get(raw,'result.text'),
-      raw?.text,
-      get(raw,'choices.0.message.content'),
-      get(raw,'choices.0.text'),
-      get(raw,'data.choices.0.message.content')
-    );
-    const sources =
-      get(raw,'result.result.sources') ??
-      get(raw,'result.sources') ??
-      raw?.sources ??
-      get(raw,'result.documents') ??
-      raw?.documents ?? [];
-    const artifacts =
-      get(raw,'result.result.artifacts') ??
-      get(raw,'result.artifacts') ??
-      raw?.artifacts ?? {};
-    return { answer: answer || '', sources, artifacts };
-  }
-  async function fetchResultOnce(url){
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
-    if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
-    const raw = await r.json();
-    return { raw, ...extractAnyResult(raw) };
-  }
-  async function pollResult(url, maxMs=300000, stepMs=1200){
-    const t0 = Date.now();
-    for(;;){
-      try {
-        const got = await fetchResultOnce(url);
-        const doneLike = got.raw?.status === 'done' || !!got.raw?.result;
-        if (got.answer || doneLike) return got;
-      } catch {}
-      if (Date.now()-t0 > maxMs) throw new Error('Timeout – kein Ergebnis verfügbar.');
-      await new Promise(r=>setTimeout(r, stepMs));
-    }
-  }
-  // ---------------------------------------
-
   let finished = false;
-  async function renderFinal(got){
+
+  // Ergebnis sicher rendern (egal ob via SSE oder Polling)
+  async function renderFinal(parsed){
     if (finished) return;
     finished = true;
     try { src.close(); } catch {}
 
     try {
-      if (!got) got = await fetchResultOnce(resultUrl); // einmalig holen (Result existiert bei dir ja schon)
-      const answer = (got.answer || '').trim();
-      const sources = got.sources || [];
-      const artifacts = got.artifacts || {};
+      if (!parsed) parsed = await waitForResult(resultUrl); // -> {answer, sources, artifacts, raw}
+      const answer    = (parsed?.answer || '').trim();
+      const sources   = parsed?.sources || [];
+      const artifacts = parsed?.artifacts || {};
 
-      // Kompatibel beide Signaturen bedienen
-      // setFinalAnswer kann zwei Signaturen haben – probier beide:
+      // setFinalAnswer kann (string, opts) oder ({answer,...}) sein: beide Varianten probieren
       let ok = false;
-      try { setFinalAnswer(answer || '[leer1]', { sources, artifacts }); ok = true; } catch {}
-      if (!ok) { try { setFinalAnswer({ answer: (answer || '[leer2]'), sources, artifacts }); ok = true; } catch {} }
-      if (!ok)  { const el = document.querySelector('#final-answer'); if (el) el.textContent = (answer || '[leer3]'); }
+      try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
+      if (!ok) {
+        try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); ok = true; } catch {}
+      }
+      if (!ok) {
+        const el = document.querySelector('#final-answer');
+        if (el) el.textContent = (answer || "[leer]");
+        console.warn('Fallback-Rendering genutzt.');
+      }
     } catch (e) {
       console.error("Final rendering failed", e);
       try { setFinalAnswer("[leer]"); } catch {}
     }
   }
 
-  // Poller: IMMER starten; sobald /result etwas hat, rendern
+  // Poller: IMMER starten – unabhängig von SSE
   (async () => {
     try {
-      const got = await pollResult(resultUrl);
-      await renderFinal(got);
+      const parsed = await waitForResult(resultUrl);
+      await renderFinal(parsed);
     } catch (e) {
       console.error("waitForResult failed", e);
+      // optional: hier ein Hard-Timeout / Retry-Backoff ergänzen
     }
   })();
 
+  // manueller Trigger durch SSE-"done"
   async function completeNow(){
     try { await renderFinal(); } catch (e) { console.error("completeNow()", e); }
   }
-
 }

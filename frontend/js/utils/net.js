@@ -1,33 +1,48 @@
-// net.js
+// utils/net.js
+
+// ----- kleine Helfer -----
 function get(o, path) {
-  return path.split('.').reduce((a,k)=> (a && a[k]!==undefined ? a[k] : undefined), o);
+  return path.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o);
 }
-function pickStr(...vals){
+function pickStr(...vals) {
   for (const v of vals) if (typeof v === 'string' && v.trim()) return v.trim();
   return '';
 }
-// -> flacht mehrfach verschachtelte {result:{...}} Ebenen ab, bis echte Felder auftauchen
-function flattenToPayload(data){
+
+// Flacht mehrfach verschachtelte { result: {...} } Ebenen ab,
+// bis echte Nutzdaten (answer/text/sources/artifacts) sichtbar sind.
+function flattenToPayload(data) {
   let cur = data, hops = 0;
-  while (cur && typeof cur === 'object' && !Array.isArray(cur) && cur.result && typeof cur.result === 'object' && hops < 5) {
-    // Break, sobald die "innenliegende" Ebene echte Nutzdaten trägt
-    if (typeof cur.result.answer === 'string' ||
-        typeof cur.result.text === 'string' ||
-        Array.isArray(cur.result.sources) ||
-        cur.result.artifacts) break;
+  while (
+    cur &&
+    typeof cur === 'object' &&
+    !Array.isArray(cur) &&
+    cur.result &&
+    typeof cur.result === 'object' &&
+    hops < 5
+  ) {
+    // Break, sobald die "innenliegende" Ebene echte Nutzdaten enthält
+    if (
+      typeof cur.result.answer === 'string' ||
+      typeof cur.result.text === 'string' ||
+      Array.isArray(cur.result.sources) ||
+      cur.result.artifacts
+    ) break;
     cur = cur.result;
     hops++;
   }
-  return cur?.result && (typeof cur.result === 'object') ? cur.result : cur;
+  return cur?.result && typeof cur.result === 'object' ? cur.result : cur;
 }
-function extractResultFields(raw){
-  const flat = flattenToPayload(raw);          // <- hier flachen wir ab
+
+// Extrahiert die finalen Felder (answer, sources, artifacts) tolerant.
+function extractResultFields(raw) {
+  const flat = flattenToPayload(raw);
   const answer = pickStr(
     flat?.answer,
     flat?.text,
-    get(raw,'choices.0.message.content'),
-    get(raw,'choices.0.text'),
-    get(raw,'data.choices.0.message.content')
+    get(raw, 'choices.0.message.content'),
+    get(raw, 'choices.0.text'),
+    get(raw, 'data.choices.0.message.content')
   );
   const sources =
     flat?.sources ??
@@ -40,10 +55,29 @@ function extractResultFields(raw){
   return { answer: answer || '', sources, artifacts, raw };
 }
 
+// ----- Exporte -----
+
+// Prüft, ob URL brauchbar erscheint (gleiches Origin, /rag/*).
+export function looksOk(url) {
+  if (typeof url !== 'string' || !url) return false;
+  if (url.includes('{{') || url.includes('$json')) return false;
+  try {
+    const u = new URL(url, location.href);
+    return u.origin === location.origin && u.pathname.startsWith('/rag/');
+  } catch {
+    return false;
+  }
+}
+
+// Pollt, bis /result ein verwertbares Ergebnis liefert.
 export async function waitForResult(url, { maxWaitMs = 300000, pollMs = 1200 } = {}) {
   const t0 = Date.now();
   for (;;) {
-    const r = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+    const r = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+    });
     if (r.ok) {
       let j = null;
       try { j = await r.json(); } catch {}
@@ -53,7 +87,20 @@ export async function waitForResult(url, { maxWaitMs = 300000, pollMs = 1200 } =
         if (parsed.answer || doneLike) return parsed;
       }
     }
-    if (Date.now() - t0 > maxWaitMs) throw new Error('Timeout – kein Ergebnis verfügbar.');
+    if (Date.now() - t0 > maxWaitMs) {
+      throw new Error('Timeout – kein Ergebnis verfügbar.');
+    }
     await new Promise(res => setTimeout(res, pollMs));
   }
+}
+
+// Dünner Wrapper um EventSource, damit überall gleich genutzt.
+export function startEventSource(eventsUrl, { onOpen, onError, onEvent }) {
+  try { window.__es?.close?.(); } catch {}
+  const src = new EventSource(eventsUrl, { withCredentials: true });
+  window.__es = src;
+  if (onOpen)  src.onopen = onOpen;
+  if (onError) src.onerror = onError;
+  if (onEvent) src.onmessage = onEvent;
+  return src;
 }
