@@ -1,4 +1,4 @@
-// agents.js
+// features/agents.js
 import { looksOk, waitForResult, startEventSource } from "../utils/net.js";
 import { setFinalAnswer, setError, showJob, logJob, sseLabel } from "../ui/renderers.js";
 import { getConversationId, isValidConversationId } from "../state/conversation.js";
@@ -80,6 +80,11 @@ export async function startAsyncRun(job_title, payload){
     }
   });
 
+  // --- DOM-Fallbacks vorbereiten ---
+  const resultBox  = document.getElementById('result');
+  const resultOut  = document.getElementById('result-output');
+  function revealResultBox(){ if (resultBox) resultBox.style.display = ''; }
+
   let finished = false;
 
   // Ergebnis sicher rendern (egal ob via SSE oder Polling)
@@ -89,25 +94,36 @@ export async function startAsyncRun(job_title, payload){
     try { src.close(); } catch {}
 
     try {
+      // parsed kommt bereits von waitForResult(); sonst jetzt holen
       if (!parsed) parsed = await waitForResult(resultUrl); // -> {answer, sources, artifacts, raw}
       const answer    = (parsed?.answer || '').trim();
       const sources   = parsed?.sources || [];
       const artifacts = parsed?.artifacts || {};
 
-      // setFinalAnswer kann (string, opts) oder ({answer,...}) sein: beide Varianten probieren
+      // 1) Preferred: setFinalAnswer(string, opts)
       let ok = false;
       try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
+
+      // 2) Alternative Signatur: setFinalAnswer({ answer, ... })
       if (!ok) {
         try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); ok = true; } catch {}
       }
+
+      // 3) Harte DOM-Ausgabe (dein Index nutzt #result-output)
+      if (!ok && resultOut) {
+        revealResultBox();
+        resultOut.textContent = (answer || "[leer]");
+        ok = true;
+      }
+
       if (!ok) {
-        const el = document.querySelector('#final-answer');
-        if (el) el.textContent = (answer || "[leer]");
-        console.warn('Fallback-Rendering genutzt.');
+        console.warn('Fallback-Rendering: kein setFinalAnswer und kein #result-output gefunden.');
       }
     } catch (e) {
       console.error("Final rendering failed", e);
-      try { setFinalAnswer("[leer]"); } catch {}
+      try { setFinalAnswer("[leer]"); } catch {
+        if (resultOut) { revealResultBox(); resultOut.textContent = "[leer]"; }
+      }
     }
   }
 

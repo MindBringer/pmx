@@ -1,6 +1,6 @@
 // utils/net.js
 
-// ----- kleine Helfer -----
+// ---------- Helpers ----------
 function get(o, path) {
   return path.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o);
 }
@@ -21,7 +21,7 @@ function flattenToPayload(data) {
     typeof cur.result === 'object' &&
     hops < 5
   ) {
-    // Break, sobald die "innenliegende" Ebene echte Nutzdaten enthält
+    // Break, sobald die "innenliegende" Ebene Nutzdaten enthält
     if (
       typeof cur.result.answer === 'string' ||
       typeof cur.result.text === 'string' ||
@@ -34,12 +34,14 @@ function flattenToPayload(data) {
   return cur?.result && typeof cur.result === 'object' ? cur.result : cur;
 }
 
-// Extrahiert die finalen Felder (answer, sources, artifacts) tolerant.
+// Extrahiert final die Felder (answer, sources, artifacts) tolerant.
 function extractResultFields(raw) {
   const flat = flattenToPayload(raw);
   const answer = pickStr(
     flat?.answer,
     flat?.text,
+    get(raw, 'result.result.answer'), // Doppelnesting (dein Fall vorher)
+    get(raw, 'result.text'),
     get(raw, 'choices.0.message.content'),
     get(raw, 'choices.0.text'),
     get(raw, 'data.choices.0.message.content')
@@ -55,9 +57,9 @@ function extractResultFields(raw) {
   return { answer: answer || '', sources, artifacts, raw };
 }
 
-// ----- Exporte -----
+// ---------- Exporte ----------
 
-// Prüft, ob URL brauchbar erscheint (gleiches Origin, /rag/*).
+// Prüft, ob URL brauchbar (gleiches Origin, /rag/*).
 export function looksOk(url) {
   if (typeof url !== 'string' || !url) return false;
   if (url.includes('{{') || url.includes('$json')) return false;
@@ -94,7 +96,7 @@ export async function waitForResult(url, { maxWaitMs = 300000, pollMs = 1200 } =
   }
 }
 
-// Dünner Wrapper um EventSource, damit überall gleich genutzt.
+// Dünner Wrapper um EventSource.
 export function startEventSource(eventsUrl, { onOpen, onError, onEvent }) {
   try { window.__es?.close?.(); } catch {}
   const src = new EventSource(eventsUrl, { withCredentials: true });
