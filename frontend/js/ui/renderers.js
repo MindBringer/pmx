@@ -1,9 +1,10 @@
-
 import { escapeHtml } from "../utils/format.js";
+
 const jobBox     = document.getElementById('job-status');
 const jobTitleEl = document.getElementById('job-title');
 const jobLine    = document.getElementById('job-statusline');
 const jobLog     = document.getElementById('job-log');
+
 export function showJob(title){
   if (!jobBox) return;
   jobTitleEl.textContent = title || 'Agentenlauf';
@@ -11,6 +12,7 @@ export function showJob(title){
   jobLog.innerHTML     = '';
   jobBox.style.display = 'block';
 }
+
 export function logJob(msg){
   if (!jobLog) return;
   const div = document.createElement('div');
@@ -18,6 +20,7 @@ export function logJob(msg){
   jobLog.appendChild(div);
   jobLog.scrollTop = jobLog.scrollHeight;
 }
+
 export function sseLabel(jobTitle, evt){
   const parts = [];
   if (jobTitle) parts.push(jobTitle);
@@ -26,6 +29,7 @@ export function sseLabel(jobTitle, evt){
   if (evt.round && evt.rounds_total) parts.push(` – Runde ${evt.round}/${evt.rounds_total}`);
   return parts.join(' ');
 }
+
 export function renderSources(sources){
   try {
     const arr = Array.isArray(sources) ? sources : [];
@@ -43,9 +47,42 @@ export function renderSources(sources){
     return html;
   } catch { return ''; }
 }
-export function setFinalAnswer({ answer, sources, artifacts }){
+
+/**
+ * Tolerante Signatur:
+ *   setFinalAnswer({ answer, sources, artifacts })
+ *   setFinalAnswer("antwort-als-string", { sources, artifacts })
+ */
+export function setFinalAnswer(input, opts){
   const resultDiv = document.getElementById("result");
   const resultOut = document.getElementById("result-output");
+
+  // Defensive: DOM-Container vorhanden?
+  if (!resultOut || !resultDiv) {
+    console.warn('setFinalAnswer: #result or #result-output nicht gefunden.');
+  }
+
+  // Eingaben normalisieren
+  let answer = '';
+  let sources;
+  let artifacts;
+
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    answer    = String(input.answer ?? input.text ?? '');
+    sources   = input.sources;
+    artifacts = input.artifacts;
+  } else {
+    answer = String(input ?? '');
+  }
+
+  if (opts && typeof opts === 'object') {
+    if (sources   == null) sources   = opts.sources;
+    if (artifacts == null) artifacts = opts.artifacts;
+  }
+
+  const safeAnswer = (answer || '[leer]');
+
+  // HTML zusammenbauen
   let html = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <div>✅ Finale Antwort:</div>
@@ -53,7 +90,12 @@ export function setFinalAnswer({ answer, sources, artifacts }){
     </div>
     <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
   `;
-  html += renderSources(sources);
+
+  // Quellen optional anhängen
+  const srcHtml = renderSources(sources);
+  if (srcHtml) html += srcHtml;
+
+  // Artifacts optional
   if (artifacts?.code) {
     html += `<div style="margin-top:12px;font-weight:700">Code</div>
              <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
@@ -71,18 +113,36 @@ export function setFinalAnswer({ answer, sources, artifacts }){
       return `<li>${escapeHtml(String(f?.name || 'Datei'))}</li>`;
     }).join('') + `</ul>`;
   }
-  resultOut.innerHTML = html;
+
+  // In DOM schreiben
+  if (resultOut) resultOut.innerHTML = html;
+
+  // Antwort-Text immer als Text (kein HTML)
   const pre = document.getElementById('answer-pre');
-  pre.textContent = String(answer || "[leer]");
-  document.getElementById('copy-answer')?.addEventListener('click', ()=>{
-    navigator.clipboard.writeText(pre.textContent||"");
-  });
-  resultDiv.className = "success";
-  jobLine.textContent = "Fertig.";
+  if (pre) pre.textContent = safeAnswer;
+
+  // Copy-Button
+  const copyBtn = document.getElementById('copy-answer');
+  if (copyBtn && pre) {
+    copyBtn.addEventListener('click', ()=>{
+      navigator.clipboard.writeText(pre.textContent || "");
+    });
+  }
+
+  // Status setzen & Box zeigen
+  if (resultDiv) {
+    resultDiv.className = "success";
+    resultDiv.style.display = '';
+  }
+  if (jobLine) jobLine.textContent = "Fertig.";
 }
+
 export function setError(msg){
   const resultDiv = document.getElementById("result");
   const resultOut = document.getElementById("result-output");
-  resultOut.textContent = `❌ Fehler: ${msg}`;
-  resultDiv.className = "error";
+  if (resultOut) resultOut.textContent = `❌ Fehler: ${msg}`;
+  if (resultDiv) {
+    resultDiv.className = "error";
+    resultDiv.style.display = '';
+  }
 }

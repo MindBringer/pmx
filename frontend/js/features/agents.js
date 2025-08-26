@@ -86,8 +86,8 @@ export async function startAsyncRun(job_title, payload){
   function revealResultBox(){ if (resultBox) resultBox.style.display = ''; }
 
   let finished = false;
-  
-   // Ergebnis sicher rendern (egal ob via SSE oder Polling)
+
+  // Ergebnis sicher rendern (egal ob via SSE oder Polling)
   async function renderFinal(parsed){
     if (finished) return;
     finished = true;
@@ -100,7 +100,7 @@ export async function startAsyncRun(job_title, payload){
       const sources   = parsed?.sources || [];
       const artifacts = parsed?.artifacts || {};
 
-      // 1) Preferred: setFinalAnswer(string, opts)
+      // 1) Preferred: setFinalAnswer(string, opts)  — neue tolerante Signatur
       let ok = false;
       try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
 
