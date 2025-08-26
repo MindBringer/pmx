@@ -86,7 +86,8 @@ export async function startAsyncRun(job_title, payload){
   function revealResultBox(){ if (resultBox) resultBox.style.display = ''; }
 
   let finished = false;
-
+  
+  console.debug('[agents][final]', { parsed });
   // Ergebnis sicher rendern (egal ob via SSE oder Polling)
   async function renderFinal(parsed){
     if (finished) return;

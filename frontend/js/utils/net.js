@@ -86,6 +86,14 @@ export async function waitForResult(url, { maxWaitMs = 300000, pollMs = 1200 } =
       if (j) {
         const parsed = extractResultFields(j);
         const doneLike = j?.status === 'done' || !!j?.result; // tolerant
+        
+        console.debug('[result-poll][about-to-return]', {
+          rawStatus: j?.status,
+          typeofResult: typeof j?.result,
+          hasAnswerInRaw: !!(j?.result && (j.result.answer || j.result.text)),
+          parsedPreview: String(parsed?.answer || parsed?.text || '').slice(0,120)
+        });
+
         if (parsed.answer || doneLike) return parsed;
       }
     }
