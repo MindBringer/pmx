@@ -34,12 +34,13 @@ export async function startAsyncRun(job_title, payload){
   payload.async = true;
   payload.title = job_title;
 
-  // Start per Webhook
+  // Start via n8n Webhook
   const res = await fetch("/webhook/llm", { method: "POST", headers, body: JSON.stringify(payload) });
   const ackText = await res.text();
   let ack = {};
   try { ack = JSON.parse(ackText.trim().replace(/^=\s*/, "")); } catch {}
 
+  // jobId extrahieren
   const jobId =
     ack.job_id ||
     (typeof ack.events === "string" && ack.events.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
@@ -54,11 +55,11 @@ export async function startAsyncRun(job_title, payload){
 
   showJob(job_title || payload?.prompt || "Agentenlauf");
 
-  // URLs stabil bauen
+  // Events-/Result-URL stabilisieren
   const eventsUrl = looksOk(ack.events) ? ack.events : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
 
-  // SSE öffnen
+  // SSE verbinden
   const src = startEventSource(eventsUrl, {
     onOpen:  () => logJob("SSE verbunden."),
     onError: () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …"),
@@ -69,9 +70,9 @@ export async function startAsyncRun(job_title, payload){
         if (line) line.textContent = sseLabel(job_title, evt);
         if (evt.message) logJob(evt.message);
 
-        // Falls Backend ein Done-Event schickt: frühzeitig finalisieren
+        // Falls das Backend "done" im Event signalisiert -> sofort finalisieren
         if (evt.status === 'done' || evt.stage === 'done' || evt.done === true) {
-          completeNow();  // triggert die Ergebnisanzeige (guarded)
+          completeNow(); // guarded
         }
       } catch {
         logJob(String(e.data || 'Event ohne JSON'));
@@ -81,17 +82,16 @@ export async function startAsyncRun(job_title, payload){
 
   let finished = false;
 
-  // Gemeinsame Finalisierung (guarded)
+  // Ergebnis sicher rendern (egal ob via SSE oder Polling)
   async function renderFinal(final){
     if (finished) return;
     finished = true;
     try { src.close(); } catch {}
 
     try {
-      // Falls kein final übergeben: via waitForResult holen
       if (!final) final = await waitForResult(resultUrl);
 
-      // tolerant gegen verschiedene Formen
+      // tolerant auslesen
       const answer =
         (final?.result?.answer ??
          final?.answer ??
@@ -111,17 +111,17 @@ export async function startAsyncRun(job_title, payload){
         final?.artifacts ??
         {};
 
-      // --- Kompatibel beide Signaturen bedienen ---
+      // setFinalAnswer kann (string, opts) oder ({answer,...}) erwarten -> beide Varianten probieren
       let rendered = false;
       try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); rendered = true; } catch {}
       if (!rendered) {
         try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); rendered = true; } catch {}
       }
       if (!rendered) {
-        // letzte Sicherheitsleine: einfache Textausgabe
-        console.warn("setFinalAnswer nicht verfügbar – fallback auf console/log");
-        logJob("✅ Finale Antwort (Fallback):");
-        logJob(answer || "[leer]");
+        // letzte Sicherheitsleine
+        const el = document.querySelector('#final-answer');
+        if (el) el.textContent = (answer || "[leer]");
+        console.warn('Fallback-Rendering genutzt.');
       }
     } catch (e) {
       console.error("Final rendering failed", e);
@@ -129,19 +129,18 @@ export async function startAsyncRun(job_title, payload){
     }
   }
 
-  // Result-Watcher **immer** starten – unabhängig vom SSE-"done"
+  // Poller startet IMMER, unabhängig von SSE-"done"
   (async () => {
     try {
-      const final = await waitForResult(resultUrl); // pollt bis {status:'done'} oder {result}
+      const final = await waitForResult(resultUrl);
       await renderFinal(final);
     } catch (e) {
       console.error("waitForResult failed", e);
-      // Wenn Polling scheitert, bleibt SSE ggf. offen; wir lassen die SSE-Logs weiterlaufen.
-      // Optionaler Hard-Timeout (z. B. 90s) könnte hier noch auf renderFinal() gehen.
+      // wir lassen SSE weiterlaufen; optionaler Hard-Timeout möglich
     }
   })();
 
-  // Manueller Trigger durch SSE-"done"
+  // manuell durch SSE-„done“
   async function completeNow(){
     try { await renderFinal(); } catch (e) { console.error("completeNow()", e); }
   }
