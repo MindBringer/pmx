@@ -73,7 +73,7 @@ export function looksOk(url) {
 }
 
 // Pollt, bis /result ein verwertbares Ergebnis liefert.
-export async function waitForResult(url, { maxWaitMs = 300000, pollMs = 1200 } = {}) {
+export async function waitForResult(url, { maxWaitMs = 900000, pollMs = 1200 } = {}) {
   const t0 = Date.now();
   for (;;) {
     const r = await fetch(url, {
