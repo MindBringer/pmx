@@ -1,4 +1,4 @@
-
+// agents.js
 import { looksOk, waitForResult, startEventSource } from "../utils/net.js";
 import { setFinalAnswer, setError, showJob, logJob, sseLabel } from "../ui/renderers.js";
 import { getConversationId, isValidConversationId } from "../state/conversation.js";
@@ -34,6 +34,7 @@ export async function startAsyncRun(job_title, payload){
   payload.async = true;
   payload.title = job_title;
 
+  // Start per Webhook
   const res = await fetch("/webhook/llm", { method: "POST", headers, body: JSON.stringify(payload) });
   const ackText = await res.text();
   let ack = {};
@@ -53,9 +54,11 @@ export async function startAsyncRun(job_title, payload){
 
   showJob(job_title || payload?.prompt || "Agentenlauf");
 
+  // URLs stabil bauen
   const eventsUrl = looksOk(ack.events) ? ack.events : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
 
+  // SSE öffnen
   const src = startEventSource(eventsUrl, {
     onOpen:  () => logJob("SSE verbunden."),
     onError: () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …"),
@@ -65,23 +68,30 @@ export async function startAsyncRun(job_title, payload){
         const line = document.getElementById('job-statusline');
         if (line) line.textContent = sseLabel(job_title, evt);
         if (evt.message) logJob(evt.message);
+
+        // Falls Backend ein Done-Event schickt: frühzeitig finalisieren
         if (evt.status === 'done' || evt.stage === 'done' || evt.done === true) {
-          finalize();
+          completeNow();  // triggert die Ergebnisanzeige (guarded)
         }
-      } catch { logJob(String(e.data || 'Event ohne JSON')); }
+      } catch {
+        logJob(String(e.data || 'Event ohne JSON'));
+      }
     }
   });
 
   let finished = false;
-  async function finalize(){
+
+  // Gemeinsame Finalisierung (guarded)
+  async function renderFinal(final){
     if (finished) return;
     finished = true;
     try { src.close(); } catch {}
 
     try {
-      const final = await waitForResult(resultUrl);
+      // Falls kein final übergeben: via waitForResult holen
+      if (!final) final = await waitForResult(resultUrl);
 
-      // tolerant: manche Backends setzen kein status:"done"
+      // tolerant gegen verschiedene Formen
       const answer =
         (final?.result?.answer ??
          final?.answer ??
@@ -101,11 +111,38 @@ export async function startAsyncRun(job_title, payload){
         final?.artifacts ??
         {};
 
-      // WICHTIG: setFinalAnswer erwartet einen STRING als 1. Arg
-      setFinalAnswer(answer || "[leer]", { sources, artifacts });
+      // --- Kompatibel beide Signaturen bedienen ---
+      let rendered = false;
+      try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); rendered = true; } catch {}
+      if (!rendered) {
+        try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); rendered = true; } catch {}
+      }
+      if (!rendered) {
+        // letzte Sicherheitsleine: einfache Textausgabe
+        console.warn("setFinalAnswer nicht verfügbar – fallback auf console/log");
+        logJob("✅ Finale Antwort (Fallback):");
+        logJob(answer || "[leer]");
+      }
+    } catch (e) {
+      console.error("Final rendering failed", e);
+      try { setFinalAnswer("[leer]"); } catch {}
+    }
+  }
+
+  // Result-Watcher **immer** starten – unabhängig vom SSE-"done"
+  (async () => {
+    try {
+      const final = await waitForResult(resultUrl); // pollt bis {status:'done'} oder {result}
+      await renderFinal(final);
     } catch (e) {
       console.error("waitForResult failed", e);
-      setFinalAnswer("[leer]");
+      // Wenn Polling scheitert, bleibt SSE ggf. offen; wir lassen die SSE-Logs weiterlaufen.
+      // Optionaler Hard-Timeout (z. B. 90s) könnte hier noch auf renderFinal() gehen.
     }
+  })();
+
+  // Manueller Trigger durch SSE-"done"
+  async function completeNow(){
+    try { await renderFinal(); } catch (e) { console.error("completeNow()", e); }
   }
 }
