@@ -40,6 +40,7 @@ function extractResultFields(raw) {
   const answer = pickStr(
     flat?.answer,
     flat?.text,
+    get(raw, 'result.answer'),
     get(raw, 'result.result.answer'), // Doppelnesting (dein Fall vorher)
     get(raw, 'result.text'),
     get(raw, 'choices.0.message.content'),

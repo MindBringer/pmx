@@ -87,8 +87,7 @@ export async function startAsyncRun(job_title, payload){
 
   let finished = false;
   
-  console.debug('[agents][final]', { parsed });
-  // Ergebnis sicher rendern (egal ob via SSE oder Polling)
+   // Ergebnis sicher rendern (egal ob via SSE oder Polling)
   async function renderFinal(parsed){
     if (finished) return;
     finished = true;
@@ -132,6 +131,10 @@ export async function startAsyncRun(job_title, payload){
   (async () => {
     try {
       const parsed = await waitForResult(resultUrl);
+      console.debug('[agents][final]', {
+        rawStatus: parsed?.raw?.status,
+        preview: String(parsed?.answer || '').slice(0, 120)
+      });
       await renderFinal(parsed);
     } catch (e) {
       console.error("waitForResult failed", e);
