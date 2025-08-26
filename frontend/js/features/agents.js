@@ -70,9 +70,8 @@ export async function startAsyncRun(job_title, payload){
         if (line) line.textContent = sseLabel(job_title, evt);
         if (evt.message) logJob(evt.message);
 
-        // Falls das Backend "done" im Event signalisiert -> sofort finalisieren
         if (evt.status === 'done' || evt.stage === 'done' || evt.done === true) {
-          completeNow(); // guarded
+          completeNow();
         }
       } catch {
         logJob(String(e.data || 'Event ohne JSON'));
@@ -82,46 +81,26 @@ export async function startAsyncRun(job_title, payload){
 
   let finished = false;
 
-  // Ergebnis sicher rendern (egal ob via SSE oder Polling)
-  async function renderFinal(final){
+  async function renderFinal(parsed){ // parsed kommt jetzt schon aus waitForResult extrahiert
     if (finished) return;
     finished = true;
     try { src.close(); } catch {}
 
     try {
-      if (!final) final = await waitForResult(resultUrl);
+      if (!parsed) parsed = await waitForResult(resultUrl); // -> {answer, sources, artifacts, raw}
+      const answer = (parsed?.answer || '').trim();
+      const sources = parsed?.sources || [];
+      const artifacts = parsed?.artifacts || {};
 
-      // tolerant auslesen
-      const answer =
-        (final?.result?.answer ??
-         final?.answer ??
-         final?.result?.text ??
-         final?.text ??
-         "").trim();
-
-      const sources =
-        final?.result?.sources ??
-        final?.sources ??
-        final?.result?.documents ??
-        final?.documents ??
-        [];
-
-      const artifacts =
-        final?.result?.artifacts ??
-        final?.artifacts ??
-        {};
-
-      // setFinalAnswer kann (string, opts) oder ({answer,...}) erwarten -> beide Varianten probieren
-      let rendered = false;
-      try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); rendered = true; } catch {}
-      if (!rendered) {
-        try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); rendered = true; } catch {}
+      // setFinalAnswer kann (string, opts) oder ({answer,...}) sein: beide Varianten probieren
+      let ok = false;
+      try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
+      if (!ok) {
+        try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); ok = true; } catch {}
       }
-      if (!rendered) {
-        // letzte Sicherheitsleine
+      if (!ok) {
         const el = document.querySelector('#final-answer');
         if (el) el.textContent = (answer || "[leer]");
-        console.warn('Fallback-Rendering genutzt.');
       }
     } catch (e) {
       console.error("Final rendering failed", e);
@@ -129,18 +108,16 @@ export async function startAsyncRun(job_title, payload){
     }
   }
 
-  // Poller startet IMMER, unabhängig von SSE-"done"
+  // Poller: immer starten – unabhängig von SSE
   (async () => {
     try {
-      const final = await waitForResult(resultUrl);
-      await renderFinal(final);
+      const parsed = await waitForResult(resultUrl);
+      await renderFinal(parsed);
     } catch (e) {
       console.error("waitForResult failed", e);
-      // wir lassen SSE weiterlaufen; optionaler Hard-Timeout möglich
     }
   })();
 
-  // manuell durch SSE-„done“
   async function completeNow(){
     try { await renderFinal(); } catch (e) { console.error("completeNow()", e); }
   }
