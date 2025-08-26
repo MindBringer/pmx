@@ -1,0 +1,61 @@
+{
+  "name": "emit_event",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        48
+      ],
+      "id": "225f3680-e476-4c8f-a0f6-d3938763ae1a",
+      "name": "Post_Event"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{\n  // Bevorzugt $json.events, aber:\n  // 1) korrigiere Singular '/event' -> '/events'\n  // 2) wenn relativ (\"/...\"), prepend Base-URL\n  // 3) Fallback aus job_id bauen\n  (() => {\n    const base = 'http://rag-backend:8082'; // oder 'https://ai.local'\n    const raw  = $json.events || ($json.job_id ? `/rag/jobs/${$json.job_id}/events` : '');\n    if (!raw) return base + '/rag/jobs/unknown/events';\n    const fixed = raw.replace(/\\/event(\\/|$)/i, '/events$1');   // singular -> plural\n    if (/^https?:\\/\\//i.test(fixed)) return fixed;             // already absolute\n    return base + fixed;                                       // make absolute\n  })()\n}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.__event }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        48
+      ],
+      "id": "b24ecb9c-f224-4a73-8286-a18d52bd2081",
+      "name": "Post Event",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Post_Event": {
+      "main": [
+        [
+          {
+            "node": "Post Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8a285baf-0f02-4ff6-a991-a5429e9b63c0",
+  "meta": {
+    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+  },
+  "id": "gTyBULqGMjgEgoHd",
+  "tags": []
+}

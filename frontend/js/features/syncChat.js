@@ -1,60 +1,93 @@
-
-import { setConversationId, getConversationId, isValidConversationId } from "../state/conversation.js";
+// features/syncChat.js
 import { setFinalAnswer, setError } from "../ui/renderers.js";
-function parseNdjsonToText(s){
-  const lines = String(s).split(/\r?\n/).filter(Boolean);
-  let out = "";
-  for(const ln of lines){
-    try{
-      const obj = JSON.parse(ln);
-      if (obj?.response != null) out += String(obj.response);
-      else if (obj?.data?.response != null) out += String(obj.data.response);
-      else if (obj?.choices?.[0]?.delta?.content != null) out += String(obj.choices[0].delta.content);
-    }catch{}
-  }
-  return out || null;
+import { getConversationId, isValidConversationId } from "../state/conversation.js";
+
+// --- kleine lokale Parser-Helfer (ähnlich utils/net.js), bewusst lokal gehalten ---
+function get(o, path) {
+  return path.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o);
 }
-function parseSseToNdjson(s){
-  const events = String(s).split('\n\n');
-  const dataLines = events.flatMap(ev => ev.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()));
-  return dataLines.join('\n');
+function pickStr(...vals) {
+  for (const v of vals) if (typeof v === 'string' && v.trim()) return v.trim();
+  return '';
 }
-export async function startSyncRun(job_title, payload){
-  const headers = { "Content-Type": "application/json" };
-  const convId = getConversationId();
-  if (isValidConversationId(convId)) {
-    payload.conversation_id = convId;
-    headers["x-conversation-id"] = convId;
+function flattenToPayload(data) {
+  let cur = data, hops = 0;
+  while (
+    cur && typeof cur === 'object' && !Array.isArray(cur) &&
+    cur.result && typeof cur.result === 'object' && hops < 5
+  ) {
+    // Break, sobald innen Nutzdaten liegen
+    if (
+      typeof cur.result.answer === 'string' ||
+      typeof cur.result.text === 'string' ||
+      Array.isArray(cur.result.sources) ||
+      cur.result.artifacts
+    ) break;
+    cur = cur.result;
+    hops++;
   }
-  const res = await fetch("/query", { method: "POST", headers, body: JSON.stringify(payload) });
-  const raw = await res.text();
-  if (!res.ok){ setError(raw || `HTTP ${res.status}`); return; }
-  let data = null;
-  let answer = "";
-  const ctype = (res.headers.get('content-type')||"").toLowerCase();
-  const tryJson = () => { try{ data = JSON.parse(raw); } catch {} };
-  if (ctype.includes('application/json')) {
-    tryJson();
-  } else if (ctype.includes('text/event-stream')) {
-    const nd = parseSseToNdjson(raw);
-    const txt = parseNdjsonToText(nd);
-    answer = txt || nd || raw;
-  } else {
-    tryJson();
-    if (!data) {
-      const txt = parseNdjsonToText(raw);
-      answer = txt || raw;
+  return cur?.result && typeof cur.result === 'object' ? cur.result : cur;
+}
+function extractResultFields(raw) {
+  const flat = flattenToPayload(raw || {});
+  const answer = pickStr(
+    flat?.answer,
+    flat?.text,
+    get(raw, 'result.result.answer'),
+    get(raw, 'result.text'),
+    get(raw, 'choices.0.message.content'),
+    get(raw, 'choices.0.text'),
+    get(raw, 'data.choices.0.message.content')
+  );
+  const sources =
+    flat?.sources ??
+    flat?.documents ??
+    raw?.sources ??
+    raw?.documents ?? [];
+  const artifacts =
+    flat?.artifacts ??
+    raw?.artifacts ?? {};
+  return { answer: answer || '', sources, artifacts, raw };
+}
+
+// --- Hauptroutine: synchroner Run über n8n ---
+export async function startSyncRun(title, payload) {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    const convId = getConversationId();
+    if (isValidConversationId(convId)) {
+      headers["x-conversation-id"] = convId;
+      payload.conversation_id = convId;
     }
+
+    // Optional: UI-API-Key ins Payload, n8n reicht ihn an RAG weiter
+    const apiKey = (localStorage.getItem('ragApiKey') || '').trim();
+    if (apiKey) payload.rag_api_key = apiKey;
+
+    // Wichtig: NICHT /query, sondern der n8n-Webhook
+    const res = await fetch("/webhook/llm", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    const text = await res.text(); // n8n kann ein '=' Prefix senden
+    let json = null;
+    try { json = JSON.parse(text.trim().replace(/^=\s*/, "")); } catch {}
+
+    if (!res.ok) {
+      setError(json?.message || json?.error || `HTTP ${res.status}: ${text.slice(0, 256)}`);
+      return;
+    }
+
+    const { answer, sources, artifacts } = extractResultFields(json || {});
+    try {
+      // renderers.setFinalAnswer akzeptiert die Objekt-Signatur
+      setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts });
+    } catch (e) {
+      setError(`Antwort-Rendering fehlgeschlagen: ${e?.message || e}`);
+    }
+  } catch (e) {
+    setError(`Sync-Run Fehler: ${e?.message || e}`);
   }
-  if (data && typeof data === 'object') {
-    answer = data?.answer ?? data?.raw_response?.response ?? data?.result ?? data?.text ?? "";
-  }
-  if (data?.conversation_id && isValidConversationId(data.conversation_id)){
-    setConversationId(data.conversation_id);
-  } else if (!convId && window.crypto?.randomUUID) {
-    setConversationId(crypto.randomUUID());
-  }
-  const sources   = (data?.sources ?? data?.documents ?? []);
-  const artifacts = (data?.artifacts ?? {});
-  setFinalAnswer({ answer, sources, artifacts });
 }

@@ -14,7 +14,7 @@
       "typeVersion": 2,
       "position": [
         -1296,
-        160
+        -224
       ],
       "webhookId": "llm-router"
     },
@@ -113,6 +113,18 @@
               "type": "string"
             },
             {
+              "id": "ded98ff9-0e6f-45b3-b677-4222d82addfb",
+              "name": "agent_rounds",
+              "value": "={{ Number($json.body?.agent_rounds ?? $json.agent_rounds ?? 1) }}\n",
+              "type": "number"
+            },
+            {
+              "id": "cc8460c4-12da-4bbb-aac7-3a9b4aea886b",
+              "name": "critic",
+              "value": "={{ $json.body?.critic ?? $json.critic ?? null }}\n",
+              "type": "string"
+            },
+            {
               "id": "40ae0a34-296f-4b43-8e4d-8ebcfcfad660",
               "name": "writer",
               "value": "={{ $json.body?.writer ?? $json.writer ?? null }}\n",
@@ -129,7 +141,7 @@
       "typeVersion": 3.4,
       "position": [
         -1072,
-        160
+        -224
       ]
     },
     {
@@ -143,8 +155,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        496,
-        160
+        1600,
+        -112
       ]
     },
     {
@@ -168,8 +180,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        48,
-        256
+        928,
+        -112
       ],
       "id": "d4c5ce71-cb20-4e1d-8f28-7de9f92aae3a",
       "name": "Run RAG_Router Sub"
@@ -181,8 +193,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -176,
-        256
+        704,
+        -112
       ],
       "id": "a1a8ee53-800c-426c-a7d2-d96b2b34cf5a",
       "name": "Load Memory"
@@ -194,8 +206,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        272,
-        160
+        1152,
+        -208
       ],
       "id": "f16688e5-804a-4436-bc60-e92030afafb6",
       "name": "Update Memory"
@@ -209,8 +221,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -624,
-        160
+        256,
+        -208
       ]
     },
     {
@@ -242,17 +254,17 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -400,
-        160
+        480,
+        -208
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "mpzLXE9aCdIXfdca",
+          "value": "sbK9V2KSnyb2GGxG",
           "mode": "list",
-          "cachedResultName": "agent_orchestrator"
+          "cachedResultName": "agent_orchestrator_v2"
         },
         "workflowInputs": {
           "mappingMode": "passThrough",
@@ -271,22 +283,234 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        48,
-        64
+        928,
+        -304
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Normalisiert personas (Array) & writer (Objekt) für den Orchestrator\n\nfunction parsePersonasString(s){\n  // \"Rolle (provider); Rolle2 (provider2)\"\n  return String(s||'')\n    .split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n      const m = t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n      return {\n        label: (m?.[1]||t).trim(),\n        provider: String(m?.[2]||'mistral').toLowerCase()\n      };\n    });\n}\n\nlet personas = $json.personas ?? $json.body?.personas ?? null;\nif (typeof personas === 'string') {\n  try {\n    const parsed = JSON.parse(personas);\n    personas = Array.isArray(parsed) ? parsed : parsePersonasString(personas);\n  } catch {\n    personas = parsePersonasString(personas);\n  }\n}\n\nlet writer = $json.writer ?? $json.body?.writer ?? null;\nif (typeof writer === 'string') {\n  try { writer = JSON.parse(writer); } catch { writer = null; }\n}\n\nreturn [{ json: { ...$json, personas, writer } }];\n"
+        "jsCode": "// Normalisiert personas (Array), writer (Objekt/String) UND critic (Objekt/String) + agent_rounds (Number)\n\nfunction parsePersonasString(s){\n  // \"Rolle (provider); Rolle2 (provider2)\"\n  return String(s||'')\n    .split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n      const m = t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n      return {\n        label: (m?.[1]||t).trim(),\n        provider: String(m?.[2]||'mistral').toLowerCase()\n      };\n    });\n}\nfunction toObjMaybe(str){\n  if (typeof str !== 'string') return str;\n  try { return JSON.parse(str); } catch { return null; }\n}\n\nlet personas = $json.personas ?? $json.body?.personas ?? null;\nif (typeof personas === 'string') {\n  try {\n    const parsed = JSON.parse(personas);\n    personas = Array.isArray(parsed) ? parsed : parsePersonasString(personas);\n  } catch {\n    personas = parsePersonasString(personas);\n  }\n}\n\n// Writer normalisieren (Objekt oder String→JSON)\nlet writer = $json.writer ?? $json.body?.writer ?? null;\nif (typeof writer === 'string') writer = toObjMaybe(writer) ?? null;\n\n// Critic normalisieren (Objekt oder String→JSON)\nlet critic = $json.critic ?? $json.body?.critic ?? null;\nif (typeof critic === 'string') critic = toObjMaybe(critic) ?? null;\n\n// agent_rounds -> Number (>=1, sinnvolle Obergrenze)\nlet agent_rounds = Number($json.agent_rounds ?? $json.body?.agent_rounds ?? 1);\nif (!Number.isFinite(agent_rounds) || agent_rounds < 1) agent_rounds = 1;\nagent_rounds = Math.min(10, Math.round(agent_rounds));\n\n// Personas final normieren\nfunction normalizeLabel(s){ s=String(s||'').trim(); s=s.replace(/^(ein|eine|einen|der|die|das)\\s+/i,''); return s.replace(/[,:;.\\s]+$/,'').trim(); }\npersonas = Array.isArray(personas) ? personas.map((p,i)=>({\n  label: normalizeLabel(p.label || `Persona ${i+1}`),\n  provider: String(p.provider || 'mistral').toLowerCase(),\n  model: p.model || ''\n})) : [];\n\nreturn [{ json: { ...$json, personas, writer, critic, agent_rounds } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -848,
-        160
+        32,
+        -208
       ],
       "id": "37860fd8-5e30-48ee-805e-671840165189",
       "name": "Normalize Personas & Writer"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2ce508d4-409e-423c-becc-529aba4ec3de",
+              "leftValue": "={{ $json.body?.async === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -848,
+        -224
+      ],
+      "id": "d2ab7a04-7b74-4ed4-a956-5f624b742f0c",
+      "name": "Async?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://rag-backend:8082/rag/jobs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"={{ $json.title || $json.body?.title || $json.prompt || 'Agentenlauf' }}\",\n  \"async\": true\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -624,
+        -496
+      ],
+      "id": "1e8ef8c4-8e39-45a1-82e4-dc64f33ed148",
+      "name": "Create Job"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 202,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -192,
+        -624
+      ],
+      "id": "8cba218c-86e3-4645-8ab7-322c4c2eabac",
+      "name": "ACK 202"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9560f65b-34ab-4ecb-8033-fa646e2029f2",
+              "leftValue": "={{ !!($json.job_id || $json.id) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1376,
+        -208
+      ],
+      "id": "ea38aa9b-c4df-4e41-9119-74559cc7df42",
+      "name": "Async? (Final)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.complete || ('http://rag-backend:8082/rag/jobs/' + $json.job_id + '/complete') }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    answer:  ($json.answer || $json.boardText || $json.writer_text || $json.output || $json.message || \"\").trim(),\n    sources: $json.sources || $json.documents || [],\n    artifacts: $json.artifacts || {},\n    meta: { personas: $json.personas || [], rounds: $json.agent_rounds || 1 }\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        -304
+      ],
+      "id": "ea1d4401-7981-4da1-9aae-1c9d065c8854",
+      "name": "Complete Job"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -192,
+        -272
+      ],
+      "id": "4932b929-ff5c-4227-b16d-81e072e2f220",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -624,
+        -304
+      ],
+      "id": "4d60029e-3500-4260-8354-5f00ccc2c39a",
+      "name": "Pass Original"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a879cea6-4ed7-49f5-92aa-0a7fec65144b",
+              "name": "ok",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "1b6d1fc1-4a66-455c-aada-e6db15dfb65d",
+              "name": "job_id",
+              "value": "={{ $json.job_id || $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "8ed76399-f3cc-4229-b21d-fa732c205091",
+              "name": "title",
+              "value": "={{ $json.title || $json.body?.title || $json.body?.prompt || $json.prompt || 'Agentenlauf' }}",
+              "type": "string"
+            },
+            {
+              "id": "20fac951-05f7-47fa-bdb7-5a0544d32dcd",
+              "name": "events",
+              "value": "={{ '/rag/jobs/' + ($json.job_id || $json.id) + '/events' }}",
+              "type": "string"
+            },
+            {
+              "id": "c580578c-dd1a-42db-bf74-215fe0e9010f",
+              "name": "result",
+              "value": "={{ '/rag/jobs/' + ($json.job_id || $json.id) + '/result' }}",
+              "type": "string"
+            },
+            {
+              "id": "2b6cd081-dc76-442a-a56d-f4d1cb7775d0",
+              "name": "started_at",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -416,
+        -560
+      ],
+      "id": "ab6d3c62-f250-456f-8ea7-3707d8bf658e",
+      "name": "Build ACK"
     }
   ],
   "pinData": {
@@ -345,7 +569,7 @@
       "main": [
         [
           {
-            "node": "Normalize Personas & Writer",
+            "node": "Async?",
             "type": "main",
             "index": 0
           }
@@ -378,7 +602,7 @@
       "main": [
         [
           {
-            "node": "Respond to Webhook",
+            "node": "Async? (Final)",
             "type": "main",
             "index": 0
           }
@@ -435,13 +659,113 @@
           }
         ]
       ]
+    },
+    "Async?": {
+      "main": [
+        [
+          {
+            "node": "Create Job",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pass Original",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Personas & Writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Job": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Build ACK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACK 202": {
+      "main": [
+        []
+      ]
+    },
+    "Async? (Final)": {
+      "main": [
+        [
+          {
+            "node": "Complete Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Job": {
+      "main": [
+        []
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Normalize Personas & Writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Original": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build ACK": {
+      "main": [
+        [
+          {
+            "node": "ACK 202",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "4e60e798-6c40-4f0c-b2a8-bc4729dcf0d1",
+  "versionId": "4a7a4b70-3ffe-48f4-ad3e-a4ec299b4463",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },

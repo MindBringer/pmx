@@ -99,6 +99,12 @@
               "name": "conversation_id",
               "value": "={{ $json.conversation_id }}",
               "type": "string"
+            },
+            {
+              "id": "8d6c6a97-8eff-4657-9a35-a8b7e6ddec74",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
             }
           ]
         },
@@ -166,7 +172,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ ({\n  query: $('Context (original fields)').item.json.prompt,\n  top_k: Number($('Context (original fields)').item.json.rag_top_k) || 5,\n  score_threshold: Number($('Context (original fields)').item.json.rag_score_threshold) || 0.45,\n  tags: Array.isArray($('Context (original fields)').item.json.rag_tags) ? $('Context (original fields)').item.json.rag_tags : []\n}) }}",
+        "jsonBody": "={{ ({\n  query: $('Context (original fields)').item.json.prompt,\n  top_k: Number($('Context (original fields)').item.json.rag_top_k) || 3,\n  score_threshold: Number($('Context (original fields)').item.json.rag_score_threshold) || 0.45,\n  tags: Array.isArray($('Context (original fields)').item.json.rag_tags) ? $('Context (original fields)').item.json.rag_tags : []\n}) }}",
         "options": {
           "timeout": 300000
         }
@@ -223,7 +229,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1568,
+        -1360,
         944
       ]
     },
@@ -256,7 +262,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1344,
+        -928,
         1136
       ]
     },
@@ -289,7 +295,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1120,
+        -704,
         1280
       ]
     },
@@ -322,7 +328,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -896,
+        -480,
         1376
       ]
     },
@@ -355,7 +361,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -672,
+        -256,
         1472
       ]
     },
@@ -388,7 +394,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -448,
+        -32,
         1568
       ]
     },
@@ -421,7 +427,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -224,
+        192,
         1664
       ]
     },
@@ -441,7 +447,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        64,
+        480,
         992
       ],
       "credentials": {
@@ -467,7 +473,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        64,
+        480,
         1184
       ],
       "credentials": {
@@ -493,7 +499,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        64,
+        480,
         1376
       ],
       "credentials": {
@@ -511,7 +517,7 @@
         "nodeCredentialType": "mistralCloudApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ ({\n  model: $json.mistral_model,\n  messages: [\n    { role: 'system', content: ($('Context (original fields)').first().json.system || 'Du bist ein hilfsbereiter Assistent.') },\n    { role: 'user', content: $json.prompt }\n  ],\n  max_tokens: 200,\n  temperature: 0.7\n}) }}",
+        "jsonBody": "={{ ({\n  model: $json.mistral_model,\n  messages: [\n    { role: 'system', content: ($('Context (original fields)').first().json.system || 'Du bist ein hilfsbereiter Assistent.') },\n    { role: 'user', content: $json.prompt }\n  ],\n  max_tokens: 1000,\n  temperature: 0.3\n}) }}",
         "options": {}
       },
       "id": "6cf0a06e-f580-4773-b4fc-3bde1dd6b2e0",
@@ -519,7 +525,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        64,
+        480,
         800
       ],
       "credentials": {
@@ -535,7 +541,7 @@
         "url": "http://ollama:11434/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ ({\n  model: ($json.ollama_model) ?? ($('Context (original fields)').item.json.ollama_model ?? $('Context (original fields)').item.json.model ?? 'llama3'),\n  prompt: ($json.prompt) ?? ($('Context (original fields)').item.json.prompt ?? ''),\n  stream: false,\n  options: {\n    temperature: (typeof $json.temperature === 'number') ? $json.temperature : 0.7,\n    top_p:       (typeof $json.top_p === 'number')       ? $json.top_p       : 0.9,\n    num_predict: (typeof $json.num_predict === 'number') ? $json.num_predict : 600\n  }\n}) }}",
+        "jsonBody": "={{ ({\n  model: ($json.ollama_model) ?? ($('Context (original fields)').item.json.ollama_model ?? $('Context (original fields)').item.json.model ?? 'llama3'),\n  prompt: ($json.prompt) ?? ($('Context (original fields)').item.json.prompt ?? ''),\n  stream: false,\n  options: {\n    temperature: (typeof $json.temperature === 'number') ? $json.temperature : 0.3,\n    top_p:       (typeof $json.top_p === 'number')       ? $json.top_p       : 0.9,\n    num_predict: (typeof $json.num_predict === 'number') ? $json.num_predict : 600\n  }\n}) }}",
         "options": {
           "timeout": 300000
         }
@@ -545,7 +551,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        64,
+        480,
         1568
       ]
     },
@@ -563,7 +569,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        64,
+        480,
         1760
       ]
     },
@@ -599,57 +605,17 @@
     },
     {
       "parameters": {
-        "model": "moonshotai/kimi-k2-instruct",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
-      "typeVersion": 1,
-      "position": [
-        16,
-        224
-      ],
-      "id": "d2502226-41dc-4da0-b3bf-458e63aa72d9",
-      "name": "Moonshot / Kimi K2",
-      "credentials": {
-        "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
-          "name": "Groq account"
-        }
-      }
-    },
-    {
-      "parameters": {
         "model": "openai/gpt-oss-120b",
         "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        144,
+        560,
         224
       ],
       "id": "d83c61d6-6ee3-4338-936f-f9fa6ca4415f",
       "name": "GPT-OSS-120b",
-      "credentials": {
-        "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
-          "name": "Groq account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "model": "qwen/qwen3-32b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
-      "typeVersion": 1,
-      "position": [
-        16,
-        624
-      ],
-      "id": "05d1a3f1-34fa-4ecc-a619-ccda6146691e",
-      "name": "qwen3",
       "credentials": {
         "groqApi": {
           "id": "mhumLW1ZXnpB1MfM",
@@ -665,7 +631,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        144,
+        560,
         624
       ],
       "id": "1eb79001-e890-4a6a-bfd5-c16a648d6375",
@@ -687,7 +653,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        352,
+        768,
         1088
       ]
     },
@@ -701,11 +667,11 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        0,
-        0
+        416,
+        400
       ],
-      "id": "ab76abd5-0396-419d-8917-73fd4b6eb6bd",
-      "name": "groq"
+      "id": "99f7ec4d-07d7-42f9-8404-8dfd3a049dc7",
+      "name": "openrouter"
     },
     {
       "parameters": {
@@ -717,11 +683,68 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        0,
-        400
+        416,
+        0
       ],
-      "id": "99f7ec4d-07d7-42f9-8404-8dfd3a049dc7",
-      "name": "openrouter"
+      "id": "ab76abd5-0396-419d-8917-73fd4b6eb6bd",
+      "name": "Groq"
+    },
+    {
+      "parameters": {
+        "model": "qwen/qwen3-32b",
+        "options": {
+          "maxTokensToSample": 1500,
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        432,
+        224
+      ],
+      "id": "d2502226-41dc-4da0-b3bf-458e63aa72d9",
+      "name": "Qwen3",
+      "credentials": {
+        "groqApi": {
+          "id": "mhumLW1ZXnpB1MfM",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        432,
+        624
+      ],
+      "id": "05d1a3f1-34fa-4ecc-a619-ccda6146691e",
+      "name": "Llama3",
+      "credentials": {
+        "groqApi": {
+          "id": "mhumLW1ZXnpB1MfM",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ---- Konfiguration ----\nconst TPM_LIMIT = 10000;          // dein Tier-Limit (on_demand-Beispiel)\nconst SAFETY    = 0.90;           // Sicherheitsmarge 90%\nconst MAX_OUT   = 1500;           // geplante Antwortobergrenze (auch an Groq senden)\n\n// Grobe Token-Schätzung: ~4 Zeichen ≈ 1 Token für lateinische Sprachen\nconst tok = s => Math.ceil(String(s||'').length / 4);\n\n// Prompt holen\nlet prompt = $json.prompt || \"\";\n\n// Budget berechnen\nconst budgetIn = Math.floor(TPM_LIMIT * SAFETY) - MAX_OUT;\nlet inTok = tok(prompt);\n\n// Falls zu groß: zuerst den RAG-Kontext abspecken\nif (inTok > budgetIn) {\n  // Wir erkennen deinen Kontextblock \"# Kontext (RAG)\"\n  const SPLIT = \"\\n\\n# Kontext (RAG)\\n\";\n  const parts = prompt.split(SPLIT);\n  if (parts.length === 2) {\n    let head = parts[0];\n    let ctx  = parts[1];\n\n    // \"Einträge\" (#1, #2, ...) herauslösen und iterativ kürzen\n    const entries = ctx.split(/\\n\\n#\\d+\\s/).map((t,i)=> i===0 ? t : '#'+(i)+' '+t).filter(Boolean);\n    // Mindestbudget für head\n    const headTok = tok(head);\n    let remainTok = Math.max(budgetIn - headTok, 0);\n\n    let kept = [];\n    for (const e of entries) {\n      if (tok(kept.join(\"\\n\\n\") + \"\\n\\n\" + e) <= remainTok) kept.push(e);\n      else break;\n    }\n\n    // Falls immer noch zu groß: hart abschneiden\n    let newCtx = kept.join(\"\\n\\n\");\n    if (tok(head + SPLIT + newCtx) > budgetIn) {\n      const maxChars = Math.max((budgetIn - headTok) * 4, 0);\n      newCtx = newCtx.slice(0, maxChars) + \"\\n\\n[Kontext gekürzt]\";\n    }\n\n    prompt = head + SPLIT + newCtx;\n  } else {\n    // Kein erkennbarer Kontextblock -> tail-kürzen\n    const maxChars = Math.max(budgetIn * 4, 0);\n    prompt = \"[Prompt gekürzt]\\n\" + prompt.slice(-maxChars);\n  }\n  inTok = tok(prompt);\n}\n\n// Meta mitgeben\nreturn {\n  json: {\n    ...$json,\n    prompt,\n    token_budget: {\n      tpm_limit: TPM_LIMIT,\n      safety: SAFETY,\n      max_completion_tokens: MAX_OUT,\n      input_estimate: inTok,\n      input_budget: budgetIn,\n      capped: inTok > budgetIn ? true : false\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1584,
+        944
+      ],
+      "id": "0a9896b4-d945-47b3-94dd-e5e33da199f5",
+      "name": "Token Budget Gate"
     }
   ],
   "pinData": {},
@@ -781,7 +804,7 @@
       "main": [
         [
           {
-            "node": "Is groq?",
+            "node": "Token Budget Gate",
             "type": "main",
             "index": 0
           }
@@ -792,7 +815,7 @@
       "main": [
         [
           {
-            "node": "groq",
+            "node": "Groq",
             "type": "main",
             "index": 0
           }
@@ -991,35 +1014,13 @@
         ]
       ]
     },
-    "Moonshot / Kimi K2": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "groq",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "GPT-OSS-120b": {
       "ai_languageModel": [
         [
           {
-            "node": "groq",
+            "node": "Groq",
             "type": "ai_languageModel",
             "index": 1
-          }
-        ]
-      ]
-    },
-    "qwen3": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "openrouter",
-            "type": "ai_languageModel",
-            "index": 0
           }
         ]
       ]
@@ -1035,7 +1036,7 @@
         ]
       ]
     },
-    "groq": {
+    "openrouter": {
       "main": [
         [
           {
@@ -1046,11 +1047,44 @@
         ]
       ]
     },
-    "openrouter": {
+    "Groq": {
       "main": [
         [
           {
             "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qwen3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Groq",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llama3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "openrouter",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Budget Gate": {
+      "main": [
+        [
+          {
+            "node": "Is groq?",
             "type": "main",
             "index": 0
           }
@@ -1062,8 +1096,9 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "d84ab12b-3471-4a4a-a5f6-7c5386b2a953",
+  "versionId": "df3c6495-b6d0-4bb8-b4e1-70ce12fb6fd0",
   "meta": {
+    "templateCredsSetupCompleted": true,
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
   "id": "2cmATLhSNBMN3a2H",

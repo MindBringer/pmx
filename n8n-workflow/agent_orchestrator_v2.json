@@ -2,19 +2,8 @@
   "name": "agent_orchestrator_v2",
   "nodes": [
     {
-      "parameters": {},
-      "id": "016d19ba-6957-44db-aad4-e64977f95cbc",
-      "name": "Execute Workflow Trigger",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1,
-      "position": [
-        -384,
-        -288
-      ]
-    },
-    {
       "parameters": {
-        "jsCode": "// Prepare Persona Items — LOOP-AWARE (n8n JS v2)\nconst base = ($json && typeof $json === 'object') ? $json : {};\nlet pre = base;\nif (!base.personas && !base.body?.personas) {\n  try {\n    const it = $items(\"Agents Preflight (Normalize)\", 0)[0];\n    if (it && it.json) pre = it.json;\n  } catch {}\n}\nconst b = pre.body || {};\nlet personas = Array.isArray(pre.personas) ? pre.personas\n             : Array.isArray(b.personas)   ? b.personas\n             : [];\nif (!Array.isArray(personas) || personas.length === 0) {\n  return [{ json: { error: \"No personas provided\", info: \"Prepare Persona Items erwartet personas[]\" } }];\n}\nfunction mapProvider(provider, model){\n  const prov = String(provider || 'mistral').toLowerCase();\n  const mdl  = String(model || '').toLowerCase();\n  if (prov === 'openrouter')  return { model: 'openrouter',  openrouter_model: mdl || 'openai/gpt-oss-120b' };\n  if (prov === 'groq')        return { model: 'groq',        groq_model: mdl || 'deepseek-r1-distill-llama-70b' };\n  if (prov === 'mistralapi')  return { model: 'mistralapi',  mistral_model: mdl || 'codestral-2501' };\n  if (prov === 'openai')      return { model: 'openai',      openai_model: mdl || 'gpt-4o-mini' };\n  if (prov === 'anthropic')   return { model: 'anthropic',   claude_model: mdl || 'claude-3-5-sonnet-20240620' };\n  if (prov === 'huggingface') return { model: 'huggingface', hf_model: mdl || 'microsoft/DialoGPT-medium' };\n  return { model: 'mistral',  ollama_model: mdl || 'llama3' };\n}\nconst task      = String(base.prompt ?? pre.prompt ?? b.prompt ?? '').trim();\nconst globalSys = String(base.system ?? pre.system ?? b.system ?? '').trim();\nconst rag       = !!(base.rag ?? pre.rag ?? b.rag);\nconst rag_tags  = Array.isArray(base.rag_tags ?? pre.rag_tags ?? b.rag_tags) ? (base.rag_tags ?? pre.rag_tags ?? b.rag_tags) : [];\nconst convId    = base.conversation_id ?? pre.conversation_id ?? null;\nconst memory    = base.memory ?? pre.memory ?? null;\nconst round          = Number(base.round ?? 1);\nconst agent_rounds   = Number(base.agent_rounds ?? pre.agent_rounds ?? 1);\nconst boardText      = base.boardText || '';\nconst board          = Array.isArray(base.board) ? base.board : [];\nconst items = personas.map((p, idx) => {\n  const label = String(p.label || `Persona ${idx+1}`).trim();\n  const mapped = mapProvider(p.provider, p.model);\n  const roleSystem = [globalSys, `Rolle: ${label}.`].filter(Boolean).join('\\n\\n');\n  const personaPrompt = [\n    `Teamaufgabe: ${task}`,\n    `Dein Beitrag:`,\n    `- Runde ${round} von ${agent_rounds}.`,\n    `- Liefere einen fokussierten Abschnitt aus Sicht der Rolle \"${label}\".`,\n    `- Max. 12 Sätze.`,\n    `- Beziehe dich auf die bisherigen Team-Ergebnisse.`\n  ].join('\\n') + (boardText ? `\\n\\nBisherige Team-Ergebnisse:\\n${boardText}` : '');\n  return {\n    json: {\n      ...mapped,\n      label,\n      prompt: personaPrompt,\n      system: roleSystem,\n      rag, rag_tags,\n      conversation_id: convId,\n      memory,\n      round,\n      agent_rounds,\n      board, boardText\n    }\n  };\n});\nreturn items;"
+        "jsCode": "// Prepare Persona Items — LOOP-AWARE (n8n JS v2)\nconst base = ($json && typeof $json === 'object') ? $json : {};\nlet pre = base;\nif (!base.personas && !base.body?.personas) {\n  try {\n    const it = $items(\"Agents Preflight (Normalize)\", 0)[0];\n    if (it && it.json) pre = it.json;\n  } catch {}\n}\nconst b = pre.body || {};\nlet personas = Array.isArray(pre.personas) ? pre.personas\n             : Array.isArray(b.personas)   ? b.personas\n             : [];\nif (!Array.isArray(personas) || personas.length === 0) {\n  return [{ json: { error: \"No personas provided\", info: \"Prepare Persona Items erwartet personas[]\" } }];\n}\nfunction mapProvider(provider, model){\n  const prov = String(provider || 'mistral').toLowerCase();\n  const mdl  = String(model || '').toLowerCase();\n  if (prov === 'openrouter')  return { model: 'openrouter',  openrouter_model: mdl || 'openai/gpt-oss-120b' };\n  if (prov === 'groq')        return { model: 'groq',        groq_model: mdl || 'deepseek-r1-distill-llama-70b' };\n  if (prov === 'mistralapi')  return { model: 'mistralapi',  mistral_model: mdl || 'codestral-2501' };\n  if (prov === 'openai')      return { model: 'openai',      openai_model: mdl || 'gpt-4o-mini' };\n  if (prov === 'anthropic')   return { model: 'anthropic',   claude_model: mdl || 'claude-3-5-sonnet-20240620' };\n  if (prov === 'huggingface') return { model: 'huggingface', hf_model: mdl || 'microsoft/DialoGPT-medium' };\n  return { model: 'mistral',  ollama_model: mdl || 'llama3' };\n}\nconst task      = String(base.prompt ?? pre.prompt ?? b.prompt ?? '').trim();\nconst globalSys = String(base.system ?? pre.system ?? b.system ?? '').trim();\nconst rag       = !!(base.rag ?? pre.rag ?? b.rag);\nconst rag_tags  = Array.isArray(base.rag_tags ?? pre.rag_tags ?? b.rag_tags) ? (base.rag_tags ?? pre.rag_tags ?? b.rag_tags) : [];\nconst convId    = base.conversation_id ?? pre.conversation_id ?? null;\nconst jobId     = base.job_id ?? pre.job_id ?? b.job_id ?? base.jobId ?? pre.jobId ?? null;\nconst memory    = base.memory ?? pre.memory ?? null;\nconst round          = Number(base.round ?? 1);\nconst agent_rounds   = Number(base.agent_rounds ?? pre.agent_rounds ?? 1);\nconst boardText      = base.boardText || '';\nconst board          = Array.isArray(base.board) ? base.board : [];\nconst items = personas.map((p, idx) => {\n  const label = String(p.label || `Persona ${idx+1}`).trim();\n  const mapped = mapProvider(p.provider, p.model);\n  const roleSystem = [globalSys, `Rolle: ${label}.`].filter(Boolean).join('\\n\\n');\n  const personaPrompt = [\n    `Teamaufgabe: ${task}`,\n    `Dein Beitrag:`,\n    `- Runde ${round} von ${agent_rounds}.`,\n    `- Liefere einen fokussierten Abschnitt aus Sicht der Rolle \"${label}\".`,\n    `- Max. 12 Sätze.`,\n    `- Beziehe dich auf die bisherigen Team-Ergebnisse.`\n  ].join('\\n') + (boardText ? `\\n\\nBisherige Team-Ergebnisse:\\n${boardText}` : '');\n  return {\n    json: {\n      ...mapped,\n      label,\n      prompt: personaPrompt,\n      system: roleSystem,\n      rag, rag_tags,\n      conversation_id: convId,\n      memory,\n      round,\n      agent_rounds,\n      board, boardText,\n      job_id: jobId\n    }\n  };\n});\nreturn items;"
       },
       "id": "4a3f8c68-33a5-4f2a-9cdb-af3c94e32498",
       "name": "Prepare Persona Items",
@@ -22,7 +11,7 @@
       "typeVersion": 2,
       "position": [
         288,
-        -432
+        -624
       ]
     },
     {
@@ -49,8 +38,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        512,
-        -432
+        960,
+        -624
       ]
     },
     {
@@ -62,8 +51,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        736,
-        -432
+        1840,
+        -624
       ]
     },
     {
@@ -89,22 +78,22 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        3424,
-        -368
+        5648,
+        -496
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Format Agent Response — per-item safe (no .first())\nconst j = ($json && typeof $json === 'object') ? $json : {};\n\nfunction pickText(o){\n  if (typeof o.result === 'string') return o.result;\n  if (typeof o.response === 'string') return o.response;\n  if (typeof o.text === 'string') return o.text;\n  if (o.choices?.[0]?.message?.content) return o.choices[0].message.content;\n  if (o.generated_text) return o.generated_text;\n  if (Array.isArray(o) && o[0]?.generated_text) return o[0].generated_text;\n  return typeof o === 'string' ? o : '';\n}\n\nconst text = pickText(j).trim();\nconst label = j.label || j.persona?.label || 'Agent';\nconst provider = j.provider || j.model || j.model_used || 'unknown';\n\nreturn { json: { ...j, label, text } };\n"
+        "jsCode": "// Format Agent Response  (Function Item)\n\nfunction pickStr(...cands) {\n  for (const v of cands) if (typeof v === 'string' && v.trim()) return v.trim();\n  return '';\n}\nfunction get(o, p) {\n  return p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o);\n}\n\nconst cur    = item.json ?? {};\nconst writer = $items('Run RAG_Router (Writer)', 0)?.[0]?.json ?? {};\nconst critic = $items('Apply Critic Feedback', 0)?.[0]?.json ?? {};\n\nconst text = pickStr(\n  cur.answer, cur.boardText, cur.writer_text, cur.output, cur.message, cur.response, cur.completion, cur.text,\n  get(cur, 'result.text'),\n  get(cur, 'choices.0.message.content'),\n  get(cur, 'choices.0.text'),\n  get(cur, 'data.choices.0.message.content'),\n  writer.answer, writer.boardText, writer.output, writer.message, writer.response, writer.completion, writer.text,\n  get(writer, 'result.text'),\n  get(writer, 'choices.0.message.content'),\n  get(writer, 'choices.0.text'),\n  get(writer, 'data.choices.0.message.content'),\n  critic.answer, critic.boardText, critic.output, critic.message,\n  get(critic, 'choices.0.message.content')\n);\n\n// Werte setzen\ncur.answer    = text;\ncur.boardText = text;\ncur.sources   = cur.sources ?? cur.documents ?? writer.sources ?? [];\ncur.artifacts = cur.artifacts ?? writer.artifacts ?? {};\n\nitem.json = cur;\nreturn item;       // <— EIN Item zurückgeben, kein Array\n"
       },
       "id": "d8411de4-f532-421f-ac57-a0af730438a9",
       "name": "Format Agent Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3648,
-        -368
+        5872,
+        -496
       ]
     },
     {
@@ -115,7 +104,7 @@
       "typeVersion": 2,
       "position": [
         -160,
-        -368
+        -544
       ],
       "id": "c8a0b65d-7075-43a1-be63-d788111f3d36",
       "name": "Agents Preflight (Normalize)"
@@ -129,8 +118,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3200,
-        -368
+        4976,
+        -496
       ]
     },
     {
@@ -142,8 +131,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2304,
-        -144
+        3872,
+        -208
       ]
     },
     {
@@ -155,8 +144,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1632,
-        -432
+        2960,
+        -624
       ]
     },
     {
@@ -182,8 +171,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1856,
-        -432
+        3632,
+        -624
       ]
     },
     {
@@ -195,19 +184,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
-        -432
+        3856,
+        -624
       ]
     },
     {
       "parameters": {
-        "jsCode": "// STATE MANAGER NODE - Zentraler Rundenzähler\n// Dieser Node sammelt ALLE Inputs und gibt nur EIN State-Item weiter\nconst allItems = $input.all();\n\nconsole.log(`=== STATE MANAGER ===`);\nconsole.log(`Received ${allItems.length} items`);\n\n// Den besten/aktuellsten State finden\nlet currentState = null;\nlet highestRound = 0;\nlet hasBoard = false;\n\n// Alle Items durchgehen und den besten State finden\nfor (const item of allItems) {\n  const data = item.json || {};\n  const round = Number(data.round || 1);\n  \n  // Kriterien für \"besten\" State:\n  // 1. Höchste Rundenzahl\n  // 2. Hat Board-Daten (von Collect Agent Outputs)\n  // 3. Hat Critic Feedback (stop flag)\n  \n  const itemHasBoard = Array.isArray(data.board) && data.board.length > 0;\n  const itemHasCriticFeedback = data.hasOwnProperty('stop');\n  \n  if (round > highestRound || \n      (round === highestRound && itemHasBoard && !hasBoard) ||\n      (round === highestRound && itemHasCriticFeedback)) {\n    \n    highestRound = round;\n    currentState = data;\n    hasBoard = itemHasBoard;\n    \n    console.log(`Updated state: Round ${round}, Board: ${itemHasBoard}, Critic: ${itemHasCriticFeedback}`);\n  }\n}\n\n// Fallback wenn kein State gefunden\nif (!currentState) {\n  currentState = {\n    round: 1,\n    agent_rounds: 2,\n    board: [],\n    boardText: '',\n    stop: false\n  };\n  console.log(`Using fallback state`);\n}\n\n// State normalisieren\nconst finalState = {\n  ...currentState,\n  round: Number(currentState.round || 1),\n  agent_rounds: Number(currentState.agent_rounds || 1),\n  board: Array.isArray(currentState.board) ? currentState.board : [],\n  boardText: String(currentState.boardText || ''),\n  stop: Boolean(currentState.stop),\n  _state_manager: {\n    inputCount: allItems.length,\n    selectedRound: Number(currentState.round || 1),\n    timestamp: new Date().toISOString()\n  }\n};\n\nconsole.log(`Final State - Round: ${finalState.round}/${finalState.agent_rounds}, Stop: ${finalState.stop}`);\n\n// NUR EIN ITEM zurückgeben!\nreturn [{ json: finalState }];\n"
+        "jsCode": "// STATE MANAGER NODE – Zentraler Rundenzähler & Event-Basis (ohne Cross-Refs)\n// - Arbeitet ausschließlich mit $input.all()\n// - Keine $items(...) / $node[...] → keine versteckten Abhängigkeiten\n// - Liefert __event_base, damit Event-Nodes nur $json brauchen\n\nconst allItems = $input.all();\n\nfunction normStr(v) {\n  return (typeof v === 'string' ? v : (v == null ? '' : String(v)))\n    .replace(/^=+/, '') // z.B. \"=Barrista\" -> \"Barrista\"\n    .trim();\n}\nfunction pick(...vals) {\n  for (const v of vals) {\n    if (v === undefined || v === null) continue;\n    if (typeof v === 'string' && v.trim() === '') continue;\n    return v;\n  }\n  return undefined;\n}\nfunction pickFromItems(keys) {\n  for (const it of allItems) {\n    const j = it?.json || {};\n    for (const k of keys) {\n      const v = j[k];\n      if (v === undefined || v === null) continue;\n      if (typeof v === 'string' && v.trim() === '') continue;\n      return v;\n    }\n  }\n  return undefined;\n}\nfunction parseJobIdFromUrl(u) {\n  if (typeof u !== 'string') return undefined;\n  const m = u.match(/\\/rag\\/jobs\\/([0-9a-fA-F-]+)/);\n  return m?.[1];\n}\n\nconsole.log('=== STATE MANAGER ===');\nconsole.log(`Received ${allItems.length} items`);\n\nlet currentState = null;\nlet highestRound = 0;\nlet hasBoard = false;\n\n// besten State wählen\nfor (const it of allItems) {\n  const data = it.json || {};\n  const round = Number(data.round || 1);\n  const itemHasBoard = Array.isArray(data.board) && data.board.length > 0;\n  const itemHasCriticFeedback = Object.prototype.hasOwnProperty.call(data, 'stop');\n\n  if (\n    round > highestRound ||\n    (round === highestRound && itemHasBoard && !hasBoard) ||\n    (round === highestRound && itemHasCriticFeedback)\n  ) {\n    highestRound = round;\n    currentState = data;\n    hasBoard = itemHasBoard;\n  }\n}\n\nif (!currentState) {\n  currentState = { round: 1, agent_rounds: 2, board: [], boardText: '', stop: false };\n}\n\n// IDs & Basiswerte aus Items zusammensuchen (ohne Node-Refs)\nconst jobId = pick(\n  currentState.job_id,\n  pickFromItems(['job_id','jobId','id']),\n  parseJobIdFromUrl(pickFromItems(['events','result','complete']))\n) || null;\n\nconst convId = pick(currentState.conversation_id, pickFromItems(['conversation_id','conversationId'])) || null;\n\nconst persona = normStr(pick(currentState.persona, currentState.label, pickFromItems(['persona','label']), ''));\nconst role    = normStr(pick(currentState.role, pickFromItems(['role']), ''));\nconst round   = Number(pick(currentState.round, pickFromItems(['round'])) ?? 1);\nconst rounds  = Number(pick(currentState.agent_rounds, pickFromItems(['agent_rounds','rounds_total','roundsTotal'])) ?? 1);\n\nconst board   = Array.isArray(currentState.board) ? currentState.board : [];\nconst boardText = normStr(pick(currentState.boardText, currentState.answer, pickFromItems(['boardText','answer']), ''));\n\n// Standard-URLs (relativ, Nginx routet)\nconst eventsUrl   = pick(currentState.events,   jobId ? `/rag/jobs/${jobId}/events`   : '');\nconst resultUrl   = pick(currentState.result,   jobId ? `/rag/jobs/${jobId}/result`   : '');\nconst completeUrl = pick(currentState.complete, jobId ? `/rag/jobs/${jobId}/complete` : '');\n\nconst finalState = {\n  ...currentState,\n\n  // Kanonische Felder\n  round,\n  agent_rounds: rounds,\n  board,\n  boardText,\n  stop: Boolean(currentState.stop),\n\n  // IDs\n  job_id: jobId,\n  conversation_id: convId,\n\n  // Persona/Rolle\n  persona,\n  role,\n\n  // Endpunkte\n  events:   eventsUrl,\n  result:   resultUrl,\n  complete: completeUrl,\n\n  // Event-Basis (für Evt-Nodes/emit_event)\n  __event_base: {\n    job_id: jobId,\n    persona,\n    role,\n    round,\n    rounds_total: rounds\n  },\n\n  _state_manager: {\n    picked_from_items: allItems.length,\n    has_board: hasBoard,\n    ts: new Date().toISOString()\n  }\n};\n\n// EXAKT EIN ITEM zurück\nreturn [{ json: finalState }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2528,
-        -432
+        4304,
+        -624
       ],
       "id": "41427986-dd1c-4863-a182-2a758a97d77c",
       "name": "State Manager"
@@ -219,8 +208,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2752,
-        -432
+        4528,
+        -624
       ],
       "id": "f04a318b-0948-43be-afe6-f32738cd7a4e",
       "name": "Loop Checker"
@@ -234,8 +223,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2304,
-        -432
+        4080,
+        -624
       ]
     },
     {
@@ -244,7 +233,7 @@
       "typeVersion": 3.2,
       "position": [
         64,
-        -368
+        -544
       ],
       "id": "7bfbc1fb-fe1e-4090-a3a3-7b8213c3f7df",
       "name": "Merge"
@@ -277,8 +266,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2976,
-        -368
+        4752,
+        -624
       ],
       "id": "7fb6a304-f7d7-496b-bbef-f18629f3d4f9",
       "name": "Loop Gate"
@@ -290,11 +279,24 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        960,
-        -432
+        2064,
+        -624
       ],
       "id": "a025293a-5821-4bcf-b267-6f55cbe0e697",
       "name": "Parse Tool Calls"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Tool Observations into State & BoardText\n\n// Aktueller State kommt bei dir aus vorherigen Nodes (z. B. Collect Agent Outputs / State Manager)\nconst state = ($items('Collect Agent Outputs', 0)?.[0]?.json) \n           || ($items('State Manager', 0)?.[0]?.json) \n           || ($json || {});\n\nconst toolsIn = ($json && Array.isArray($json.tool_observations)) ? $json.tool_observations : [];\n\nfunction fmtObs(o, idx) {\n  if (o.tool === 'web.search' && Array.isArray(o.items)) {\n    const lines = o.items.slice(0, 5).map((it,i)=>`- ${it.title || '(ohne Titel)'} — ${it.url || ''}\\n  ${it.snippet ? String(it.snippet).slice(0,240) : ''}`);\n    return `## Tool #${idx+1}: Websuche\\n${lines.join('\\n')}`;\n  }\n  if (o.tool === 'db.query') {\n    const rc = Number(o.rowCount || (o.rows?.length || 0));\n    const sample = Array.isArray(o.rows) ? o.rows.slice(0, 1)[0] : null;\n    return `## Tool #${idx+1}: DB-Query (${rc} Zeilen)\\n` + (sample ? \"Beispiel:\\n\" + JSON.stringify(sample, null, 2) : \"\");\n  }\n  if (o.tool === 'program.run') {\n    const out = String(o.stdout || '').slice(0, 1500);\n    const note = o.truncated ? '\\n[... gekürzt ...]' : '';\n    return `## Tool #${idx+1}: Programm-Ausgabe (Exit ${o.exitCode})\\n${out}${note}`;\n  }\n  return `## Tool #${idx+1}: ${o.tool}\\n${JSON.stringify(o).slice(0, 1000)}`;\n}\n\nconst toolsBlock = toolsIn.length ? `\\n\\n# Werkzeuge\\n${toolsIn.map(fmtObs).join('\\n\\n')}` : \"\";\n\nconst merged = {\n  ...state,\n  tool_observations: toolsIn,\n  boardText: [state.boardText || '', toolsBlock].filter(Boolean).join('\\n\\n')\n};\n\nreturn [{ json: merged }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2736,
+        -688
+      ],
+      "id": "f5925164-aa96-4a56-ab6d-ffe15feb34c0",
+      "name": "Merge Tool Observations"
     },
     {
       "parameters": {
@@ -317,49 +319,333 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1184,
-        -432
+        2512,
+        -688
       ],
       "id": "785f05ea-2008-49bf-aeff-7b378c3d048e",
-      "name": "Execute Workflow"
+      "name": "Run Tools Router"
     },
     {
       "parameters": {
-        "jsCode": "// Merge Tool Observations into State & BoardText\n\n// Aktueller State kommt bei dir aus vorherigen Nodes (z. B. Collect Agent Outputs / State Manager)\nconst state = ($items('Collect Agent Outputs', 0)?.[0]?.json) \n           || ($items('State Manager', 0)?.[0]?.json) \n           || ($json || {});\n\nconst toolsIn = ($json && Array.isArray($json.tool_observations)) ? $json.tool_observations : [];\n\nfunction fmtObs(o, idx) {\n  if (o.tool === 'web.search' && Array.isArray(o.items)) {\n    const lines = o.items.slice(0, 5).map((it,i)=>`- ${it.title || '(ohne Titel)'} — ${it.url || ''}\\n  ${it.snippet ? String(it.snippet).slice(0,240) : ''}`);\n    return `## Tool #${idx+1}: Websuche\\n${lines.join('\\n')}`;\n  }\n  if (o.tool === 'db.query') {\n    const rc = Number(o.rowCount || (o.rows?.length || 0));\n    const sample = Array.isArray(o.rows) ? o.rows.slice(0, 1)[0] : null;\n    return `## Tool #${idx+1}: DB-Query (${rc} Zeilen)\\n` + (sample ? \"Beispiel:\\n\" + JSON.stringify(sample, null, 2) : \"\");\n  }\n  if (o.tool === 'program.run') {\n    const out = String(o.stdout || '').slice(0, 1500);\n    const note = o.truncated ? '\\n[... gekürzt ...]' : '';\n    return `## Tool #${idx+1}: Programm-Ausgabe (Exit ${o.exitCode})\\n${out}${note}`;\n  }\n  return `## Tool #${idx+1}: ${o.tool}\\n${JSON.stringify(o).slice(0, 1000)}`;\n}\n\nconst toolsBlock = toolsIn.length ? `\\n\\n# Werkzeuge\\n${toolsIn.map(fmtObs).join('\\n\\n')}` : \"\";\n\nconst merged = {\n  ...state,\n  tool_observations: toolsIn,\n  boardText: [state.boardText || '', toolsBlock].filter(Boolean).join('\\n\\n')\n};\n\nreturn [{ json: merged }];\n"
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d5fa0809-dcbe-476c-85d1-b2c512453860",
+              "leftValue": "={{ Array.isArray($json.tools) && $json.tools.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2288,
+        -624
+      ],
+      "id": "bedbe805-182e-4a43-874f-fbe40ffb47d0",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -384,
+        -480
+      ],
+      "id": "0ae73f5c-5fca-42b5-9aa6-a6ec974ebfa4",
+      "name": "Execute Subflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const init = $items('Init Round State', 0)?.[0]?.json ?? {};\nconst s = $json ?? {};\n\nreturn [{\n  json: {\n    ok: true,\n    __final: true,\n    job_id: init.job_id ?? s.job_id ?? null,\n    conversation_id: init.conversation_id ?? s.conversation_id ?? null,\n    answer: s.answer ?? s.boardText ?? '',\n    sources: s.sources ?? s.documents ?? [],\n    artifacts: s.artifacts ?? {},\n    personas: s.personas ?? init.personas ?? [],\n    agent_rounds: s.agent_rounds ?? init.agent_rounds ?? 1\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1408,
-        -432
+        6096,
+        -496
       ],
-      "id": "f5925164-aa96-4a56-ab6d-ffe15feb34c0",
-      "name": "Merge Tool Observations"
+      "id": "146349ae-bfda-4e01-a568-2ca23a21a567",
+      "name": "Finalize State"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "gTyBULqGMjgEgoHd",
+          "mode": "list",
+          "cachedResultName": "emit_event"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5200,
+        -688
+      ],
+      "id": "ad6f7ceb-e444-4cca-bdbf-c991338ff261",
+      "name": "Run emit_event",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const s = item.json;\nconst base = s.__event_base ?? {\n  job_id: s.job_id ?? null,\n  persona: s.persona ?? s.label ?? '',\n  role: s.role ?? '',\n  round: Number(s.round ?? 1),\n  rounds_total: Number(s.agent_rounds ?? 1),\n};\nitem.json.__event = {\n  ...base,\n  stage: 'round_start',\n  message: `Starte Runde ${base.round}/${base.rounds_total}`,\n};\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4976,
+        -688
+      ],
+      "id": "a63e523f-5686-4047-8998-ae76706b6af0",
+      "name": "Build Event: Round Start"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const s = item.json;\nconst base = s.__event_base ?? {\n  job_id: s.job_id ?? null,\n  persona: s.persona ?? s.label ?? '',\n  role: s.role ?? '',\n  round: Number(s.round ?? 1),\n  rounds_total: Number(s.agent_rounds ?? 1),\n};\nitem.json.__event = {\n  ...base,\n  stage: 'writer',\n  message: 'Schreiberling fasst Team-Ergebnisse zusammen',\n};\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5200,
+        -496
+      ],
+      "id": "e0c9b077-de4b-4947-8b22-3d773b1f0a3b",
+      "name": "Build Event: Writer"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "gTyBULqGMjgEgoHd",
+          "mode": "list",
+          "cachedResultName": "emit_event"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5424,
+        -496
+      ],
+      "id": "18975f28-ed63-4062-929b-7dfa3c0a25f2",
+      "name": "Run emit_event1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const s = item.json;\nconst base = s.__event_base ?? {\n  job_id: s.job_id ?? null,\n  persona: s.persona ?? s.label ?? '',\n  role: s.role ?? '',\n  round: Number(s.round ?? 1),\n  rounds_total: Number(s.agent_rounds ?? 1),\n};\nitem.json.__event = {\n  ...base,\n  stage: 'critic',\n  message: 'allsehendes Auge wirft einen Blick...',\n};\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3184,
+        -624
+      ],
+      "id": "f99cafff-ddd3-4c79-ac2b-2e3f3fbf1be0",
+      "name": "Build Event: Critic"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "gTyBULqGMjgEgoHd",
+          "mode": "list",
+          "cachedResultName": "emit_event"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3408,
+        -624
+      ],
+      "id": "d14a826c-4538-46f2-b416-6230be243aab",
+      "name": "Run emit_event2",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Build Event: Persona Done (Function Item)\nconst s = item.json ?? {};\nconst label = (s.persona ?? s.label ?? 'Persona').toString().replace(/^=+/, '').trim();\n\nitem.json.__event = {\n  job_id: s.job_id ?? null,\n  persona: label,\n  role: s.role ?? '',\n  round: Number(s.round ?? 1),\n  rounds_total: Number(s.agent_rounds ?? 1),\n  stage: 'persona_start',\n  message: `${label} arbeitet an Beitrag...`,\n};\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        -624
+      ],
+      "id": "c991d9b4-261e-4361-b6dd-f28c7cca5f9c",
+      "name": "Build Event: Persona Start"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "gTyBULqGMjgEgoHd",
+          "mode": "list",
+          "cachedResultName": "emit_event"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        736,
+        -624
+      ],
+      "id": "9c61cce9-d4ea-4f74-a51d-9b059b287600",
+      "name": "Run emit_event3",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Build Event: Persona Done (Function Item)\nconst s = item.json ?? {};\nconst label = (s.persona ?? s.label ?? 'Persona').toString().replace(/^=+/, '').trim();\n\nitem.json.__event = {\n  job_id: s.job_id ?? null,\n  persona: label,\n  role: s.role ?? '',\n  round: Number(s.round ?? 1),\n  rounds_total: Number(s.agent_rounds ?? 1),\n  stage: 'persona_done',\n  message: `fertig – ${label}`,\n};\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        -624
+      ],
+      "id": "8075d855-79dc-4462-aeba-172582735b4d",
+      "name": "Build Event: Persona Done"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "gTyBULqGMjgEgoHd",
+          "mode": "list",
+          "cachedResultName": "emit_event"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1616,
+        -624
+      ],
+      "id": "eed89c6b-1bab-4ea0-8b01-b2f3eeed6d1d",
+      "name": "Run emit_event4",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final Return  (Function, Run once for all items)\nconst ins = $input.all();\n\n// Prefer the item tagged by Finalize State\nlet fin = ins.find(it => it?.json?.__final === true);\n\n// Fallbacks (falls Tag fehlt)\nif (!fin) fin = ins.find(it => it?.json && (it.json.answer !== undefined && it.json.answer !== ''));\nif (!fin) fin = ins[0];  // allerletzter Notfall\n\nreturn [{ json: fin.json }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6320,
+        -496
+      ],
+      "id": "dfe90553-a519-4a80-9a7f-f8f255b5fd44",
+      "name": "Final Return"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1168,
+        -640
+      ],
+      "id": "8cae806d-41bb-46aa-acea-989a4b57263f",
+      "name": "Collect Data"
     }
   ],
   "pinData": {},
   "connections": {
-    "Execute Workflow Trigger": {
-      "main": [
-        [
-          {
-            "node": "Agents Preflight (Normalize)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Init Round State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Prepare Persona Items": {
       "main": [
         [
           {
-            "node": "Run RAG_Router (Agents)",
+            "node": "Build Event: Persona Start",
             "type": "main",
             "index": 0
           }
@@ -370,7 +656,7 @@
       "main": [
         [
           {
-            "node": "Collect Agent Outputs",
+            "node": "Collect Data",
             "type": "main",
             "index": 0
           }
@@ -414,7 +700,7 @@
       "main": [
         [
           {
-            "node": "Run RAG_Router (Writer)",
+            "node": "Build Event: Writer",
             "type": "main",
             "index": 0
           }
@@ -425,7 +711,7 @@
       "main": [
         [
           {
-            "node": "Run RAG_Router (Critic)",
+            "node": "Build Event: Critic",
             "type": "main",
             "index": 0
           }
@@ -513,7 +799,7 @@
       "main": [
         [
           {
-            "node": "Merge",
+            "node": "Build Event: Round Start",
             "type": "main",
             "index": 0
           }
@@ -531,18 +817,7 @@
       "main": [
         [
           {
-            "node": "Execute Workflow",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Execute Workflow": {
-      "main": [
-        [
-          {
-            "node": "Merge Tool Observations",
+            "node": "If",
             "type": "main",
             "index": 0
           }
@@ -559,13 +834,206 @@
           }
         ]
       ]
+    },
+    "Run Tools Router": {
+      "main": [
+        [
+          {
+            "node": "Merge Tool Observations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Run Tools Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Critic Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Subflow": {
+      "main": [
+        [
+          {
+            "node": "Agents Preflight (Normalize)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Init Round State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Finalize State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize State": {
+      "main": [
+        [
+          {
+            "node": "Final Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event: Round Start": {
+      "main": [
+        [
+          {
+            "node": "Run emit_event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event: Writer": {
+      "main": [
+        [
+          {
+            "node": "Run emit_event1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event: Critic": {
+      "main": [
+        [
+          {
+            "node": "Run emit_event2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event: Persona Start": {
+      "main": [
+        [
+          {
+            "node": "Run emit_event3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Collect Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Build Event: Persona Done": {
+      "main": [
+        [
+          {
+            "node": "Run emit_event4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run emit_event3": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Agents)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run emit_event4": {
+      "main": [
+        [
+          {
+            "node": "Collect Agent Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run emit_event2": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Critic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run emit_event1": {
+      "main": [
+        [
+          {
+            "node": "Run RAG_Router (Writer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run emit_event": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Data": {
+      "main": [
+        [
+          {
+            "node": "Build Event: Persona Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "c72021d0-6dce-453f-9e85-b5e38dcc3c5b",
+  "versionId": "8f808d0c-0cc2-4f5b-b0a3-43461bb7e15e",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
