@@ -60,7 +60,7 @@ export async function startAsyncRun(job_title, payload){
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
 
   // SSE verbinden
-  const src = startEventSource(eventsUrl, {
+    const src = startEventSource(eventsUrl, {
     onOpen:  () => logJob("SSE verbunden."),
     onError: () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …"),
     onEvent: (e) => {
@@ -79,20 +79,70 @@ export async function startAsyncRun(job_title, payload){
     }
   });
 
-  let finished = false;
+  // ---------- robuste Extraktion ----------
+  function get(o, path) {
+    return path.split('.').reduce((a,k)=> (a && a[k]!==undefined ? a[k] : undefined), o);
+  }
+  function pickStr(...vals){
+    for (const v of vals) if (typeof v === 'string' && v.trim()) return v.trim();
+    return '';
+  }
+  function extractAnyResult(raw){
+    const answer = pickStr(
+      get(raw,'result.result.answer'),
+      get(raw,'result.answer'),
+      raw?.answer,
+      get(raw,'result.text'),
+      raw?.text,
+      get(raw,'choices.0.message.content'),
+      get(raw,'choices.0.text'),
+      get(raw,'data.choices.0.message.content')
+    );
+    const sources =
+      get(raw,'result.result.sources') ??
+      get(raw,'result.sources') ??
+      raw?.sources ??
+      get(raw,'result.documents') ??
+      raw?.documents ?? [];
+    const artifacts =
+      get(raw,'result.result.artifacts') ??
+      get(raw,'result.artifacts') ??
+      raw?.artifacts ?? {};
+    return { answer: answer || '', sources, artifacts };
+  }
+  async function fetchResultOnce(url){
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+    if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
+    const raw = await r.json();
+    return { raw, ...extractAnyResult(raw) };
+  }
+  async function pollResult(url, maxMs=300000, stepMs=1200){
+    const t0 = Date.now();
+    for(;;){
+      try {
+        const got = await fetchResultOnce(url);
+        const doneLike = got.raw?.status === 'done' || !!got.raw?.result;
+        if (got.answer || doneLike) return got;
+      } catch {}
+      if (Date.now()-t0 > maxMs) throw new Error('Timeout – kein Ergebnis verfügbar.');
+      await new Promise(r=>setTimeout(r, stepMs));
+    }
+  }
+  // ---------------------------------------
 
-  async function renderFinal(parsed){ // parsed kommt jetzt schon aus waitForResult extrahiert
+  let finished = false;
+  async function renderFinal(got){
     if (finished) return;
     finished = true;
     try { src.close(); } catch {}
 
     try {
-      if (!parsed) parsed = await waitForResult(resultUrl); // -> {answer, sources, artifacts, raw}
-      const answer = (parsed?.answer || '').trim();
-      const sources = parsed?.sources || [];
-      const artifacts = parsed?.artifacts || {};
+      if (!got) got = await fetchResultOnce(resultUrl); // einmalig holen (Result existiert bei dir ja schon)
+      const answer = (got.answer || '').trim();
+      const sources = got.sources || [];
+      const artifacts = got.artifacts || {};
 
-      // setFinalAnswer kann (string, opts) oder ({answer,...}) sein: beide Varianten probieren
+      // Kompatibel beide Signaturen bedienen
       let ok = false;
       try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
       if (!ok) {
@@ -108,11 +158,11 @@ export async function startAsyncRun(job_title, payload){
     }
   }
 
-  // Poller: immer starten – unabhängig von SSE
+  // Poller: IMMER starten; sobald /result etwas hat, rendern
   (async () => {
     try {
-      const parsed = await waitForResult(resultUrl);
-      await renderFinal(parsed);
+      const got = await pollResult(resultUrl);
+      await renderFinal(got);
     } catch (e) {
       console.error("waitForResult failed", e);
     }
@@ -121,4 +171,5 @@ export async function startAsyncRun(job_title, payload){
   async function completeNow(){
     try { await renderFinal(); } catch (e) { console.error("completeNow()", e); }
   }
+
 }
