@@ -143,15 +143,11 @@ export async function startAsyncRun(job_title, payload){
       const artifacts = got.artifacts || {};
 
       // Kompatibel beide Signaturen bedienen
+      // setFinalAnswer kann zwei Signaturen haben – probier beide:
       let ok = false;
-      try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
-      if (!ok) {
-        try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); ok = true; } catch {}
-      }
-      if (!ok) {
-        const el = document.querySelector('#final-answer');
-        if (el) el.textContent = (answer || "[leer]");
-      }
+      try { setFinalAnswer(answer || '[leer1]', { sources, artifacts }); ok = true; } catch {}
+      if (!ok) { try { setFinalAnswer({ answer: (answer || '[leer2]'), sources, artifacts }); ok = true; } catch {} }
+      if (!ok)  { const el = document.querySelector('#final-answer'); if (el) el.textContent = (answer || '[leer3]'); }
     } catch (e) {
       console.error("Final rendering failed", e);
       try { setFinalAnswer("[leer]"); } catch {}
