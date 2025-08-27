@@ -91,6 +91,54 @@ export function setFinalAnswer(input, opts){
     <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
   `;
 
+  // --- Moderator-/Critic-Notizen (separater, aufklappbarer Block) ---
+  if (artifacts?.moderator_notes) {
+    const notes = String(artifacts.moderator_notes).trim();
+    if (notes) {
+      html += `
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-weight:700">Moderator (Critic): Fokus & Fragen</summary>
+          <pre class="prewrap mono" style="margin-top:6px;">${escapeHtml(notes)}</pre>
+        </details>
+      `;
+    }
+  }
+
+  // --- Rationale (zusammengefasst aus Think-Blöcken) ---
+  if (artifacts?.rationale_summary) {
+    const rs = artifacts.rationale_summary || {};
+    const persona = Array.isArray(rs.persona) ? rs.persona : [];
+    const writer  = Array.isArray(rs.writer) ? rs.writer : [];
+    let rsHtml = '';
+
+    if (persona.length) {
+      rsHtml += `<div style="margin-top:8px;font-weight:600">Persona-Hinweise (zusammengefasst)</div>`;
+      rsHtml += `<ul>`;
+      persona.forEach(p => {
+        const bullets = Array.isArray(p.bullets) ? p.bullets : [];
+        const title = `Runde ${escapeHtml(String(p.round ?? '–'))} – ${escapeHtml(String(p.label || 'Persona'))}`;
+        rsHtml += `<li><details><summary>${title}</summary>`;
+        rsHtml += `<ul>${bullets.map(b=>`<li>${escapeHtml(String(b))}</li>`).join('')}</ul>`;
+        rsHtml += `</details></li>`;
+      });
+      rsHtml += `</ul>`;
+    }
+
+    if (writer.length) {
+      rsHtml += `<div style="margin-top:8px;font-weight:600">Writer-Hinweise (zusammengefasst)</div>`;
+      rsHtml += `<ul>${writer.map(b=>`<li>${escapeHtml(String(b))}</li>`).join('')}</ul>`;
+    }
+
+    if (rsHtml) {
+      html += `
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-weight:700">Rationale (zusammengefasst)</summary>
+          <div class="inline-help" style="margin-top:6px">${rsHtml}</div>
+        </details>
+      `;
+    }
+  }
+
   // Quellen optional anhängen
   const srcHtml = renderSources(sources);
   if (srcHtml) html += srcHtml;
