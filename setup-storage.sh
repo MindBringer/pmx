@@ -320,7 +320,8 @@ move_project_data() {
 }
 
 patch_rag_port() {
-  local repo="$REPO" rag_install="$repo/install_rag.sh"
+  local repo="$REPO"
+  local rag_install="$repo/install_rag.sh"
   [[ -f "$rag_install" ]] || { info "install_rag.sh not found; skipping port patch."; return 0; }
   [[ "$RAG_PORT_FIX" == "skip" ]] && { info "RAG port patch skipped."; return 0; }
   bold ">>> Patching RAG installer to use port $RAG_PORT_FIX"
