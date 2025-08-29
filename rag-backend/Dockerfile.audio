@@ -1,0 +1,25 @@
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+# System deps
+RUN apt-get update && apt-get install -y ffmpeg git python3-pip && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY rag-backend/requirements.txt /app/requirements.txt
+# Stelle sicher, dass requirements die Pakete enthalten:
+# faster-whisper, torch, torchaudio, speechbrain, qdrant-client, webrtcvad, fastapi, uvicorn[standard], numpy
+RUN pip3 install --no-cache-dir -r /app/requirements.txt
+
+# Code kopieren
+COPY rag-backend/app /app/app
+
+# Start: nur der transcribe/speakers-Router
+# Wir bauen eine kleine FastAPI-App, die den vorhandenen Router mounted:
+RUN printf '%s\n' \
+"from fastapi import FastAPI" \
+"from app.transcribe import router as transcribe_router" \
+"app = FastAPI(title='audio-api')" \
+"app.include_router(transcribe_router, prefix='')" \
+> /app/audio_main.py
+
+EXPOSE 6080
+CMD [\"uvicorn\", \"audio_main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"6080\"]

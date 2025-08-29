@@ -1,11 +1,18 @@
+# docker compose --profile ai up -d     # auf srv-ai01 (GPU-VM)
+# docker compose --profile svc up -d    # auf srv-aisvc (Services-VM)
 
 services:
+  # =========================
+  # AI-VM (srv-ai01) Profile
+  # =========================
   ollama:
+    profiles: ["ai"]
     image: ollama/ollama
     container_name: ollama
     ports:
       - "11434:11434"
     volumes:
+      # Hinweis: zwei Mounts auf den gleichen Pfad überlagern sich; belassen wir so, um dein Setup nicht zu brechen.
       - ollama-data:/root/.ollama
       - ollama-models:/root/.ollama
     restart: unless-stopped
@@ -14,7 +21,40 @@ services:
     networks:
       - ai-net
 
+  # Audio-API extrahiert aus rag-backend (nutzt deine transcribe/speakers-Logik)
+  # Erwartet, dass im Dockerfile/Entrypoint der FastAPI-Wrapper gestartet wird (siehe unsere vorherigen Hinweise).
+  audio-api:
+    profiles: ["ai"]
+    build:
+      context: ./rag-backend
+      dockerfile: ./Dockerfile.audio   # kleiner Wrapper, der deinen transcribe/speakers-Router mounted
+    container_name: audio-api
+    ports:
+      - "6080:6080"  # /transcribe, /speakers
+    environment:
+      - DEVICE=cuda
+      - ASR_MODEL=medium
+      - ASR_COMPUTE_TYPE=float16
+      # Qdrant steht auf der Services-VM; du kannst statt IP auch "srv-aisvc" nutzen, falls DNS/Hosts passt.
+      - QDRANT_URL=http://192.168.30.42:6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - SPEAKER_COLLECTION=speakers
+    deploy: {}
+    # GPU-Zuweisung
+    device_requests:
+      - driver: nvidia
+        count: 1
+        capabilities: [gpu]
+        device_ids: ["0"]
+    restart: unless-stopped
+    networks:
+      - ai-net
+
+  # =================================
+  # Services-VM (srv-aisvc) Profile
+  # =================================
   n8n:
+    profiles: ["svc"]
     image: n8nio/n8n
     container_name: n8n
     ports:
@@ -31,24 +71,29 @@ services:
       - EXECUTIONS_DATA_SAVE_SUCCESS_EXECUTIONS=all
       - EXECUTIONS_DATA_SAVE_FAILED_EXECUTIONS=all
       - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+      # Optional: Endpunkte zur AI-VM, falls deine Flows direkt auf Ollama zeigen sollen
+      - OLLAMA_GPU0_URL=http://192.168.30.43:11434
+      # - OLLAMA_GPU1_URL=http://192.168.30.43:11435
     volumes:
       - n8n-data:/home/node/.n8n
-    depends_on:
-      - ollama
+    # KEIN depends_on auf ollama, da ollama auf anderer VM läuft
     networks:
       - ai-net
 
   qdrant:
+    profiles: ["svc"]
     image: qdrant/qdrant:latest
     container_name: qdrant
     ports:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    restart: unless-stopped
     networks:
       - ai-net
 
   rag-backend:
+    profiles: ["svc"]
     build:
       context: ./rag-backend
       dockerfile: ./Dockerfile
@@ -57,9 +102,10 @@ services:
     env_file:
       - ./rag-backend/.env
     environment:
-      # Fallbacks, falls in .env nicht gesetzt
+      # Fallbacks (bleiben wie gehabt)
       RAG_BASE_PATH: /rag
-      OLLAMA_BASE_URL: http://ollama:11434
+      # WICHTIG: Ollama steht jetzt auf der AI-VM
+      OLLAMA_BASE_URL: http://192.168.30.43:11434
       QDRANT_URL: http://qdrant:6333
     ports:
       - "8082:8082"
@@ -67,8 +113,9 @@ services:
       - ./rag-backend/documents:/app/documents
       - ./rag-backend/storage:/app/storage
     depends_on:
-      - ollama
-      - qdrant
+      # nur qdrant lokal; KEIN depends_on auf ollama, da remote
+      qdrant:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8082/rag/health"]
       interval: 20s
