@@ -1,37 +1,28 @@
 #!/usr/bin/env bash
-#
-# setup-storage.sh — Move Docker data-root to a dedicated disk (A)
-# and/or relocate pmx project data to that disk with symlinks (B).
-#
-# Supports:
-#  - Device-based mount (e.g., --device /dev/sdb)  OR
-#  - LVM-based mount (e.g., --vg vg_data --lv docker --size 500G)
-#  - Idempotent fstab using UUID, safe rsync, rollback for Docker data-root.
-#  - Project data move for rag-backend/{documents,storage} with symlink option.
-#  - Optional RAG port patch to 8082 to match nginx proxy.
+# setup-storage.sh — Mount a dedicated disk at /docker and migrate:
+# A) Docker data-root  -> /docker/docker-data
+# B) Project data      -> /docker/projects/pmx (with optional symlinks)
 #
 # Usage examples:
-#   sudo ./setup-storage.sh --device /dev/sdb --mount /docker --mode both --repo /opt/pmx --project-root /docker/projects/pmx
-#   sudo ./setup-storage.sh --vg vg_data --lv docker --size 500G --mount /docker --mode data-root
-#   sudo ./setup-storage.sh --mount /docker --mode projects --repo ~/pmx --project-root /docker/projects/pmx --symlink true
-#   sudo ./setup-storage.sh --revert   # revert Docker data-root back to /var/lib/docker (keeps mount)
+#   sudo ./setup-storage.sh --device /dev/sdb --mount /docker --mode both --repo /opt/pmx --project-root /docker/projects/pmx --symlink true
+#   sudo ./setup-storage.sh --revert
 #
 set -Eeuo pipefail
 
-# ------------- defaults -------------
+# Defaults
 MOUNT="/docker"
-MODE="both"              # data-root | projects | both
+MODE="both"               # data-root | projects | both | revert
 REPO="$(pwd)"
 PROJECT_ROOT="/docker/projects/pmx"
 SYMLINK="true"
-RAG_PORT_FIX="8082"      # "8082" | "skip"
+RAG_PORT_FIX="8082"
 DEVICE=""
 VG_NAME=""
 LV_NAME=""
-LV_SIZE=""               # e.g., 500G
+LV_SIZE=""
 NONINTERACTIVE="${NONINTERACTIVE:-false}"
 
-# ------------- logging helpers -------------
+# Logging helpers
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 info() { printf "[INFO] %s\n" "$*"; }
 warn() { printf "[WARN] %s\n" "$*"; }
@@ -41,9 +32,10 @@ die()  { err "$*"; exit 1; }
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
     die "Please run as root (sudo)."
+  fi
 }
 
-# ------------- arg parsing -------------
+# Arg parsing
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device) DEVICE="${2:-}"; shift 2;;
@@ -59,7 +51,26 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) NONINTERACTIVE="true"; shift;;
     --revert) MODE="revert"; shift;;
     -h|--help)
-      sed -n '1,120p' "$0"
+      cat <<'EOF'
+setup-storage.sh
+
+Flags:
+  --device /dev/sdX        Use a raw block device (ext4, UUID in fstab)
+  --vg NAME --lv NAME      Use existing/new LVM LV (with --size if create)
+  --size 500G              LV size when creating
+  --mount /docker          Mountpoint (default: /docker)
+  --mode [data-root|projects|both|revert]
+  --repo /opt/pmx          Path to your pmx repo (default: $PWD)
+  --project-root /docker/projects/pmx
+  --symlink [true|false]   Replace repo dirs with symlinks (default: true)
+  --rag-port 8082          Patch install_rag.sh to port 8082 (or "skip")
+  --yes                    Non-interactive
+  --revert                 Revert Docker data-root to /var/lib/docker
+
+Examples:
+  sudo ./setup-storage.sh --device /dev/sdb --mount /docker --mode both --repo /opt/pmx
+  sudo ./setup-storage.sh --revert
+EOF
       exit 0
       ;;
     *)
@@ -68,9 +79,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ------------- sanity checks -------------
 require_root
-command -v rsync >/dev/null || apt-get update -y && apt-get install -y rsync
+command -v rsync >/dev/null || (apt-get update -y && apt-get install -y rsync)
 command -v jq >/dev/null || apt-get install -y jq
 command -v blkid >/dev/null || apt-get install -y util-linux
 
@@ -78,10 +88,8 @@ if [[ "$MODE" != "data-root" && "$MODE" != "projects" && "$MODE" != "both" && "$
   die "--mode must be one of: data-root | projects | both | revert"
 fi
 
-# Ensure mount path
 mkdir -p "$MOUNT"
 
-# ------------- helper: confirm -------------
 confirm() {
   local prompt="${1:-Proceed?}"
   if [[ "$NONINTERACTIVE" == "true" ]]; then
@@ -91,26 +99,19 @@ confirm() {
   [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
 }
 
-# ------------- helper: add/update fstab via UUID -------------
 ensure_fstab_uuid() {
-  local dev="$1"
-  local mnt="$2"
-  local opts="$3"
-
+  local dev="$1" mnt="$2" opts="$3"
   local uuid
   uuid="$(blkid -s UUID -o value "$dev" || true)"
   [[ -n "$uuid" ]] || die "Could not read UUID from $dev"
-
   local line="UUID=$uuid $mnt ext4 $opts 0 2"
   if grep -qE "^[^#]*[[:space:]]$mnt[[:space:]]" /etc/fstab; then
-    # update existing line for this mountpoint
     sed -i -E "s|^[^#]*[[:space:]]$mnt[[:space:]].*|$line|" /etc/fstab
   else
     echo "$line" >> /etc/fstab
   fi
 }
 
-# ------------- create FS and mount (device or LVM) -------------
 prepare_mount() {
   local mount_opts="defaults,noatime,nofail"
   local dev_path=""
@@ -118,15 +119,12 @@ prepare_mount() {
   if [[ -n "$DEVICE" ]]; then
     dev_path="$DEVICE"
     [[ -b "$dev_path" ]] || die "Device $dev_path not found or not a block device"
-
-    # If not formatted, format ext4
     if ! blkid "$dev_path" >/dev/null 2>&1; then
       info "Formatting $dev_path as ext4…"
       mkfs.ext4 -F "$dev_path"
     else
       info "$dev_path already has a filesystem."
     fi
-
     ensure_fstab_uuid "$dev_path" "$MOUNT" "$mount_opts"
     mkdir -p "$MOUNT"
     mountpoint -q "$MOUNT" || mount "$MOUNT"
@@ -137,7 +135,6 @@ prepare_mount() {
     command -v lvs >/dev/null || apt-get install -y lvm2
     [[ -n "$LV_NAME" ]] || die "--lv is required when using --vg"
     dev_path="/dev/${VG_NAME}/${LV_NAME}"
-
     if ! lvs "$VG_NAME/$LV_NAME" >/dev/null 2>&1; then
       [[ -n "$LV_SIZE" ]] || die "--size is required to create LV"
       info "Creating LV ${VG_NAME}/${LV_NAME} of size $LV_SIZE…"
@@ -145,31 +142,25 @@ prepare_mount() {
     else
       info "LV ${VG_NAME}/${LV_NAME} already exists."
     fi
-
-    # If not formatted, format ext4
     if ! blkid "$dev_path" >/dev/null 2>&1; then
       info "Formatting $dev_path as ext4…"
       mkfs.ext4 -F "$dev_path"
     fi
-
     ensure_fstab_uuid "$dev_path" "$MOUNT" "$mount_opts"
     mkdir -p "$MOUNT"
     mountpoint -q "$MOUNT" || mount "$MOUNT"
     return 0
   fi
 
-  # Neither device nor VG given: only ensure it's mounted if listed in fstab
   if ! mountpoint -q "$MOUNT"; then
     warn "No --device/--vg given; attempting to mount $MOUNT from fstab…"
-    mount "$MOUNT" || warn "Could not mount $MOUNT. Continuing (projects mode may still work if using symlinks)."
+    mount "$MOUNT" || warn "Could not mount $MOUNT."
   fi
 }
 
-# ------------- Docker control helpers -------------
 docker_stop() {
   systemctl is-active --quiet docker && systemctl stop docker || true
   systemctl is-active --quiet docker.socket && systemctl stop docker.socket || true
-  # containerd is optional; stop if present
   if systemctl list-unit-files | grep -q '^containerd\.service'; then
     systemctl is-active --quiet containerd && systemctl stop containerd || true
   fi
@@ -187,7 +178,6 @@ docker_root_dir() {
   docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}'
 }
 
-# ------------- A) migrate Docker data-root -------------
 migrate_docker_root() {
   local target="${MOUNT%/}/docker-data"
   mkdir -p "$target"
@@ -201,7 +191,6 @@ migrate_docker_root() {
   info "Stopping Docker…"
   docker_stop
 
-  # Ensure daemon.json exists and set data-root with jq
   if [[ -s "$daemon_json" ]]; then
     info "Updating $daemon_json (preserving other keys)…"
     tmp="$(mktemp)"
@@ -213,7 +202,7 @@ migrate_docker_root() {
     printf '{ "data-root": "%s" }\n' "$target" > "$daemon_json"
   fi
 
-  info "Syncing current Docker data to new location… (this can take a while)"
+  info "Syncing current Docker data to new location…"
   rsync -aHAXx --numeric-ids "$orig_root/" "$target/" || die "rsync failed"
 
   info "Starting Docker…"
@@ -223,14 +212,12 @@ migrate_docker_root() {
   local now_root
   now_root="$(docker_root_dir || true)"
   if [[ "$now_root" != "$target" ]]; then
-    warn "Docker Root Dir reports '$now_root' (expected '$target')."
-    warn "If first start changed paths, try restarting Docker once more."
+    warn "Docker Root Dir reports '$now_root' (expected '$target'). Restarting docker…"
     systemctl restart docker || true
     sleep 2
     now_root="$(docker_root_dir || true)"
   fi
   info "Docker Root Dir: ${now_root:-<unknown>}"
-
   if [[ "$now_root" == "$target" ]]; then
     if confirm "Migration looks good. Backup old /var/lib/docker to /var/lib/docker.bak?"; then
       mv "$orig_root" "/var/lib/docker.bak.$(date +%Y%m%d-%H%M%S)"
@@ -242,7 +229,6 @@ migrate_docker_root() {
   fi
 }
 
-# ------------- Revert Docker data-root -------------
 revert_docker_root() {
   local daemon_json="/etc/docker/daemon.json"
   local target="/var/lib/docker"
@@ -252,7 +238,6 @@ revert_docker_root() {
   info "Stopping Docker…"
   docker_stop
 
-  # Find current data-root if any
   local cur_root=""
   if [[ -s "$daemon_json" ]]; then
     cur_root="$(jq -r '."data-root" // empty' "$daemon_json" || true)"
@@ -281,15 +266,11 @@ revert_docker_root() {
   bold ">>> Revert complete."
 }
 
-# ------------- B) Move pmx project data (rag-backend) -------------
 move_project_data() {
-  local repo="$REPO"
-  local proj_root="$PROJECT_ROOT"
-
+  local repo="$REPO" proj_root="$PROJECT_ROOT"
   [[ -d "$repo" ]] || die "--repo path '$repo' not found"
   mkdir -p "$proj_root"
 
-  # Determine owner (match repo owner by default)
   local uid gid user group
   uid="$(stat -c %u "$repo")"
   gid="$(stat -c %g "$repo")"
@@ -300,7 +281,6 @@ move_project_data() {
 
   bold ">>> Relocating pmx project data to: $proj_root (owner: $user:$group)"
 
-  # RAG paths
   local rag_src_docs="$repo/rag-backend/documents"
   local rag_src_store="$repo/rag-backend/storage"
   local rag_dst_root="$proj_root/rag"
@@ -311,25 +291,19 @@ move_project_data() {
   chown -R "$user:$group" "$rag_dst_root"
   chmod -R 0775 "$rag_dst_root"
 
-  # helper to move + symlink
-  _move_and_optionally_symlink() {
+  _move_and_link() {
     local src="$1" dst="$2"
     if [[ -d "$src" && ! -L "$src" ]]; then
-      info "Syncing data from $src -> $dst"
+      info "Syncing $src -> $dst"
       rsync -aHAX --delete "$src/" "$dst/"
       if [[ "${SYMLINK,,}" == "true" ]]; then
-        info "Replacing $src with symlink to $dst"
         local bak="${src}.bak.$(date +%Y%m%d-%H%M%S)"
         mv "$src" "$bak"
         ln -s "$dst" "$src"
-      else
-        info "Keeping $src as physical dir (no symlink)."
-        # In this case, recommend changing bind-mounts to absolute $dst later.
       fi
     elif [[ -L "$src" ]]; then
-      info "$src is already a symlink. Skipping."
+      info "$src already a symlink. Skipping."
     else
-      # src missing: create symlink if requested
       if [[ "${SYMLINK,,}" == "true" ]]; then
         info "$src missing; creating symlink -> $dst"
         ln -s "$dst" "$src"
@@ -339,56 +313,33 @@ move_project_data() {
     fi
   }
 
-  _move_and_optionally_symlink "$rag_src_docs" "$rag_dst_docs"
-  _move_and_optionally_symlink "$rag_src_store" "$rag_dst_store"
-
-  # Additional future services (scaffold)
-  # Example placeholders for later:
-  #   n8n:    $repo/n8n-data  -> $proj_root/n8n/data
-  #   qdrant: $repo/qdrant    -> $proj_root/qdrant
-  #   ollama: $repo/ollama    -> $proj_root/ollama
-  # Add similar calls here when those paths stabilize.
+  _move_and_link "$rag_src_docs" "$rag_dst_docs"
+  _move_and_link "$rag_src_store" "$rag_dst_store"
 
   bold ">>> Project data relocation complete."
 }
 
-# ------------- Patch RAG installer port to 8082 (optional) -------------
 patch_rag_port() {
-  local repo="$REPO"
-  local rag_install="$repo/install_rag.sh"
-  [[ -f "$rag_install" ]] || { warn "install_rag.sh not found at $rag_install; skipping port patch."; return 0; }
-  [[ "$RAG_PORT_FIX" == "skip" ]] && { info "RAG port patch skipped by request."; return 0; }
-
+  local repo="$REPO" rag_install="$repo/install_rag.sh"
+  [[ -f "$rag_install" ]] || { info "install_rag.sh not found; skipping port patch."; return 0; }
+  [[ "$RAG_PORT_FIX" == "skip" ]] && { info "RAG port patch skipped."; return 0; }
   bold ">>> Patching RAG installer to use port $RAG_PORT_FIX"
-  # Replace common patterns: ':8000' -> ':8082', 'localhost:8000' -> ':8082'
-  sed -i -E "s#(:)8000#\1${RAG_PORT_FIX}#g" "$rag_install"
-  sed -i -E "s#localhost:8000#localhost:${RAG_PORT_FIX}#g" "$rag_install"
-  info "Patched $rag_install"
+  sed -i -E "s#(:)8000#\1${RAG_PORT_FIX}#g; s#localhost:8000#localhost:${RAG_PORT_FIX}#g" "$rag_install"
 }
 
-# ------------- main -------------
 main() {
   if [[ "$MODE" == "revert" ]]; then
     revert_docker_root
     exit 0
   fi
 
-  # Prepare mount if needed
   prepare_mount
 
   case "$MODE" in
-    data-root)
-      migrate_docker_root
-      ;;
-    projects)
-      move_project_data
-      patch_rag_port
-      ;;
-    both)
-      migrate_docker_root
-      move_project_data
-      patch_rag_port
-      ;;
+    data-root) migrate_docker_root ;;
+    projects)  move_project_data; patch_rag_port ;;
+    both)      migrate_docker_root; move_project_data; patch_rag_port ;;
+    *) die "invalid mode";;
   esac
 
   bold "All done."
