@@ -41,7 +41,6 @@ die()  { err "$*"; exit 1; }
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
     die "Please run as root (sudo)."
-  }
 }
 
 # ------------- arg parsing -------------
