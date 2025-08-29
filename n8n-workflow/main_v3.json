@@ -155,7 +155,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1600,
+        1808,
         -112
       ]
     },
@@ -206,7 +206,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1152,
+        1360,
         -208
       ],
       "id": "f16688e5-804a-4436-bc60-e92030afafb6",
@@ -222,39 +222,6 @@
       "typeVersion": 2,
       "position": [
         256,
-        -208
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "multi-persona",
-              "leftValue": "={{ $json.persona_count || 0 }}",
-              "rightValue": 1,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "790093c0-3cff-41c0-8cc7-10444f584714",
-      "name": "Multiple Personas?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        480,
         -208
       ]
     },
@@ -405,7 +372,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1376,
+        1584,
         -208
       ],
       "id": "ea38aa9b-c4df-4e41-9119-74559cc7df42",
@@ -423,7 +390,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1600,
+        1808,
         -304
       ],
       "id": "ea1d4401-7981-4da1-9aae-1c9d065c8854",
@@ -511,6 +478,59 @@
       ],
       "id": "ab6d3c62-f250-456f-8ea7-3707d8bf658e",
       "name": "Build ACK"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "multi-persona",
+              "leftValue": "={{ Number($json.persona_count || (Array.isArray($json.personas) ? $json.personas.length : 0)) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "60008d2b-bc56-4f90-ac71-8453097bc05a",
+              "leftValue": "={{$json.agents_enabled}}",
+              "rightValue": 1,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "ef9b4a9b-355f-4493-b90a-17e0562cf7a0",
+              "leftValue": "={{$json.force_agents}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "790093c0-3cff-41c0-8cc7-10444f584714",
+      "name": "Agent Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -208
+      ]
     }
   ],
   "pinData": {
@@ -613,25 +633,7 @@
       "main": [
         [
           {
-            "node": "Multiple Personas?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Multiple Personas?": {
-      "main": [
-        [
-          {
-            "node": "Run Agent_Orchestrator Sub",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Load Memory",
+            "node": "Agent Mode?",
             "type": "main",
             "index": 0
           }
@@ -759,13 +761,31 @@
           }
         ]
       ]
+    },
+    "Agent Mode?": {
+      "main": [
+        [
+          {
+            "node": "Run Agent_Orchestrator Sub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "4a7a4b70-3ffe-48f4-ad3e-a4ec299b4463",
+  "versionId": "98487218-9af8-425f-956f-f050822fd5ae",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },

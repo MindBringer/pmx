@@ -9,20 +9,20 @@
       "typeVersion": 1.1,
       "position": [
         -496,
-        240
+        384
       ],
       "id": "7c8ee817-131e-4a84-a58c-df6ccf83f973",
       "name": "When Executed by Another Workflow"
     },
     {
       "parameters": {
-        "jsCode": "// Tools: Validate & Normalize\n// Input erwartet ein Feld \"tools\": [{ tool, input, _tool_idx }, ...]\n// Output: ein Item pro Tool-Call, normalisiert & mit Meta\n\nconst ALLOWED_TOOLS = new Set([\"web.search\", \"db.query\", \"program.run\", \"c16.soa\"]);\nconst WEB_DEFAULTS = { top_k: 3, recency_days: 30, provider: \"bing\", timeout_ms: 15000 };\nconst DB_ALLOWED = new Set([\"postgres\", \"mysql\", \"mssql\"]);\nconst DB_DEFAULTS = { max_rows: 50, timeout_ms: 10000 };\nconst CMD_ALLOWED = new Set([\"tail-log\", \"nginx-test\", \"docker-ps\"]);\nconst CMD_DEFAULTS = { timeout_ms: 5000, max_output_chars: 4000 };\nconst C16_ACTIONS = {\n  \"customers.get\":      { method: \"GET\",  path: (p)=>`/api/customers/${encodeURIComponent(p.id)}` },\n  \"customers.search\":   { method: \"GET\",  path: (p)=>`/api/customers`, wants: [\"q\",\"limit\"] },\n  \"orders.byCustomer\":  { method: \"GET\",  path: (p)=>`/api/customers/${encodeURIComponent(p.id)}/orders`, wants:[\"limit\",\"from\",\"to\"] },\n  \"invoice.status\":     { method: \"GET\",  path: (p)=>`/api/invoices/${encodeURIComponent(p.no)}/status` },\n  // ergänze hier DEINE freigegebenen Endpunkte\n};\n\nfunction bad(msg, ctx) {\n  const err = new Error(msg);\n  err.context = ctx || {};\n  throw err;\n}\n\nfunction normWeb(input) {\n  const q = String(input.query || \"\").trim();\n  if (q.length < 3) bad(\"web.search: 'query' zu kurz\", { query: q });\n  const top_k = Math.min(5, Math.max(1, Number(input.top_k || WEB_DEFAULTS.top_k)));\n  const recency_days = Math.min(365, Math.max(0, Number(input.recency_days ?? WEB_DEFAULTS.recency_days)));\n  const provider = String(input.provider || WEB_DEFAULTS.provider).toLowerCase();\n  return { query: q, top_k, recency_days, provider, timeout_ms: WEB_DEFAULTS.timeout_ms };\n}\n\nfunction looksDangerousSQL(sql) {\n  const s = sql.toLowerCase();\n  // blocke mutierende/DDL/Mehrfach-Statements rudimentär\n  if (/[;]{2,}/.test(s)) return true;\n  if (/(insert|update|delete|alter|drop|truncate|create|grant|revoke)\\b/.test(s)) return true;\n  if (!/\\bselect\\b/.test(s)) return true;\n  return false;\n}\n\nfunction hasLimit(sql, kind) {\n  const s = sql.toLowerCase();\n  if (kind === \"mssql\") return /\\btop\\s+\\d+\\b/.test(s); // sehr grob\n  return /\\blimit\\s+\\d+\\b/.test(s); // postgres/mysql\n}\n\nfunction normDb(input) {\n  const kind = String(input.kind || \"\").toLowerCase();\n  if (!DB_ALLOWED.has(kind)) bad(\"db.query: unbekannte 'kind'\", { kind });\n  const conn = String(input.conn || \"\");\n  if (!/^cred:[A-Za-z0-9._-]{3,}$/.test(conn)) bad(\"db.query: 'conn' muss 'cred:NAME' sein\", { conn });\n  const sql = String(input.sql || \"\").trim();\n  if (!sql) bad(\"db.query: 'sql' fehlt\");\n  if (looksDangerousSQL(sql)) bad(\"db.query: nur SELECT erlaubt / verdächtige SQL erkannt\");\n\n  // Wir erzwingen Limits über Node-Parameter im DB-Node (max_rows), nicht per SQL-Rewrite.\n  const max_rows = Number(input.max_rows || DB_DEFAULTS.max_rows);\n  const timeout_ms = Number(input.timeout_ms || DB_DEFAULTS.timeout_ms);\n  return { kind, conn, sql, max_rows, timeout_ms, has_limit: hasLimit(sql, kind) };\n}\n\nfunction normCmd(input) {\n  const name = String(input.name || \"\").toLowerCase();\n  if (!CMD_ALLOWED.has(name)) bad(\"program.run: command nicht erlaubt\", { name });\n  const args = Array.isArray(input.args) ? input.args.map(a => String(a)) : [];\n  const timeout_ms = Number(input.timeout_ms || CMD_DEFAULTS.timeout_ms);\n  const max_output_chars = Number(input.max_output_chars || CMD_DEFAULTS.max_output_chars);\n  return { name, args, timeout_ms, max_output_chars };\n}\n\nfunction normC16(input) {\n  const action = String(input.action || \"\").trim();\n  if (!C16_ACTIONS[action]) throw new Error(`c16.soa: unbekannte action '${action}'`);\n  const params = (input.params && typeof input.params === \"object\") ? input.params : {};\n  // optional: filtere nur erlaubte Parameter\n  const wants = C16_ACTIONS[action].wants || null;\n  const safeParams = wants ? Object.fromEntries(Object.entries(params).filter(([k]) => wants.includes(k))) : params;\n  // Session-Weitergabe: bevorzugt per Header (ENV/Credential), nicht im Input!\n  return { action, params: safeParams, timeout_ms: Number(input.timeout_ms || 10000) };\n}\n\nconst src = ($json && typeof $json === \"object\") ? $json : {};\nconst tools = Array.isArray(src.tools) ? src.tools : (Array.isArray(src.body?.tools) ? src.body.tools : []);\nif (!tools.length) bad(\"Keine tools[] im Input gefunden\");\n\nconst out = [];\nfor (const t of tools) {\n  const tool = String(t.tool || \"\").toLowerCase().trim();\n  if (!ALLOWED_TOOLS.has(tool)) bad(\"Tool nicht erlaubt\", { tool });\n\n  let normalized;\n  if (tool === \"web.search\")      normalized = normWeb(t.input || {});\n  else if (tool === \"db.query\")   normalized = normDb(t.input || {});\n  else if (tool === \"program.run\")normalized = normCmd(t.input || {});\n  else if (tool === \"c16.soa\")    normalized = normC16(t.input || {});\n  else bad(\"Unbekanntes Tool\", { tool });\n\n  out.push({\n    json: {\n      tool,\n      input: normalized,\n      tool_id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${t._tool_idx || 0}`,\n      conversation_id: src.conversation_id || src.body?.conversation_id || null\n    }\n  });\n}\n\nreturn out;\n"
+        "jsCode": "// Tools: Validate & Normalize\n// Input erwartet ein Feld \"tools\": [{ tool, input, _tool_idx }, ...]\n// Output: ein Item pro Tool-Call, normalisiert & mit Meta\n\nconst ALLOWED_TOOLS = new Set([\"web.search\", \"db.query\", \"program.run\", \"c16.soa\"]);\nconst WEB_DEFAULTS = { top_k: 3, recency_days: 30, provider: \"bing\", timeout_ms: 15000 };\nconst DB_ALLOWED = new Set([\"postgres\", \"mysql\", \"mssql\"]);\nconst DB_DEFAULTS = { max_rows: 50, timeout_ms: 10000 };\nconst CMD_ALLOWED = new Set([\"tail-log\", \"nginx-test\", \"docker-ps\"]);\nconst CMD_DEFAULTS = { timeout_ms: 5000, max_output_chars: 4000 };\nconst C16_ACTIONS = {\n  \"customers.get\":      { method: \"GET\",  path: (p)=>`/api/customers/${encodeURIComponent(p.id)}` },\n  \"customers.search\":   { method: \"GET\",  path: (p)=>`/api/customers`, wants: [\"q\",\"limit\"] },\n  \"orders.byCustomer\":  { method: \"GET\",  path: (p)=>`/api/customers/${encodeURIComponent(p.id)}/orders`, wants:[\"limit\",\"from\",\"to\"] },\n  \"invoice.status\":     { method: \"GET\",  path: (p)=>`/api/invoices/${encodeURIComponent(p.no)}/status` },\n  // ergänze hier DEINE freigegebenen Endpunkte\n};\n\nfunction bad(msg, ctx) {\n  const err = new Error(msg);\n  err.context = ctx || {};\n  throw err;\n}\n\nfunction normWeb(input) {\n  const q = String(input.query || \"\").trim();\n  if (q.length < 3) bad(\"web.search: 'query' zu kurz\", { query: q });\n  const top_k = Math.min(5, Math.max(1, Number(input.top_k || WEB_DEFAULTS.top_k)));\n  const recency_days = Math.min(365, Math.max(0, Number(input.recency_days ?? WEB_DEFAULTS.recency_days)));\n  const provider = String(input.provider || WEB_DEFAULTS.provider).toLowerCase();\n  return { query: q, top_k, recency_days, provider, timeout_ms: WEB_DEFAULTS.timeout_ms };\n}\n\nfunction looksDangerousSQL(sql) {\n  const s = sql.toLowerCase();\n  // blocke mutierende/DDL/Mehrfach-Statements rudimentär\n  if (/[;]{2,}/.test(s)) return true;\n  if (/(insert|update|delete|alter|drop|truncate|create|grant|revoke)\\b/.test(s)) return true;\n  if (!/\\bselect\\b/.test(s)) return true;\n  return false;\n}\n\nfunction hasLimit(sql, kind) {\n  const s = sql.toLowerCase();\n  if (kind === \"mssql\") return /\\btop\\s+\\d+\\b/.test(s); // sehr grob\n  return /\\blimit\\s+\\d+\\b/.test(s); // postgres/mysql\n}\n\nfunction normDb(input) {\n  const kind = String(input.kind || \"\").toLowerCase();\n  if (!DB_ALLOWED.has(kind)) bad(\"db.query: unbekannte 'kind'\", { kind });\n  const conn = String(input.conn || \"\");\n  if (!/^cred:[A-Za-z0-9._-]{3,}$/.test(conn)) bad(\"db.query: 'conn' muss 'cred:NAME' sein\", { conn });\n  const sql = String(input.sql || \"\").trim();\n  if (!sql) bad(\"db.query: 'sql' fehlt\");\n  if (looksDangerousSQL(sql)) bad(\"db.query: nur SELECT erlaubt / verdächtige SQL erkannt\");\n\n  // Wir erzwingen Limits über Node-Parameter im DB-Node (max_rows), nicht per SQL-Rewrite.\n  const max_rows = Number(input.max_rows || DB_DEFAULTS.max_rows);\n  const timeout_ms = Number(input.timeout_ms || DB_DEFAULTS.timeout_ms);\n  return { kind, conn, sql, max_rows, timeout_ms, has_limit: hasLimit(sql, kind) };\n}\n\nfunction normCmd(input) {\n  const name = String(input.name || \"\").toLowerCase();\n  if (!CMD_ALLOWED.has(name)) bad(\"program.run: command nicht erlaubt\", { name });\n  const args = Array.isArray(input.args) ? input.args.map(a => String(a)) : [];\n  const timeout_ms = Number(input.timeout_ms || CMD_DEFAULTS.timeout_ms);\n  const max_output_chars = Number(input.max_output_chars || CMD_DEFAULTS.max_output_chars);\n  return { name, args, timeout_ms, max_output_chars };\n}\n\nfunction normC16(input) {\n  const action = String(input.action || \"\").trim();\n  if (!C16_ACTIONS[action]) throw new Error(`c16.soa: unbekannte action '${action}'`);\n  const params = (input.params && typeof input.params === \"object\") ? input.params : {};\n  // optional: filtere nur erlaubte Parameter\n  const wants = C16_ACTIONS[action].wants || null;\n  const safeParams = wants ? Object.fromEntries(Object.entries(params).filter(([k]) => wants.includes(k))) : params;\n  // Session-Weitergabe: bevorzugt per Header (ENV/Credential), nicht im Input!\n  return { action, params: safeParams, timeout_ms: Number(input.timeout_ms || 10000) };\n}\n\nconst src = ($json && typeof $json === \"object\") ? $json : {};\nconst tools = Array.isArray(src.tools) ? src.tools\n            : (Array.isArray(src.body?.tools) ? src.body.tools : []);\n\n// --- NEU: ohne tools[] -> No-Op-Item ausgeben ---\nif (!tools.length) {\n  // Dieses Item geht via Switch-Default direkt an den Aggregator\n  return [{ json: { _no_tools: true, tool_observations: [] } }];\n}\n// --- /NEU ---\n\nconst out = [];\nfor (const t of tools) {\n  const tool = String(t.tool || \"\").toLowerCase().trim();\n  if (!ALLOWED_TOOLS.has(tool)) bad(\"Tool nicht erlaubt\", { tool });\n\n  let normalized;\n  if (tool === \"web.search\")       normalized = normWeb(t.input || {});\n  else if (tool === \"db.query\")    normalized = normDb(t.input || {});\n  else if (tool === \"program.run\") normalized = normCmd(t.input || {});\n  else if (tool === \"c16.soa\")     normalized = normC16(t.input || {});\n  else bad(\"Unbekanntes Tool\", { tool });\n\n  out.push({\n    json: {\n      tool,\n      input: normalized,\n      tool_id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${t._tool_idx || 0}`,\n      conversation_id: src.conversation_id || src.body?.conversation_id || null\n    }\n  });\n}\n\nreturn out;"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         -272,
-        240
+        384
       ],
       "id": "ad324ce1-b27e-4c79-9d4e-202a38c4dd3a",
       "name": "Validate & Normalize"
@@ -121,6 +121,29 @@
                 ],
                 "combinator": "and"
               }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "526a8931-69a7-4b6b-bab3-a9c14d25f5d0",
+                    "leftValue": "={{ $json.tool }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notExists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
             }
           ]
         },
@@ -130,7 +153,7 @@
       "typeVersion": 3.2,
       "position": [
         -48,
-        64
+        112
       ],
       "id": "45941c20-a9d6-49ba-9903-c7d644776fae",
       "name": "Define Tool"
@@ -151,13 +174,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Tools: Aggregate Observations — fasst alle Branch-Ergebnisse zu einem Array zusammen\n// Erwartete Branch-Outputs (Beispiele):\n// web.search -> { tool, tool_id, items: [{title,url,snippet}, ...] }\n// db.query   -> { tool, tool_id, rows: [...], rowCount: n }\n// program.run-> { tool, tool_id, stdout, stderr, exitCode, truncated: bool }\n\nconst inputs = $input.all();\nconst obs = [];\n\nfor (const it of inputs) {\n  const j = it.json || {};\n  const base = { tool: j.tool, tool_id: j.tool_id };\n\n  if (j.tool === \"web.search\" && Array.isArray(j.items)) {\n    obs.push({ ...base, items: j.items.slice(0, 10) });\n\n  } else if (j.tool === \"db.query\") {\n    const rows = Array.isArray(j.rows) ? j.rows : [];\n    const rowCount = Number(j.rowCount ?? rows.length);\n    // optional: Mini-Vorschau\n    const preview = rows.slice(0, 3);\n    obs.push({ ...base, rows, rowCount, preview });\n\n  } else if (j.tool === \"program.run\") {\n    const stdout = String(j.stdout || \"\");\n    const stderr = String(j.stderr || \"\");\n    obs.push({\n      ...base,\n      stdout: stdout.slice(0, 4000),\n      stderr: stderr ? stderr.slice(0, 4000) : undefined,\n      exitCode: Number(j.exitCode ?? 0),\n      truncated: Boolean(j.truncated)\n    });\n\n  } else if (j.observation) {\n    // Generischer Fallback, falls du selbst schon \"observation\" baust\n    obs.push({ ...base, ...j.observation });\n\n  } else if (j.tool === \"c16.soa\") {\n    const data  = j.data;\n    const count = Number(j.count ?? (Array.isArray(data) ? data.length :(data?.items?.length || 0)));\n    const preview = Array.isArray(data) ? data.slice(0,3)\n                  : Array.isArray(data?.items) ? data.items.slice(0,3)\n                  : undefined;\n    obs.push({ tool: j.tool, tool_id: j.tool_id, action: j.action, count, preview, data }); \n  } else {\n    // Unerwartetes Format – trotzdem aufnehmen\n    obs.push({ ...base, raw: j });\n  }\n}\n\nreturn [{ json: { tool_observations: obs } }];\n"
+        "jsCode": "// Tools: Aggregate Observations — fasst alle Branch-Ergebnisse zu einem Array zusammen\n// Erwartete Branch-Outputs (Beispiele):\n// web.search -> { tool, tool_id, items: [{title,url,snippet}, ...] }\n// db.query   -> { tool, tool_id, rows: [...], rowCount: n }\n// program.run-> { tool, tool_id, stdout, stderr, exitCode, truncated: bool }\nconst inputs = $input.all();\n\n// --- NEU: leer oder No-Op? -> leeres Ergebnis zurück ---\nif (!inputs.length) {\n  return [{ json: { tool_observations: [] } }];\n}\nif (inputs.some(it => it.json?._no_tools || Array.isArray(it.json?.tool_observations))) {\n  return [{ json: { tool_observations: [] } }];\n}\nconst inputs = $input.all();\nconst obs = [];\n\nfor (const it of inputs) {\n  const j = it.json || {};\n  const base = { tool: j.tool, tool_id: j.tool_id };\n\n  if (j.tool === \"web.search\" && Array.isArray(j.items)) {\n    obs.push({ ...base, items: j.items.slice(0, 10) });\n\n  } else if (j.tool === \"db.query\") {\n    const rows = Array.isArray(j.rows) ? j.rows : [];\n    const rowCount = Number(j.rowCount ?? rows.length);\n    // optional: Mini-Vorschau\n    const preview = rows.slice(0, 3);\n    obs.push({ ...base, rows, rowCount, preview });\n\n  } else if (j.tool === \"program.run\") {\n    const stdout = String(j.stdout || \"\");\n    const stderr = String(j.stderr || \"\");\n    obs.push({\n      ...base,\n      stdout: stdout.slice(0, 4000),\n      stderr: stderr ? stderr.slice(0, 4000) : undefined,\n      exitCode: Number(j.exitCode ?? 0),\n      truncated: Boolean(j.truncated)\n    });\n\n  } else if (j.observation) {\n    // Generischer Fallback, falls du selbst schon \"observation\" baust\n    obs.push({ ...base, ...j.observation });\n\n  } else if (j.tool === \"c16.soa\") {\n    const data  = j.data;\n    const count = Number(j.count ?? (Array.isArray(data) ? data.length :(data?.items?.length || 0)));\n    const preview = Array.isArray(data) ? data.slice(0,3)\n                  : Array.isArray(data?.items) ? data.items.slice(0,3)\n                  : undefined;\n    obs.push({ tool: j.tool, tool_id: j.tool_id, action: j.action, count, preview, data }); \n  } else {\n    // Unerwartetes Format – trotzdem aufnehmen\n    obs.push({ ...base, raw: j });\n  }\n}\n\nreturn [{ json: { tool_observations: obs } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1072,
-        144
+        208
       ],
       "id": "601ef9d5-92a6-42a6-82c9-f11aff526776",
       "name": "Tools: Aggregate Observations"
@@ -195,7 +218,7 @@
       "typeVersion": 3.2,
       "position": [
         848,
-        144
+        112
       ],
       "id": "c2252dc3-1334-4f5b-a951-cfd3c22df01d",
       "name": "Merge"
@@ -208,7 +231,7 @@
       "typeVersion": 2,
       "position": [
         176,
-        304
+        432
       ],
       "id": "26247469-3460-4624-8850-32a3ac8ff996",
       "name": "Resolve SOA Action → HTTP Spec"
@@ -239,7 +262,7 @@
       "typeVersion": 4.2,
       "position": [
         400,
-        304
+        432
       ],
       "id": "76b2911f-c3a3-43a2-81d3-1b8f52635d2c",
       "name": "Call SOA c16"
@@ -252,7 +275,7 @@
       "typeVersion": 2,
       "position": [
         624,
-        304
+        432
       ],
       "id": "9de6c918-3357-4b17-b2db-98d7ebc89286",
       "name": "Mapper → c16.soa Result"
@@ -313,6 +336,13 @@
         [
           {
             "node": "Resolve SOA Action → HTTP Spec",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tools: Aggregate Observations",
             "type": "main",
             "index": 0
           }
@@ -390,7 +420,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "df16ba76-b8de-4d6a-9b73-8a4e236592a2",
+  "versionId": "978bf7c5-e548-4cc2-b1c1-ddc3c81d3fc4",
   "meta": {
     "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
   },
