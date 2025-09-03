@@ -27,25 +27,28 @@ services:
     profiles: ["ai"]
     build:
       context: ./rag-backend
-      dockerfile: ./Dockerfile.audio   # kleiner Wrapper, der deinen transcribe/speakers-Router mounted
+      dockerfile: ./Dockerfile.audio
     container_name: audio-api
     ports:
-      - "6080:6080"  # /transcribe, /speakers
+      - "6080:6080"
     environment:
       - DEVICE=cuda
       - ASR_MODEL=medium
       - ASR_COMPUTE_TYPE=float16
-      # Qdrant steht auf der Services-VM; du kannst statt IP auch "srv-aisvc" nutzen, falls DNS/Hosts passt.
       - QDRANT_URL=http://192.168.30.42:6333
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - SPEAKER_COLLECTION=speakers
-    deploy: {}
-    # GPU-Zuweisung
-    device_requests:
-      - driver: nvidia
-        count: 1
-        capabilities: [gpu]
-        device_ids: ["0"]
+      # → Nvidia CTK: hilft der Runtime beim richtigen Setup
+      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              device_ids: ["0"]
+              capabilities: ["gpu"]
     restart: unless-stopped
     networks:
       - ai-net
