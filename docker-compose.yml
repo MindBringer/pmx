@@ -111,7 +111,7 @@ services:
       qdrant:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8082/rag/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/health"]
       interval: 20s
       timeout: 5s
       retries: 5
