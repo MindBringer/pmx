@@ -64,6 +64,7 @@ services:
     environment:
       - GENERIC_TIMEZONE=Europe/Berlin
       - N8N_HOST=ai.intern
+      - N8N_PORT=443
       - N8N_PROTOCOL=https
       - N8N_SECURE_COOKIE=true
       - N8N_EDITOR_BASE_URL=https://ai.intern/
@@ -74,6 +75,8 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASS:-}
       # Optional: direkte Targets zur AI-VM
       - OLLAMA_GPU0_URL=${OLLAMA_GPU0_URL:-http://192.168.30.43:11434}
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     extra_hosts:
       - "ollama:192.168.30.43"
     volumes:
