@@ -74,6 +74,8 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASS:-}
       # Optional: direkte Targets zur AI-VM
       - OLLAMA_GPU0_URL=${OLLAMA_GPU0_URL:-http://192.168.30.43:11434}
+    extra_hosts:
+      - "ollama:192.168.30.43"
     volumes:
       - n8n-data:/home/node/.n8n
     restart: unless-stopped
