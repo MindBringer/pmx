@@ -1,0 +1,6 @@
+.git
+**/__pycache__/
+*.pyc
+rag-backend/documents
+rag-backend/storage
+node_modules

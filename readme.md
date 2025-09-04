@@ -1,5 +1,8 @@
 # PMX – 2-VM KI-Stack (GPU + Services)
 
+03:00.0 VGA compatible controller [0300]: NVIDIA Corporation GA106 [RTX A2000 12GB] [10de:2571] (rev a1)
+03:00.1 Audio device [0403]: NVIDIA Corporation GA106 High Definition Audio Controller [10de:228e] (rev a1)
+
 > **Ziel**: Stabiler, nachvollziehbarer Split des Stacks auf **zwei VMs**  
 > **srv-ai01 (GPU)**: LLM-Serving & Audio (Transcribe, Speaker/Diarize)  
 > **srv-aisvc (Services)**: RAG-Backend, Qdrant, n8n, Nginx (+SSL), Frontend
