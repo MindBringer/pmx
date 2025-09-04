@@ -31,7 +31,7 @@ services:
     profiles: ["ai"]
     build:
       context: .
-      dockerfile: Dockerfile.audio
+      dockerfile: rag-backend/Dockerfile.audio
     container_name: audio-api
     ports: ["6080:6080"]              # /transcribe, /speakers
     environment:
