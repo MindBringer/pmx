@@ -74,9 +74,15 @@ form?.addEventListener("submit", async (e)=>{
         const criticProv = document.getElementById("critic_provider")?.value || "";
         const criticModel = (document.getElementById("critic_model")?.value || "").trim();
         if (criticProv || criticModel) payload.critic = { provider: criticProv || undefined, model: criticModel || undefined };
+        if (criticProv === 'vllm') {
+          payload.critic = { ...(payload.critic||{}), llm_target: 'base' };
+        }
         const wProv = document.getElementById('writer_provider')?.value || '';
         const wModel = (document.getElementById('writer_model')?.value || '').trim();
         if (wProv || wModel) payload.writer = { provider: wProv || undefined, model: wModel || undefined };
+        if (wProv === 'vllm') {
+          payload.writer = { ...(payload.writer||{}), llm_target: 'base' };
+        }
         const title = personas.map(p=>p.label||'Persona').slice(0,3).join(', ') || prompt.split('\n')[0].slice(0,80);
         hideSpinner();
         await startAsyncRun(title || 'Agentenlauf', payload);
@@ -85,6 +91,9 @@ form?.addEventListener("submit", async (e)=>{
     }
 
     payload.model = model;
+    if (!isAgents && model === 'vllm') {
+      payload.llm_target = 'allrounder';  // Default für normalen Chat
+    }
     await startSyncRun('Frage', payload);
   } catch (err){
     resultOut.textContent = `❌ Fehler: ${err.message}`;
