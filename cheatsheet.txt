@@ -1,0 +1,504 @@
+# PMX AI‑Stack Cheatsheet
+
+> Für dein Repo **MindBringer/pmx**. Befehle sind für Linux/Ubuntu, Docker Compose v2, und wurden so gewählt, dass sie sicher und schnell anwendbar sind. Platzhalter wie `<...>` anpassen.
+
+---
+
+## 0) Schnellstart & Kontexte
+
+```bash
+# ins Projekt wechseln
+cd ~/pmx
+
+# (optional) Profile aktivieren – falls du in compose Profile definierst
+export COMPOSE_PROFILES="ai,ai-vllm"
+
+# eigenes Docker-Netz prüfen/erzeugen (wird von pmx genutzt)
+docker network ls | grep -q ai-net || docker network create ai-net
+```
+
+Nützliche Aliase (optional in `~/.bashrc`):
+
+```bash
+alias dcu='docker compose up -d'
+alias dcd='docker compose down'
+alias dcl='docker compose logs -f'
+alias dcb='docker compose build'
+```
+
+---
+
+## 1) Git – Clone, Pull, Status, Commit, Branch
+
+### 1.1 Clone/Pull via HTTPS + Token (ohne Token im Verlauf zu leaken)
+
+```bash
+# Token nur im RAM erfassen
+read -rsp "GitHub Token: " GH_PAT; echo
+
+# Clone (ersetze USER falls nötig)
+git clone https://<USER>:$GH_PAT@github.com/MindBringer/pmx.git
+unset GH_PAT
+
+# oder später pullen
+git pull --rebase
+```
+
+**Tipp:** Nutze den Git Credential Manager oder `gh auth login`, dann kein Token in der URL nötig.
+
+### 1.2 Status / Branch anzeigen
+
+```bash
+git status           # Dateien/Änderungen
+git branch --show-current
+git remote -v       # Remotes
+# kompakter Commit-Verlauf
+git log --oneline -n 10 --graph --decorate
+```
+
+### 1.3 Committen & pushen
+
+```bash
+git add -A
+git commit -m "<kurze, präzise Nachricht>"
+# auf bestehenden Branch pushen
+git push
+# neuen Branch anlegen & pushen
+git switch -c feature/xyz
+git push -u origin feature/xyz
+```
+
+### 1.4 Branch wechseln (soft/hart)
+
+```bash
+# normal (schlägt fehl, wenn lokale Änderungen überschrieben würden)
+git switch <branch>
+
+# Änderungen beiseitelegen (sicher)
+git stash -u && git switch <branch>
+
+# hart: lokale Änderungen VERWERFEN (tracked + untracked)
+git reset --hard HEAD && git clean -fd && git switch -f <branch>
+```
+
+---
+
+## 2) Docker – Bauen, Starten, Stoppen, Status, Volumes, Update
+
+### 2.1 Bauen/Starten/Stoppen
+
+```bash
+# gesamter Stack (inkl. Rebuild)
+docker compose up -d --build --remove-orphans
+
+# nur bestimmten Service
+docker compose build rag-backend --no-cache
+docker compose up -d rag-backend
+
+# mit (Mehrfach-)Profilen
+docker compose --profile ai --profile ai-vllm up -d
+
+# stoppen / herunterfahren
+docker compose stop                 # Container behalten
+docker compose down                 # Container & Netze entfernen
+# Vorsicht: mit -v werden Volumes gelöscht!
+```
+
+### 2.2 Status, Health, Logs
+
+```bash
+# Überblick
+docker compose ps
+
+# Health-Status pro Container
+for c in $(docker ps -q); do
+  docker inspect -f '{{.Name}} -> {{.State.Status}} / health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}' $c;
+done
+
+# Logs (follow)
+docker compose logs -f --tail=200
+# nur Service
+docker compose logs -f ollama
+```
+
+### 2.3 Harte Maßnahmen, wenn ein Container spinnt
+
+```bash
+# Prozess abschießen (SIGKILL)
+docker kill -s KILL <container>
+# Container zwangsweise entfernen
+docker rm -f <container>
+# verwaiste Container/Netze/Images aufräumen (ACHTUNG)
+docker system prune -af --volumes
+```
+
+### 2.4 Volumes – finden, sichern, wiederherstellen
+
+```bash
+# Liste & Details
+docker volume ls
+docker volume inspect <vol>
+
+# Backup eines Volumes (z.B. ollama-Modelle)
+docker run --rm -v ollama-data:/data -v "$PWD":/backup busybox \
+  sh -c 'tar czf /backup/ollama-data_$(date +%F).tgz -C / data'
+
+# Restore
+docker run --rm -v ollama-data:/data -v "$PWD":/backup busybox \
+  sh -c 'tar xzf /backup/ollama-data_YYYY-MM-DD.tgz -C /'
+```
+
+### 2.5 Container/Images aktualisieren
+
+```bash
+# Images vom Registry ziehen & aktualisiert starten
+docker compose pull
+docker compose up -d --remove-orphans
+
+# „hart“ neu bauen
+docker compose build --pull --no-cache
+docker compose up -d
+```
+
+### 2.6 Nützliches
+
+```bash
+# in Container rein
+docker exec -it rag-backend sh
+# Live-Ressourcenverbrauch
+docker stats
+```
+
+---
+
+## 3) LLMs – Ollama & vLLM
+
+### 3.1 Ollama (Container-Name: `ollama`)
+
+```bash
+# Modelle laden (im Container)
+docker exec -it ollama sh -lc "ollama pull llama3"
+docker exec -it ollama sh -lc "ollama pull mxbai-embed-large"
+docker exec -it ollama sh -lc "ollama list"
+
+# Modell aktualisieren (erneut pullen)
+docker exec -it ollama sh -lc "ollama pull llama3"
+
+# Details anzeigen
+docker exec -it ollama sh -lc "ollama show llama3"
+
+# Modell entfernen
+docker exec -it ollama sh -lc "ollama rm llama3"
+
+# Test über API
+curl -s http://localhost:11434/api/generate -d '{"model":"llama3","prompt":"Hallo"}' | jq .
+```
+
+**Persistenz:** Modelle liegen im Volume `ollama-data` (Pfad im Container: `/root/.ollama`).
+
+### 3.2 vLLM – „OpenAI-kompatibler“ Server
+
+**Docker (einfacher Testlauf, Port 8000):**
+
+```bash
+docker run --rm -d --name vllm --gpus all \
+  -p 8000:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  --ipc=host vllm/vllm-openai:latest \
+  --model Qwen/Qwen2.5-7B-Instruct
+```
+
+**Compose‑Snippet (GPU‑Zugriff):**
+
+```yaml
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    command: ["--model", "Qwen/Qwen2.5-7B-Instruct", "--max-model-len", "16384"]
+    ports: ["8000:8000"]
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+```
+
+**API‑Probe (Chat):**
+
+```bash
+curl -s http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "messages": [{"role":"user","content":"Sag Hallo in Deutsch"}]
+  }' | jq .choices[0].message.content
+```
+
+**Mehrere Modelle parallel?** Je **ein vLLM‑Prozess pro Modell** → mehrere Services/Container mit unterschiedlichen Ports (z. B. `8000`, `8001`).
+
+---
+
+## 4) nginx – Sites, Neustarts, Zertifikate
+
+### 4.1 Verzeichnisstruktur & Site aktivieren
+
+```bash
+# Hauptkonfig
+/etc/nginx/nginx.conf
+# Sites
+/etc/nginx/sites-available/   # hier liegen die echten Dateien
+/etc/nginx/sites-enabled/     # hier NUR Symlinks auf sites-available
+
+# neue Site anlegen
+sudo nano /etc/nginx/sites-available/pmx.conf
+
+# Beispiel (Reverse Proxy auf PMX-Dienste)
+server {
+  listen 80;
+  server_name schlaubi.local;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name schlaubi.local;
+  ssl_certificate     /etc/ssl/certs/pmx.crt;
+  ssl_certificate_key /etc/ssl/private/pmx.key;
+  client_max_body_size 64m;
+
+  # Standard-Proxy-Hardening
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+
+  location /rag/   { proxy_pass http://127.0.0.1:8082/; }
+  location /n8n/   { proxy_pass http://127.0.0.1:5678/; }
+  location /ollama/{ proxy_pass http://127.0.0.1:11434/; }
+}
+
+# aktivieren per Symlink
+sudo ln -s /etc/nginx/sites-available/pmx.conf /etc/nginx/sites-enabled/pmx.conf
+
+# Syntax prüfen & übernehmen
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 4.2 „Echte Dateien“ an falschen Stellen (statt Symlink)
+
+```bash
+# Fall: versehentlich echte Datei in sites-enabled erstellt
+sudo mv /etc/nginx/sites-enabled/pmx.conf /etc/nginx/sites-available/pmx.conf
+sudo ln -s /etc/nginx/sites-available/pmx.conf /etc/nginx/sites-enabled/pmx.conf
+
+# kaputte Symlinks aufräumen
+sudo find -L /etc/nginx/sites-enabled -type l -delete
+
+# Dateirechte sicherstellen
+sudo chown root:root /etc/nginx/sites-available/pmx.conf
+sudo chmod 644 /etc/nginx/sites-available/pmx.conf
+
+# Test & Reload
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 4.3 nginx starten/neu laden/Status
+
+```bash
+sudo systemctl enable nginx --now      # aktivieren & starten
+sudo systemctl restart nginx           # hart neu starten
+sudo systemctl reload nginx            # config neu laden (ohne Drop)
+sudo systemctl status nginx            # Status
+journalctl -u nginx -f                 # Logs live
+sudo nginx -t                          # Config-Test
+```
+
+### 4.4 TLS (self-signed) – eigene Root‑CA + Server‑Zertifikat
+
+**Warum so?** Ein reines Self‑Signed Server‑Zertifikat ist auf Clients unbequem. Besser: **eigene Root‑CA** anlegen, *damit* den Server ausstellen, und **die CA** auf Clients vertrauen lassen.
+
+```bash
+# 1) Ordner
+sudo install -d -m 700 /etc/ssl/private
+sudo install -d -m 755 /etc/ssl/certs
+
+# 2) Root‑CA erzeugen (10 Jahre gültig)
+sudo openssl genrsa -out /etc/ssl/private/pmx-ca.key 4096
+sudo openssl req -x509 -new -nodes -key /etc/ssl/private/pmx-ca.key -sha256 -days 3650 -subj "/C=DE/O=PMX/L=Local/CN=PMX Dev Root CA" -out /etc/ssl/certs/pmx-ca.crt
+
+# 3) Server‑Key & CSR mit SAN (Host & IPs anpassen)
+sudo openssl genrsa -out /etc/ssl/private/pmx.key 4096
+sudo openssl req -new -key /etc/ssl/private/pmx.key -subj "/CN=schlaubi.local" -out /tmp/pmx.csr
+sudo bash -c 'echo subjectAltName=DNS:schlaubi.local,IP:127.0.0.1,IP:10.10.10.1 > /tmp/pmx-san.ext'
+
+# 4) Server-Zertifikat von der CA signieren (825 Tage)
+sudo openssl x509 -req -in /tmp/pmx.csr -CA /etc/ssl/certs/pmx-ca.crt -CAkey /etc/ssl/private/pmx-ca.key -CAcreateserial -out /etc/ssl/certs/pmx.crt -days 825 -sha256 -extfile /tmp/pmx-san.ext
+
+# 5) Rechte
+sudo chmod 600 /etc/ssl/private/pmx.key /etc/ssl/private/pmx-ca.key
+sudo chmod 644 /etc/ssl/certs/pmx.crt /etc/ssl/certs/pmx-ca.crt
+
+# 6) nginx reload
+sudo tee /etc/nginx/snippets/pmx-ssl.conf >/dev/null <<'EOF'
+ssl_certificate /etc/ssl/certs/pmx.crt;
+ssl_certificate_key /etc/ssl/private/pmx.key;
+EOF
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 4.5 Zertifikate exportieren & auf Clients einspielen (Root‑CA: pmx-ca.crt)
+
+**macOS**
+
+* Doppelklick auf `pmx-ca.crt` → Schlüsselbund
+* In **System**-Schlüsselbund importieren → Eintrag öffnen → **Vertrauen: Immer vertrauen**
+
+**iOS/iPadOS**
+
+* `pmx-ca.crt` per AirDrop/Email öffnen → *Profil geladen* → **Einstellungen → Allgemein → VPN & Geräteverwaltung → Profil installieren**
+* Danach: **Einstellungen → Allgemein → Info → Zertifikatvertrauenseinstellungen → Volles Vertrauen aktivieren**
+
+**Windows**
+
+```powershell
+# als Admin in PowerShell
+certutil -addstore -f "Root" C:\Pfad\pmx-ca.crt
+```
+
+oder MMC → Zertifikate (Lokaler Computer) → **Vertrauenswürdige Stammzertifizierungsstellen** → Import.
+
+**Linux (Debian/Ubuntu)**
+
+```bash
+sudo cp pmx-ca.crt /usr/local/share/ca-certificates/pmx-ca.crt
+sudo update-ca-certificates
+```
+
+**RHEL/Fedora**
+
+```bash
+sudo cp pmx-ca.crt /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust
+```
+
+**Android**
+
+```bash
+# oft DER-Format nötig
+openssl x509 -in pmx-ca.crt -outform der -out pmx-ca.der
+```
+
+* Übertragen → **Einstellungen → Sicherheit → Verschlüsselung & Anmeldedaten → Zertifikat installieren → CA-Zertifikat** (Herstellerabhängig)
+
+> **Hinweis:** Eine Root‑CA hat weitreichendes Vertrauen. Private CA‑Keys niemals verteilen, nur **das CA‑Zertifikat** (`pmx-ca.crt`). Server‑Key sicher aufbewahren.
+
+---
+
+## 5) Monitoring – System, Docker, Dienste, NVIDIA
+
+### 5.1 System/Bordmittel
+
+```bash
+# CPU/RAM/Load
+htop         # oder: top
+free -h; vmstat 1; iostat 1
+
+# Plattenplatz
+df -h; du -xh --max-depth=1 /var/lib/docker | sort -h | tail -n 20
+
+# Netzwerk‑Verbindungen
+ss -tupn | head -n 30
+
+# Live‑Watch
+watch -n 2 'uptime; free -h; df -h | grep -E "(/$|/var$)"'
+```
+
+### 5.2 Docker/Services
+
+```bash
+# Übersicht & Health
+docker compose ps
+
+# Logs live
+docker compose logs -f --tail=200
+
+# Ressourcennutzung
+docker stats
+```
+
+### 5.3 PMX‑Service‑Gesundheit (HTTP)
+
+```bash
+# RAG‑Backend
+curl -fsS http://localhost:8082/rag/health
+# n8n (Startseite liefert HTML‑Header)
+curl -I http://localhost:5678/ | head -n 1
+# Qdrant intern erreichbar?
+docker exec -it rag-backend curl -fsS http://qdrant:6333/ | jq .status
+```
+
+### 5.4 NVIDIA/GPU
+
+```bash
+# Host: Status im Sekundentakt
+nvidia-smi -l 2
+# Prozess‑Monitoring
+nvidia-smi pmon -c 1
+# optionales TUI‑Tool
+nvtop
+# Im Container prüfen
+docker exec -it vllm nvidia-smi
+```
+
+---
+
+## 6) Troubleshooting – schnelle Rezepte
+
+```bash
+# Build-Probleme / verhedderte Caches
+docker system prune -af --volumes; docker buildx prune -af
+
+# „Bad lock file ..env.swp“ im RAG-Ordner
+rm -f rag-backend/..env.swp
+
+# Compose-Netz stimmt nicht
+# -> entweder externes Netz definieren ODER von Compose erzeugen lassen
+# (siehe compose.yml: networks.ai-net)
+
+# Ports kollidieren
+ss -tulpn | grep -E ':443|:5678|:8082|:11434'
+```
+
+---
+
+## 7) Häufige Einzeiler
+
+```bash
+# gesamte Logs kompakt der letzten Minuten
+journalctl -u docker --since "-10min"
+
+# Welche Container sind „unhealthy“?
+docker ps -q | xargs -I{} docker inspect -f '{{.Name}} {{.State.Health.Status}}' {} | grep -v ' healthy$'
+
+# Nur RAG‑Backend neu starten
+docker compose restart rag-backend
+
+# Alle Modelle auflisten/prüfen (Ollama)
+docker exec -it ollama sh -lc 'ollama list && echo && ollama show llama3 | head -n 20'
+```
+
+---
+
+### Notizen zum PMX‑Stack
+
+* Services (Stand jetzt): `nginx` (optional), `n8n`, `rag-backend`, `ollama`, `qdrant`.
+* Wichtige Ports (Host): `:443` (Proxy), `:5678` (n8n), `:8082` (RAG), `:11434` (Ollama).
+* Persistente Volumes: `ollama-data`, `n8n-data`, `qdrant_data`, `rag_documents`, `rag_storage`.
+
+*Viel Spaß – und falls etwas brennt: erst Logs, dann Health, dann neu bauen.* 🔧🔥

@@ -121,6 +121,32 @@ server {
     if ($request_method = OPTIONS) { add_header Content-Length 0; return 204; }
   }
 
+  # 1.6) vLLM-Instanzen auf AI-VM (192.168.30.43)
+
+  # vLLM Allrounder → /v1/llm/...
+  location ^~ /v1/llm/ {
+    proxy_pass         http://192.168.30.43:8001/v1/;  # Achtung: trailing slash
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+  }
+
+  # vLLM LoRA-Basis → /v1/base/...
+  location ^~ /v1/base/ {
+    proxy_pass         http://192.168.30.43:8002/v1/;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+  }
+
   # 2) Restliche /rag/*-Routen (index, query, tags, docs, …):
   #    Präfix STRIPPEN: /rag/x -> /x
   #    => trailing slash bei proxy_pass!
