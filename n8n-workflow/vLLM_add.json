@@ -1,0 +1,44 @@
+{
+  "name": "patch_vllm_allrounder_http",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.43:8001/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  model: $json.model_name || $json.openai_model || 'served-model',\n  messages: [\n    ...((($('Context (original fields)').first().json.system || '').trim()) ? [{ role:'system', content: $('Context (original fields)').first().json.system }] : []),\n    { role:'user', content: $json.prompt }\n  ],\n  temperature: Number.isFinite($json.temperature) ? $json.temperature : 0.3,\n  top_p: Number.isFinite($json.top_p) ? $json.top_p : 0.9,\n  max_tokens: Number.isFinite($json.max_tokens) ? $json.max_tokens : 800,\n  stream: false\n}) }}",
+        "options": { "timeout": 300000 }
+      },
+      "id": "call-vllm-http",
+      "name": "Call vLLM (Allrounder HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-80, 140]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const reqCtx = ($items('Context (original fields)', 0)?.[0]?.json) || {};\nconst res = $json || {};\n// Text extrahieren\nlet out = '';\nif (Array.isArray(res.choices) && res.choices[0]) {\n  const c = res.choices[0];\n  out = (c.message?.content) || c.text || '';\n}\n// Denk-Abschnitte entfernen\nout = String(out||'')\n  .replace(/<think>[\\s\\S]*?<\\/think>\\s*/gi,'')\n  .replace(/```(?:think|thinking|reasoning)[\\t ]*\\n[\\s\\S]*?```/gi,'')\n  .trim();\nreturn [{ json: {\n  provider: 'vllm',\n  model_used: res.model || reqCtx.model || 'vllm',\n  answer: out,\n  usage: res.usage || undefined,\n  raw: res\n}}];"
+      },
+      "id": "fmt-vllm",
+      "name": "Format vLLM Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 140]
+    }
+  ],
+  "connections": {
+    "Call vLLM (Allrounder HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Format vLLM Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
