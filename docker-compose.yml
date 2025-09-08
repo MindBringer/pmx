@@ -81,6 +81,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks: [ai-net]
 
   # ==============
   # vLLM #2 – LoRA-Basis (Writer/Critic o.ä.)
@@ -117,6 +118,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks: [ai-net]
 
   # =================================
   # Services-VM (srv-aisvc) Profile

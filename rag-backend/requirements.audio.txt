@@ -1,0 +1,9 @@
+fastapi>=0.114
+uvicorn[standard]>=0.30
+numpy>=1.26
+faster-whisper>=1.0
+webrtcvad>=2.0.10
+# Optional, nur wenn du Speaker-Diarization via SpeechBrain brauchst:
+# torch==2.4.0+cu121 ; platform_system=="Linux"
+# torchaudio==2.4.0+cu121 ; platform_system=="Linux"
+# speechbrain>=1.0
