@@ -103,7 +103,8 @@ services:
       - --enable-lora
       - --max-loras=4
       # Lege LoRA-Dateien in /docker/projects/pmx/loras/{writer,critic}
-      - --lora-modules=writer=/loras/writer critic=/loras/critic
+      - --lora-modules=writer=/loras/writer
+      - --lora-modules=critic=/loras/critic
       - --download-dir=/models
       - --trust-remote-code
     volumes:
