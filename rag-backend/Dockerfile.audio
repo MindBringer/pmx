@@ -22,4 +22,4 @@ RUN printf '%s\n' \
 > /app/audio_main.py
 
 EXPOSE 6080
-ENTRYPOINT ["uvicorn","app.audio_api:app","--host","0.0.0.0","--port","6080"]
+ENTRYPOINT ["uvicorn","app.main:app","--host","0.0.0.0","--port","6080"]
