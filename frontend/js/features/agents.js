@@ -27,14 +27,18 @@ function renderAnswer(payload){
 }
 
 export function collectPersonas(){
-  // lies die Formularfelder im Agents-Tab aus:
-  const list = [];
-  document.querySelectorAll(".persona-row").forEach(row=>{
-    const label = row.querySelector(".persona-label")?.value?.trim();
-    const role  = row.querySelector(".persona-role")?.value?.trim();
-    if (label || role) list.push({ label, role });
-  });
-  return list;
+  const out = [];
+  for (let i = 1; i <= 5; i++) {
+    const enabled  = document.getElementById(`p${i}_enabled`)?.checked;
+    const label    = document.getElementById(`p${i}_label`)?.value?.trim();
+    const provider = document.getElementById(`p${i}_model`)?.value || ''; // im UI "Modell", inhaltlich Provider
+    if (enabled && (label || provider)) {
+      const p = { label: label || `Persona ${i}` };
+      if (provider) p.provider = provider; // z.B. 'vllm', 'groq', ...
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 export async function startAsyncRun(title, payload){
