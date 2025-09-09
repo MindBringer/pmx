@@ -6,20 +6,29 @@ const resultOut = document.getElementById("result-output");
 const spinner   = document.getElementById("spinner");
 
 function renderAnswer(payload){
-  const { answer, result, sources, artifacts, provider, model_used } = payload || {};
+  const { answer, result, sources, provider, model_used, status } = payload || {};
   const txt = (answer || result || "").trim();
-  if (!txt) {
+
+  // Nur Fehler anzeigen, wenn das Backend eine echte Fehlmeldung sendet
+  if (!txt && status === 'error') {
     resultDiv.className = "error";
-    resultOut.textContent = "⚠️ Kein Text im Ergebnis.";
+    resultOut.textContent = "❌ Fehler vom Backend (siehe Logs).";
     return;
   }
-  // simple formatting
+  if (!txt) {
+    // Nichts rendern, wir warten noch – UI bleibt auf „läuft...“
+    return;
+  }
+
+  // Erfolg
   const meta = [];
-  if (provider) meta.push(`Provider: ${provider}`);
+  if (provider)  meta.push(`Provider: ${provider}`);
   if (model_used) meta.push(`Model: ${model_used}`);
   const metaLine = meta.length ? `<div class="inline-help">${meta.join(" · ")}</div>` : "";
   const srcList = Array.isArray(sources) && sources.length
-    ? `<details style="margin-top:8px"><summary>Quellen (${sources.length})</summary><ul>${sources.map(s=>`<li>${typeof s==='string'?s:JSON.stringify(s)}</li>`).join("")}</ul></details>`
+    ? `<details style="margin-top:8px"><summary>Quellen (${sources.length})</summary><ul>${
+        sources.map(s=>`<li>${typeof s==='string'?s:JSON.stringify(s)}</li>`).join("")
+      }</ul></details>`
     : "";
 
   resultDiv.className = "success";
@@ -31,7 +40,7 @@ export function collectPersonas(){
   for (let i = 1; i <= 5; i++) {
     const enabled  = document.getElementById(`p${i}_enabled`)?.checked;
     const label    = document.getElementById(`p${i}_label`)?.value?.trim();
-    const provider = document.getElementById(`p${i}_model`)?.value || ''; // im UI "Modell", inhaltlich Provider
+    const provider = document.getElementById(`p${i}_model`)?.value || '';
     if (enabled && (label || provider)) {
       const p = { label: label || `Persona ${i}` };
       if (provider) p.provider = provider; // z.B. 'vllm', 'groq', ...
@@ -51,78 +60,68 @@ export async function startAsyncRun(title, payload){
         "Content-Type": "application/json",
         ...(key ? { "x-api-key": key } : {})
       },
-      body: JSON.stringify({
-        title: title || "Agentenlauf",
-        async: true,
-        ...payload
-      })
+      body: JSON.stringify({ title: title || "Agentenlauf", async: true, ...payload })
     });
 
-    // 202 = ACK mit Links
+    // *** WICHTIG: ACK zuerst prüfen ***
     if (res.status === 202) {
-      const ack = await res.json(); // { ok, job_id, events, result, started_at, ... }
-      // Events (SSE) anhören – optional
+      const ack = await res.json(); // { ok, job_id, events, result, ... }
+
+      // leichte Statusanzeige
+      resultDiv.className = "";
+      resultOut.innerHTML = `
+        <div class="inline-help">
+          Agentenrunde gestartet – ich sammle das Ergebnis…
+          ${ack.result ? `<div style="margin-top:4px"><code>${ack.result}</code></div>` : ""}
+        </div>`;
+
+      // optional: SSE für Fortschritt
       if (ack.events) {
         try {
           const es = new EventSource(ack.events);
-          es.onmessage = (evt)=>{
-            // Optional: Logs ins UI streamen
-            // console.debug("AGENT-EVENT:", evt.data);
-          };
-          es.onerror = ()=>{ try { es.close(); } catch{} };
+          es.onmessage = () => {};  // du kannst hier Logs ins UI schreiben
+          es.onerror = () => { try { es.close(); } catch{} };
         } catch {}
       }
 
-      // Result poll’en, bis 200 kommt
-      if (!ack.result) {
-        resultDiv.className="error";
-        resultOut.textContent = "❌ ACK ohne result-Link.";
-        return;
-      }
-
-      // sofort anzeigen, dass der Job läuft
-      resultDiv.className = "";
-      resultOut.innerHTML = `<div class="inline-help">Job gestartet: <code>${ack.result}</code></div>`;
-
-      // Poll-Schleife
-      const start = Date.now();
-      const timeoutMs = 10 * 60 * 1000; // 10min
-      // kleines Backoff
+      // Ergebnis pollen bis HTTP 200
+      if (!ack.result) return; // ohne result-Link: nichts zu tun
+      const t0 = Date.now();
+      const timeoutMs = 10 * 60 * 1000;
       let wait = 1200;
+
       while (true) {
         const r = await fetch(ack.result, { headers: key ? { "x-api-key": key } : {} });
         if (r.status === 200) {
-          const data = await r.json(); // { answer, sources, artifacts, ... }
+          const data = await r.json();   // { answer, result, sources, ... }
           renderAnswer(data);
           break;
         }
-        if (r.status !== 202 && r.status !== 204 && r.status !== 404) {
-          // Unerwartet -> Fehlermeldung anzeigen
+        // 202/204/404 = noch nicht fertig -> weiter warten
+        if (![202,204,404].includes(r.status)) {
           const txt = await r.text().catch(()=>String(r.status));
-          resultDiv.className="error";
+          resultDiv.className = "error";
           resultOut.textContent = `❌ Ergebnis-Fehler (${r.status}): ${txt}`;
           break;
         }
-        if (Date.now() - start > timeoutMs) {
-          resultDiv.className="error";
+        if (Date.now() - t0 > timeoutMs) {
+          resultDiv.className = "error";
           resultOut.textContent = "⏱️ Timeout beim Warten auf Agenten-Ergebnis.";
           break;
         }
-        await new Promise(res => setTimeout(res, wait));
-        // Backoff bis max ~3s
+        await new Promise(s => setTimeout(s, wait));
         if (wait < 3000) wait = Math.min(3000, Math.round(wait * 1.25));
       }
       return;
     }
 
-    // SYNC-Fall (unerwartet im Agentenmodus, aber für Robustheit):
+    // SYNC-Fall (nur wenn Agentenmodus mal nicht triggert)
     if (res.ok) {
       const data = await res.json();
       renderAnswer(data);
       return;
     }
 
-    // Fehlerfall
     const errTxt = await res.text().catch(()=>String(res.status));
     resultDiv.className = "error";
     resultOut.textContent = `❌ HTTP ${res.status}: ${errTxt}`;
