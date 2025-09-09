@@ -85,9 +85,7 @@ form?.addEventListener("submit", async (e)=>{
     }
 
     payload.model = model;
-    if (!isAgents && model === 'vllm') {
-      payload.llm_target = 'allrounder';  // Default für normalen Chat
-    }
+
     await startSyncRun('Frage', payload);
   } catch (err){
     resultOut.textContent = `❌ Fehler: ${err.message}`;
