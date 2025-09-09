@@ -85,7 +85,6 @@ form?.addEventListener("submit", async (e)=>{
     }
 
     payload.model = model;
-
     await startSyncRun('Frage', payload);
   } catch (err){
     resultOut.textContent = `❌ Fehler: ${err.message}`;

@@ -1,134 +1,149 @@
-// frontend/js/features/agents.js
-import { showFor } from "../utils/dom.js";
-
-const resultDiv = document.getElementById("result");
-const resultOut = document.getElementById("result-output");
-const spinner   = document.getElementById("spinner");
-
-function renderAnswer(payload){
-  const { answer, result, sources, provider, model_used, status } = payload || {};
-  const txt = (answer || result || "").trim();
-
-  // Nur Fehler anzeigen, wenn das Backend eine echte Fehlmeldung sendet
-  if (!txt && status === 'error') {
-    resultDiv.className = "error";
-    resultOut.textContent = "❌ Fehler vom Backend (siehe Logs).";
-    return;
-  }
-  if (!txt) {
-    // Nichts rendern, wir warten noch – UI bleibt auf „läuft...“
-    return;
-  }
-
-  // Erfolg
-  const meta = [];
-  if (provider)  meta.push(`Provider: ${provider}`);
-  if (model_used) meta.push(`Model: ${model_used}`);
-  const metaLine = meta.length ? `<div class="inline-help">${meta.join(" · ")}</div>` : "";
-  const srcList = Array.isArray(sources) && sources.length
-    ? `<details style="margin-top:8px"><summary>Quellen (${sources.length})</summary><ul>${
-        sources.map(s=>`<li>${typeof s==='string'?s:JSON.stringify(s)}</li>`).join("")
-      }</ul></details>`
-    : "";
-
-  resultDiv.className = "success";
-  resultOut.innerHTML = `${metaLine}<div class="text">${txt.replace(/\n/g,"<br>")}</div>${srcList}`;
-}
+// features/agents.js
+import { looksOk, waitForResult, startEventSource } from "../utils/net.js";
+import { setFinalAnswer, setError, showJob, logJob, sseLabel } from "../ui/renderers.js";
+import { getConversationId, isValidConversationId } from "../state/conversation.js";
 
 export function collectPersonas(){
-  const out = [];
-  for (let i = 1; i <= 5; i++) {
-    const enabled  = document.getElementById(`p${i}_enabled`)?.checked;
-    const label    = document.getElementById(`p${i}_label`)?.value?.trim();
-    const provider = document.getElementById(`p${i}_model`)?.value || '';
-    if (enabled && (label || provider)) {
-      const p = { label: label || `Persona ${i}` };
-      if (provider) p.provider = provider; // z.B. 'vllm', 'groq', ...
-      out.push(p);
+  const rows = [1,2,3,4,5];
+  const list = [];
+  for (const i of rows){
+    const en = document.getElementById(`p${i}_enabled`);
+    const labEl = document.getElementById(`p${i}_label`);
+    const modEl = document.getElementById(`p${i}_model`);
+    if (!en || !labEl || !modEl) continue;
+    const checked = !!en.checked;
+    const label = (labEl.value||'').trim();
+    const provider = modEl.value;
+    if (checked){
+      if (!label){
+        throw new Error(`Bitte Jobtitel/Beschreibung für Persona ${i} eingeben.`);
+      }
+      list.push({ label, provider });
     }
   }
-  return out;
+  return list;
 }
 
-export async function startAsyncRun(title, payload){
-  const hideSpinner = showFor(spinner, 300);
-  try {
-    const key = (localStorage.getItem('ragApiKey') || "").trim();
-    const res = await fetch("/webhook/llm", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(key ? { "x-api-key": key } : {})
-      },
-      body: JSON.stringify({ title: title || "Agentenlauf", async: true, ...payload })
-    });
+export async function startAsyncRun(job_title, payload){
+  const headers = { "Content-Type": "application/json" };
+  const convId = getConversationId();
+  if (isValidConversationId(convId)) {
+    payload.conversation_id = convId;
+    headers["x-conversation-id"] = convId;
+  }
+  payload.async = true;
+  payload.title = job_title;
 
-    // *** WICHTIG: ACK zuerst prüfen ***
-    if (res.status === 202) {
-      const ack = await res.json(); // { ok, job_id, events, result, ... }
+  // Start via n8n Webhook
+  const res = await fetch("/webhook/llm", { method: "POST", headers, body: JSON.stringify(payload) });
+  const ackText = await res.text();
+  let ack = {};
+  try { ack = JSON.parse(ackText.trim().replace(/^=\s*/, "")); } catch {}
 
-      // leichte Statusanzeige
-      resultDiv.className = "";
-      resultOut.innerHTML = `
-        <div class="inline-help">
-          Agentenrunde gestartet – ich sammle das Ergebnis…
-          ${ack.result ? `<div style="margin-top:4px"><code>${ack.result}</code></div>` : ""}
-        </div>`;
+  // jobId extrahieren
+  const jobId =
+    ack.job_id ||
+    (typeof ack.events === "string" && ack.events.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
+    (typeof ack.result === "string" && ack.result.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
+    "";
 
-      // optional: SSE für Fortschritt
-      if (ack.events) {
-        try {
-          const es = new EventSource(ack.events);
-          es.onmessage = () => {};  // du kannst hier Logs ins UI schreiben
-          es.onerror = () => { try { es.close(); } catch{} };
-        } catch {}
+  if (!res.ok || !jobId) {
+    setError(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
+    throw new Error("start failed");
+  }
+  ack.job_id = jobId;
+
+  showJob(job_title || payload?.prompt || "Agentenlauf");
+
+  // Events-/Result-URL stabilisieren
+  const eventsUrl = looksOk(ack.events) ? ack.events : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
+  const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
+
+  // SSE verbinden
+  const src = startEventSource(eventsUrl, {
+    onOpen:  () => logJob("SSE verbunden."),
+    onError: () => logJob("Stream-Fehler (SSE) – versuche verbunden zu bleiben …"),
+    onEvent: (e) => {
+      try {
+        const evt = JSON.parse(e.data);
+        const line = document.getElementById('job-statusline');
+        if (line) line.textContent = sseLabel(job_title, evt);
+        if (evt.message) logJob(evt.message);
+
+        // Falls das Backend "done" im Event signalisiert -> sofort finalisieren
+        if (evt.status === 'done' || evt.stage === 'done' || evt.done === true) {
+          completeNow(); // guarded
+        }
+      } catch {
+        logJob(String(e.data || 'Event ohne JSON'));
+      }
+    }
+  });
+
+  // --- DOM-Fallbacks vorbereiten ---
+  const resultBox  = document.getElementById('result');
+  const resultOut  = document.getElementById('result-output');
+  function revealResultBox(){ if (resultBox) resultBox.style.display = ''; }
+
+  let finished = false;
+
+  // Ergebnis sicher rendern (egal ob via SSE oder Polling)
+  async function renderFinal(parsed){
+    if (finished) return;
+    finished = true;
+    try { src.close(); } catch {}
+
+    try {
+      // parsed kommt bereits von waitForResult(); sonst jetzt holen
+      if (!parsed) parsed = await waitForResult(resultUrl); // -> {answer, sources, artifacts, raw}
+      const answer    = (parsed?.answer || '').trim();
+      const sources   = parsed?.sources || [];
+      const artifacts = parsed?.artifacts || {};
+
+      // 1) Preferred: setFinalAnswer(string, opts)  — neue tolerante Signatur
+      let ok = false;
+      try { setFinalAnswer(answer || "[leer]", { sources, artifacts }); ok = true; } catch {}
+
+      // 2) Alternative Signatur: setFinalAnswer({ answer, ... })
+      if (!ok) {
+        try { setFinalAnswer({ answer: (answer || "[leer]"), sources, artifacts }); ok = true; } catch {}
       }
 
-      // Ergebnis pollen bis HTTP 200
-      if (!ack.result) return; // ohne result-Link: nichts zu tun
-      const t0 = Date.now();
-      const timeoutMs = 10 * 60 * 1000;
-      let wait = 1200;
-
-      while (true) {
-        const r = await fetch(ack.result, { headers: key ? { "x-api-key": key } : {} });
-        if (r.status === 200) {
-          const data = await r.json();   // { answer, result, sources, ... }
-          renderAnswer(data);
-          break;
-        }
-        // 202/204/404 = noch nicht fertig -> weiter warten
-        if (![202,204,404].includes(r.status)) {
-          const txt = await r.text().catch(()=>String(r.status));
-          resultDiv.className = "error";
-          resultOut.textContent = `❌ Ergebnis-Fehler (${r.status}): ${txt}`;
-          break;
-        }
-        if (Date.now() - t0 > timeoutMs) {
-          resultDiv.className = "error";
-          resultOut.textContent = "⏱️ Timeout beim Warten auf Agenten-Ergebnis.";
-          break;
-        }
-        await new Promise(s => setTimeout(s, wait));
-        if (wait < 3000) wait = Math.min(3000, Math.round(wait * 1.25));
+      // 3) Harte DOM-Ausgabe (dein Index nutzt #result-output)
+      if (!ok && resultOut) {
+        revealResultBox();
+        resultOut.textContent = (answer || "[leer]");
+        ok = true;
       }
-      return;
-    }
 
-    // SYNC-Fall (nur wenn Agentenmodus mal nicht triggert)
-    if (res.ok) {
-      const data = await res.json();
-      renderAnswer(data);
-      return;
+      if (!ok) {
+        console.warn('Fallback-Rendering: kein setFinalAnswer und kein #result-output gefunden.');
+      }
+    } catch (e) {
+      console.error("Final rendering failed", e);
+      try { setFinalAnswer("[leer]"); } catch {
+        if (resultOut) { revealResultBox(); resultOut.textContent = "[leer]"; }
+      }
     }
+  }
 
-    const errTxt = await res.text().catch(()=>String(res.status));
-    resultDiv.className = "error";
-    resultOut.textContent = `❌ HTTP ${res.status}: ${errTxt}`;
-  } catch (e) {
-    resultDiv.className = "error";
-    resultOut.textContent = `❌ ${e.message}`;
-  } finally {
-    hideSpinner();
+  // Poller: IMMER starten – unabhängig von SSE
+  (async () => {
+    try {
+      const parsed = await waitForResult(resultUrl);
+      console.debug('[agents][final]', {
+        rawStatus: parsed?.raw?.status,
+        preview: String(parsed?.answer || '').slice(0, 120)
+      });
+      await renderFinal(parsed);
+    } catch (e) {
+      console.error("waitForResult failed", e);
+      // optional: hier ein Hard-Timeout / Retry-Backoff ergänzen
+    }
+  })();
+
+  // manueller Trigger durch SSE-"done"
+  async function completeNow(){
+    try { await renderFinal(); } catch (e) { console.error("completeNow()", e); }
   }
 }
