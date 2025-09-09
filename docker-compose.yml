@@ -54,7 +54,7 @@ services:
     networks: [ai-net]
 
 # ==============
-  # vLLM #1 – Allrounder
+  # vLLM – Allrounder
   # ==============
   vllm-allrounder:
     profiles: ["ai", "ai-vllm"]
@@ -75,43 +75,6 @@ services:
     volumes:
       - vllm-models:/models
       - vllm-cache:/root/.cache/huggingface
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]
-      interval: 30s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    networks: [ai-net]
-
-  # ==============
-  # vLLM #2 – LoRA-Basis (Writer/Critic o.ä.)
-  # ==============
-  vllm-base:
-    profiles: ["ai", "ai-vllm"]
-    image: vllm/vllm-openai:latest
-    container_name: vllm-base
-    ports: ["8002:8000"]
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-    command:
-      - --model=${VLLM_MODEL_BASE}
-      - --quantization=awq
-      - --gpu-memory-utilization=${VLLM_GPU_UTIL}
-      - --max-model-len=8192
-      - --enable-lora
-      - --max-loras=4
-      # Lege LoRA-Dateien in /docker/projects/pmx/loras/{writer,critic}
-      - --lora-modules=writer=/loras/writer
-      - --lora-modules=critic=/loras/critic
-      - --download-dir=/models
-      - --trust-remote-code
-    volumes:
-      - vllm-models:/models
-      - vllm-cache:/root/.cache/huggingface
-      - /docker/projects/pmx/loras:/loras:ro   # hier liegen deine LoRAs (s. oben)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]
       interval: 30s
