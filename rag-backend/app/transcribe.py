@@ -24,11 +24,13 @@ router = APIRouter(tags=['transcribe'])
 # --------- ENV ---------
 DEVICE = 'cuda' if os.getenv('DEVICE','cpu').startswith('cuda') and torch.cuda.is_available() else 'cpu'
 ASR_MODEL = os.getenv('ASR_MODEL', 'medium')
-ASR_COMPUTE_TYPE = os.getenv('ASR_COMPUTE_TYPE', 'int8')  # cpu:int8, gpu:float16
+# BESSER: Default je nach Device
+ASR_COMPUTE_TYPE = os.getenv('ASR_COMPUTE_TYPE', 'float16' if DEVICE=='cuda' else 'int8')
 QDRANT_URL = os.getenv('QDRANT_URL', 'http://qdrant:6333')
 QDRANT_API_KEY = os.getenv('QDRANT_API_KEY', None)
 SPEAKER_COLLECTION = os.getenv('SPEAKER_COLLECTION', 'speakers')
 EMBED_DIM = 192  # ECAPA
+SPEAKER_SIM_THRESHOLD = float(os.getenv('SPEAKER_SIM_THRESHOLD', '0.25'))  # Cosine-Distanz
 
 # --------- Lazy singletons ---------
 _asr_model: Optional[WhisperModel] = None
@@ -122,22 +124,42 @@ def speakers_delete(spk_id: str) -> bool:
     except Exception:
         return False
 
-def speakers_identify(emb: np.ndarray, hints: Optional[List[str]] = None, threshold: float = 0.25) -> Tuple[Optional[str], float]:
+def _attach_identity_to_segments(segments: List[Dict[str,Any]], identify: Optional[Dict[str,Any]]) -> List[Dict[str,Any]]:
+    """
+    Wenn Identify vorhanden & confident, Namen in alle Segmente schreiben.
+    """
+    if not identify or not identify.get("name"):
+        return segments
+    name = identify["name"]
+    dist = identify.get("distance")
+    score = identify.get("score")
+    confident = False
+    if dist is not None:
+        confident = dist <= SPEAKER_SIM_THRESHOLD
+    if score is not None:
+        confident = confident or (score >= 0.75)
+    if confident:
+        for s in segments:
+            if not s.get("name"):  # nicht überschreiben, falls segmentweise Ident schon da
+                s["name"] = name
+    return segments
+
+def speakers_identify(emb: np.ndarray, hints: Optional[List[str]] = None, threshold: Optional[float] = None) -> Tuple[Optional[str], float, Optional[float]]:
     client = qdrant()
     flt = None
     if hints:
         flt = Filter(must=[FieldCondition(key="name", match=MatchValue(value=h)) for h in hints])
     srch = client.search(collection_name=SPEAKER_COLLECTION, query_vector=emb.tolist(), limit=1, query_filter=flt)
     if not srch:
-        return (None, 1.0)
+        return (None, 1.0, None)
     pt = srch[0]
-    # Qdrant mit COSINE liefert Score = Similarity (1.0 perfekt)
-    sim = float(pt.score)
-    dist = 1.0 - sim
+    sim = float(pt.score)                    # COSINE Similarity in [0..1]
+    dist = 1.0 - sim                         # Distanz: kleiner ist besser
     name = (pt.payload or {}).get("name")
-    if dist <= threshold:
-        return (name, dist)
-    return (None, dist)
+    thr = SPEAKER_SIM_THRESHOLD if threshold is None else threshold
+    if dist <= thr:
+        return (name, dist, sim)
+    return (None, dist, sim)
 
 # --------- Diarization (tokenfrei) ---------
 import contextlib, wave, collections
@@ -180,11 +202,16 @@ async def do_transcribe(
     diarize_flag: bool = Form(False),
     identify: bool = Form(False),
     language: Optional[str] = Form(None),
+    speaker_hints: Optional[str] = Form(None),  # NEU: "A, B, C"
 ):
     """
-    Transkribiert Audio. Optional: naive Diarisierung + Sprecher-Identifikation
-    (per Qdrant-Similarität).
+    Transkribiert Audio. Optional: einfache Diarisierung + Sprecher-Identifikation (Qdrant).
+    - diarize_flag=True: segmentiert Audio, transkribiert pro Segment
+    - identify=True: identifiziert Sprecher (mit optionalen Hints), schreibt Namen in Segmente
     """
+    tmp = None
+    wav = None
+    tmp_cuts = []
     try:
         # Datei in tmp schreiben
         tmp = tempfile.mktemp(suffix=os.path.splitext(file.filename or '')[-1] or ".bin")
@@ -195,19 +222,27 @@ async def do_transcribe(
         wav = _ffmpeg_to_wav_mono16k(tmp)
 
         # ggf. Segmente bilden
-        segments = None
+        segments_time = None
         if diarize_flag:
-            segments = diarize_segments(wav)
+            segments_time = diarize_segments(wav)  # [(start_ms, end_ms)]
 
-        # ASR
+        # ASR Model
         model = asr_model()
-        text_total = ""
-        results = []
 
-        if segments:
-            for (s_ms, e_ms) in segments:
+        text_total = ""
+        results: List[Dict[str,Any]] = []
+
+        hints_list = None
+        if speaker_hints:
+            # "A, B ,C" -> ["A","B","C"]
+            hints_list = [h.strip() for h in speaker_hints.split(",") if h.strip()]
+
+        if segments_time:
+            # Diarisierung aktiv: pro Segment transkribieren UND (falls identify) direkt identifizieren
+            for (s_ms, e_ms) in segments_time:
                 # via ffmpeg schneiden
                 cut = tempfile.mktemp(suffix=".wav")
+                tmp_cuts.append(cut)
                 dur = max(0.0, (e_ms - s_ms) / 1000.0)
                 cmd = [
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -220,22 +255,52 @@ async def do_transcribe(
                     cut
                 ]
                 subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                seg_text, _ = model.transcribe(cut, language=language if language else None)
-                seg_text = "".join([c.text for c in seg_text])
-                os.remove(cut)
-                text_total += seg_text + " "
-                results.append({"start_ms": s_ms, "end_ms": e_ms, "text": seg_text})
-        else:
-            it, info = model.transcribe(wav, language=language if language else None)
-            text_total = "".join([c.text for c in it])
-            results = [{"start_ms": 0, "end_ms": 0, "text": text_total}]
 
-        # optionale Identifikation auf gesamtem File
+                seg_it, _ = model.transcribe(cut, language=language if language else None)
+                seg_text = "".join([c.text for c in seg_it]).strip()
+                text_total += (seg_text + " ") if seg_text else ""
+
+                seg_out = {"start_ms": s_ms, "end_ms": e_ms, "text": seg_text}
+
+                if and (e_ms - s_ms) >= 1500:  # nur bei Segmenten >= 1.5s
+                    # segmentweise ECAPA-Embedding + Qdrant
+                    with torch.no_grad():
+                        emb = _embed_audio(cut)
+                    who, dist, sim = speakers_identify(emb, hints=hints_list)
+                    if who:
+                        seg_out["name"] = who
+                    if sim is not None:
+                        seg_out["score"] = sim
+                        seg_out["distance"] = dist
+
+                results.append(seg_out)
+        else:
+            # Keine Diarisierung: gesamte Datei transkribieren mit Whisper-Segmenten (start/end in Sekunden)
+            it, info = model.transcribe(wav, language=language if language else None)
+            whisper_segments = list(it)
+            text_total = "".join([c.text for c in whisper_segments]).strip()
+
+            # vorerst ohne Identify in jedem Segment -> setzen wir ggf. gesammelt weiter unten
+            for c in whisper_segments:
+                # c.start / c.end in Sekunden (kann None sein, dann auf 0 fallen)
+                s_ms = int((c.start or 0.0) * 1000)
+                e_ms = int((c.end or 0.0) * 1000)
+                results.append({"start_ms": s_ms, "end_ms": e_ms, "text": (c.text or "").strip()})
+
+        # optionale Identifikation auf gesamtem File (Fallback / Schneller Pfad)
         ident = None
         if identify:
-            emb = _embed_audio(tmp)
-            who, dist = speakers_identify(emb)
+            with torch.no_grad():
+                emb_file = _embed_audio(tmp)
+            who, dist, sim = speakers_identify(emb_file, hints=hints_list)
             ident = {"name": who, "distance": dist}
+            if sim is not None:
+                ident["score"] = sim
+
+            # Falls wir KEINE segmentweise Identify gemacht haben (z. B. ohne Diarisierung),
+            # trage den Namen in die Segmente ein, wenn confident.
+            if not segments_time:
+                results = _attach_identity_to_segments(results, ident)
 
         return {
             "text": text_total.strip(),
@@ -243,13 +308,22 @@ async def do_transcribe(
             "identify": ident
         }
 
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=400, detail=f"ffmpeg failed: {e.stderr.decode('utf-8','ignore')}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Transcribe failed: {e}")
     finally:
-        try: os.remove(tmp)
-        except Exception: pass
-        try: os.remove(wav)
-        except Exception: pass
+        # Cleanup
+        if tmp:
+            try: os.remove(tmp)
+            except Exception: pass
+        if wav:
+            try: os.remove(wav)
+            except Exception: pass
+        for c in tmp_cuts:
+            try: os.remove(c)
+            except Exception: pass
+
 
 # --- Speaker management (Qdrant) ---
 @router.get("/speakers")
