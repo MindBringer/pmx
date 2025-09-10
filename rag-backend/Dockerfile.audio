@@ -15,6 +15,21 @@ COPY rag-backend/requirements.audio.txt /app/requirements.txt
 RUN python -m pip install -U pip && \
     pip install --prefer-binary -r /app/requirements.txt
 
+# 1) LD_LIBRARY_PATH setzen (häufigster Pfad im pytorch-Image)
+ENV LD_LIBRARY_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}
+
+# 2) ld.so konfigurieren
+RUN python - <<'PY'
+import site, glob, os
+paths = []
+for sp in site.getsitepackages():
+    p = os.path.join(sp, "nvidia", "cudnn", "lib")
+    if os.path.isdir(p): paths.append(p)
+open("/etc/ld.so.conf.d/zz-nvidia-cudnn.conf","w").write("\n".join(paths)+"\n")
+print("cuDNN libs at:", paths)
+PY
+RUN ldconfig
+
 COPY rag-backend/app /app/app
 RUN [ -f /app/app/__init__.py ] || touch /app/app/__init__.py
 
