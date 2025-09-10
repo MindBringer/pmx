@@ -1,9 +1,20 @@
-fastapi>=0.114
-uvicorn[standard]>=0.30
-numpy>=1.26
-faster-whisper>=1.0
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic>=2.9,<3
+python-multipart==0.0.9
+tqdm==4.66.4
+python-magic==0.4.27
+trafilatura
+
+qdrant-client>=1.9.0
+
+# Audio
+faster-whisper>=1.0.0
+soundfile>=0.12
 webrtcvad>=2.0.10
-# Optional, nur wenn du Speaker-Diarization via SpeechBrain brauchst:
-# torch==2.4.0+cu121 ; platform_system=="Linux"
-# torchaudio==2.4.0+cu121 ; platform_system=="Linux"
-# speechbrain>=1.0
+pydub>=0.25.1
+numpy>=1.26
+scipy>=1.11
+speechbrain<=1.0.3,>=0.5.16
+# optional:
+sentence-transformers>=2.6.1  # (zieht KEIN anderes torch, wenn 2.4 schon da ist)
