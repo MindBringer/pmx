@@ -1,7 +1,6 @@
-# GPU-fertiges Image inkl. cuDNN9
+# GPU-fertiges Base-Image mit cuDNN9
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
-# Systemtools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg git build-essential python3-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -11,32 +10,30 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     PIP_NO_CACHE_DIR=1
 
-# ⚠️ In requirements.audio.txt: KEINE torch/torchaudio/torchvision Einträge!
+# WICHTIG: In requirements.audio.txt KEINE torch/torchaudio/torchvision!
 COPY rag-backend/requirements.audio.txt /app/requirements.txt
-
-# Pip: ohne Torch-Index (ist schon im Image korrekt vorhanden)
 RUN python -m pip install -U pip && \
     pip install --prefer-binary -r /app/requirements.txt
 
-# App-Code
 COPY rag-backend/app /app/app
 RUN [ -f /app/app/__init__.py ] || touch /app/app/__init__.py
 
-# Mini-API Entrypoint
-RUN printf '%s\n' \
-'from fastapi import FastAPI' \
-'try:' \
-'    from app.transcribe import router as transcribe_router' \
-'except ModuleNotFoundError:' \
-'    from app.routers.transcribe import router as transcribe_router' \
-'' \
-'app = FastAPI(title=\"audio-api\")' \
-'app.include_router(transcribe_router, prefix=\"\")' \
-'@app.get(\"/health\")' \
-'def health():' \
-'    return {\"status\":\"ok\"}' \
-> /app/audio_main.py
+# <<< HIER: statt printf jetzt sauberer Heredoc >>>
+RUN cat > /app/audio_main.py <<'PY'
+from fastapi import FastAPI
+try:
+    from app.transcribe import router as transcribe_router
+except ModuleNotFoundError:
+    from app.routers.transcribe import router as transcribe_router
+
+app = FastAPI(title="audio-api")
+app.include_router(transcribe_router, prefix="")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+PY
+# <<< Ende Heredoc >>>
 
 EXPOSE 6080
 ENTRYPOINT ["uvicorn","audio_main:app","--host","0.0.0.0","--port","6080"]
-
