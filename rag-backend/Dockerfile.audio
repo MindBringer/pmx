@@ -12,13 +12,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 # WICHTIG: In requirements.audio.txt KEINE torch/torchaudio/torchvision!
 COPY rag-backend/requirements.audio.txt /app/requirements.txt
+
+# Torch/torchaudio-Zeilen entfernen, den Rest ganz normal mit Abhängigkeiten installieren
 RUN python -m pip install -U pip && \
-    pip install --prefer-binary --no-deps -r /app/requirements.txt
+    grep -Ev '^(torch|torchaudio)($|[=<>~])' /app/requirements.txt > /app/requirements_notorch.txt && \
+    pip install --prefer-binary -r /app/requirements_notorch.txt
 
-# cuDNN 9.1 für CUDA12 sicher ins Image holen
+# cuDNN absichern (falls noch nicht drin) + Pfade registrieren
 RUN pip install --no-cache-dir nvidia-cudnn-cu12==9.1.0.70
-
-# LD_LIBRARY_PATH + ldconfig (damit der dynamische Linker die libs findet)
 ENV LD_LIBRARY_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}
 RUN python - <<'PY'
 import site, os
