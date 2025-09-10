@@ -13,20 +13,18 @@ ENV PYTHONUNBUFFERED=1 \
 # WICHTIG: In requirements.audio.txt KEINE torch/torchaudio/torchvision!
 COPY rag-backend/requirements.audio.txt /app/requirements.txt
 RUN python -m pip install -U pip && \
-    pip install --prefer-binary -r /app/requirements.txt
+    pip install --prefer-binary --no-deps -r /app/requirements.txt
 
-# 1) LD_LIBRARY_PATH setzen (häufigster Pfad im pytorch-Image)
+# cuDNN 9.1 für CUDA12 sicher ins Image holen
+RUN pip install --no-cache-dir nvidia-cudnn-cu12==9.1.0.70
+
+# LD_LIBRARY_PATH + ldconfig (damit der dynamische Linker die libs findet)
 ENV LD_LIBRARY_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}
-
-# 2) ld.so konfigurieren
 RUN python - <<'PY'
-import site, glob, os
-paths = []
-for sp in site.getsitepackages():
-    p = os.path.join(sp, "nvidia", "cudnn", "lib")
-    if os.path.isdir(p): paths.append(p)
+import site, os
+paths=[os.path.join(sp,"nvidia","cudnn","lib") for sp in site.getsitepackages() if os.path.isdir(os.path.join(sp,"nvidia","cudnn","lib"))]
 open("/etc/ld.so.conf.d/zz-nvidia-cudnn.conf","w").write("\n".join(paths)+"\n")
-print("cuDNN libs at:", paths)
+print("cuDNN lib paths:", paths)
 PY
 RUN ldconfig
 
