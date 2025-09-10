@@ -262,7 +262,7 @@ async def do_transcribe(
 
                 seg_out = {"start_ms": s_ms, "end_ms": e_ms, "text": seg_text}
 
-                if and (e_ms - s_ms) >= 1500:  # nur bei Segmenten >= 1.5s
+                if identify and (e_ms - s_ms) >= 1500:  # nur bei Segmenten >= 1.5s
                     # segmentweise ECAPA-Embedding + Qdrant
                     with torch.no_grad():
                         emb = _embed_audio(cut)
