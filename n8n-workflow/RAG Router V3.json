@@ -1,15 +1,15 @@
 {
-  "name": "RAG_router_v3",
+  "name": "RAG Router V3",
   "nodes": [
     {
       "parameters": {},
-      "id": "4e89858a-f6c8-4c8e-a5b1-a3d187a1cfcb",
+      "id": "c8dc5252-caca-4ed2-a693-6d56e7aea87a",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
       "position": [
-        -2688,
-        944
+        -3136,
+        1040
       ]
     },
     {
@@ -111,13 +111,13 @@
         "includeOtherFields": true,
         "options": {}
       },
-      "id": "b400fcdf-de80-4d7f-a422-3236edd4b65a",
+      "id": "de2f321d-cad7-46c5-bb6e-66730c38f97d",
       "name": "Context (original fields)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -2464,
-        944
+        -2912,
+        1040
       ]
     },
     {
@@ -144,13 +144,13 @@
         },
         "options": {}
       },
-      "id": "36975b74-0b6f-45d4-ac2c-8a7901fae188",
+      "id": "41d4686f-391d-4ac1-91c2-761d6631848e",
       "name": "without rag?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -2240,
-        944
+        -2688,
+        1040
       ]
     },
     {
@@ -180,10 +180,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -2016,
-        1040
+        -2464,
+        1136
       ],
-      "id": "97c7ea64-38d5-48c5-a616-d61823a4a43d",
+      "id": "ecc233ec-fb83-49a2-ae3b-94cb8678b527",
       "name": "RAG Query"
     },
     {
@@ -194,10 +194,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1792,
-        944
+        -2240,
+        1040
       ],
-      "id": "d7f37b11-f439-483e-8f6d-bb78e000671f",
+      "id": "0c192374-a654-4b20-afe7-7619fbfc005c",
       "name": "Build Augmented Prompt"
     },
     {
@@ -224,13 +224,13 @@
         },
         "options": {}
       },
-      "id": "8f08a79c-d948-4334-9c3f-8ffe9e0c01d9",
+      "id": "18ac83c6-1672-4579-8554-1fb9db3cab3c",
       "name": "Is groq?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1360,
-        944
+        -1792,
+        1040
       ]
     },
     {
@@ -257,13 +257,13 @@
         },
         "options": {}
       },
-      "id": "3ce39500-555f-449e-bb4c-9a72c6faa9d2",
+      "id": "2cae24cd-3172-45ff-aba9-82cf85d04ad7",
       "name": "Is openrouter?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -928,
-        1136
+        -1568,
+        1232
       ]
     },
     {
@@ -290,13 +290,13 @@
         },
         "options": {}
       },
-      "id": "af90758a-b5b3-45be-bb1b-ef5cd7e4bd05",
+      "id": "7fa2ff0e-438b-4e53-9eca-0a0367818014",
       "name": "Is mistralAPI?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -704,
-        1280
+        -1344,
+        1376
       ]
     },
     {
@@ -323,13 +323,13 @@
         },
         "options": {}
       },
-      "id": "81f0d0f0-8a68-4fcf-92f3-ba8fad049f37",
+      "id": "09d260c9-f23a-4656-9247-c84769bbb713",
       "name": "Is OpenAI?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -480,
-        1376
+        -1120,
+        1472
       ]
     },
     {
@@ -356,13 +356,13 @@
         },
         "options": {}
       },
-      "id": "64a8112a-581a-4275-b2d4-e7963e4fd145",
+      "id": "489ccb3c-4b2b-44a2-aba3-a34c2d9767ab",
       "name": "Is Anthropic?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -256,
-        1472
+        -896,
+        1568
       ]
     },
     {
@@ -389,13 +389,13 @@
         },
         "options": {}
       },
-      "id": "ce078acc-6da4-4b85-bc38-f7811690933c",
+      "id": "deb78e55-8056-4329-b7b3-83fdafe4b7c9",
       "name": "Is HuggingFace?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -32,
-        1568
+        -672,
+        1664
       ]
     },
     {
@@ -422,13 +422,13 @@
         },
         "options": {}
       },
-      "id": "c67f4047-fffc-493a-be70-329b6629379e",
+      "id": "13f65a75-0bb9-42a0-92f6-ea583a747341",
       "name": "Is Mistral?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        192,
-        1664
+        -224,
+        1856
       ]
     },
     {
@@ -442,17 +442,17 @@
         "jsonBody": "={{ ({\n  model: $json.openai_model,\n  messages: [\n    ...(($('Context (original fields)').first().json.system || '').trim() ? [{ role: 'system', content: $('Context (original fields)').first().json.system }] : []),\n    { role: 'user', content: $json.prompt }\n  ],\n  max_tokens: 1000,\n  temperature: 0.7\n}) }}",
         "options": {}
       },
-      "id": "77517c03-72e9-4246-8c8e-822c5009ed39",
+      "id": "eaba1e6e-4468-44e6-a9fa-5b4237503bb2",
       "name": "Call OpenAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        480,
+        64,
         992
       ],
       "credentials": {
         "openAiApi": {
-          "id": "xpFTPLasPN9qcrAU",
+          "id": "URBYmeZhphqt6tWt",
           "name": "OpenAi account"
         }
       }
@@ -468,20 +468,14 @@
         "jsonBody": "={{ ({\n  model: $json.claude_model,\n  max_tokens: 1000,\n  messages: [{ role: 'user', content: $json.prompt }],\n  ...((($('Context (original fields)').first().json.system || '').trim()) ? { system: $('Context (original fields)').first().json.system } : {})\n}) }}",
         "options": {}
       },
-      "id": "c9526557-e087-4695-b2fd-1bc6d98964cd",
+      "id": "d0a5f484-22c0-40c6-ba0f-a3372e38a613",
       "name": "Call Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        480,
+        64,
         1184
-      ],
-      "credentials": {
-        "anthropicApi": {
-          "id": "NwPymGLQdk29P5fi",
-          "name": "Anthropic account"
-        }
-      }
+      ]
     },
     {
       "parameters": {
@@ -494,17 +488,17 @@
         "jsonBody": "={{ ({\n  inputs: (($('Context (original fields)').first().json.system || '').trim()) ? ($('Context (original fields)').first().json.system + '\\n\\n' + $json.prompt) : $json.prompt,\n  parameters: { max_length: 500, temperature: 0.7, do_sample: true, return_full_text: false }\n}) }}",
         "options": {}
       },
-      "id": "54071bd9-3d9c-4a95-8d56-512ffdfb54b9",
+      "id": "216e780b-8085-4f3f-9a2e-ed57a85a05d8",
       "name": "Call Hugging Face",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        480,
+        64,
         1376
       ],
       "credentials": {
         "huggingFaceApi": {
-          "id": "QO87qgUFRrbiQqXv",
+          "id": "93Jn3lteBGqzmg5r",
           "name": "HuggingFaceApi account"
         }
       }
@@ -520,18 +514,18 @@
         "jsonBody": "={{ ({\n  model: $json.mistral_model,\n  messages: [\n    { role: 'system', content: ($('Context (original fields)').first().json.system || 'Du bist ein hilfsbereiter Assistent.') },\n    { role: 'user', content: $json.prompt }\n  ],\n  max_tokens: 1000,\n  temperature: 0.3\n}) }}",
         "options": {}
       },
-      "id": "6cf0a06e-f580-4773-b4fc-3bde1dd6b2e0",
+      "id": "12970783-acbe-4b93-8e07-8d7fa8eaec5c",
       "name": "Call mistralAPI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        480,
+        64,
         800
       ],
       "credentials": {
         "mistralCloudApi": {
-          "id": "cp078sOI6OYLKqiI",
-          "name": "Mistral Cloud API-key"
+          "id": "YZutKG1C8HaZG8pe",
+          "name": "Mistral Cloud account"
         }
       }
     },
@@ -546,13 +540,13 @@
           "timeout": 300000
         }
       },
-      "id": "54edbcb8-7cde-43d3-a49d-e91eaa2c01cc",
+      "id": "02bb6014-9816-4102-a8c9-bad8905eb4de",
       "name": "Call Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        480,
-        1568
+        64,
+        1760
       ]
     },
     {
@@ -564,13 +558,13 @@
         "jsonBody": "={{ ({\n  model: 'llama3',\n  prompt: (($('Context (original fields)').first().json.system || '').trim()) ? ($('Context (original fields)').first().json.system + '\\n\\n' + $json.prompt) : $json.prompt,\n  stream: false,\n  options: { temperature: 0.7, num_predict: 500 }\n}) }}",
         "options": {}
       },
-      "id": "72be1f85-6fc9-44df-a080-fee4e8a7b039",
+      "id": "da871d31-01cb-434c-93a7-178d6f929c34",
       "name": "Call Llama (Default)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        480,
-        1760
+        64,
+        1952
       ]
     },
     {
@@ -597,10 +591,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -2016,
-        848
+        -2464,
+        944
       ],
-      "id": "17675d88-b0fc-4e8d-9aa3-1d1efb3828d0",
+      "id": "062fd1a0-dee4-415a-a870-7fa3033cd724",
       "name": "No RAG Context"
     },
     {
@@ -611,14 +605,14 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        560,
+        144,
         224
       ],
-      "id": "d83c61d6-6ee3-4338-936f-f9fa6ca4415f",
+      "id": "9ed2d84a-779e-484d-bf3f-34d241bef7a2",
       "name": "GPT-OSS-120b",
       "credentials": {
         "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
+          "id": "DX8FKLrqc231mbg3",
           "name": "Groq account"
         }
       }
@@ -631,14 +625,14 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        560,
+        144,
         624
       ],
-      "id": "1eb79001-e890-4a6a-bfd5-c16a648d6375",
+      "id": "b7ef4a63-49cd-4846-ae13-4ce413b06c35",
       "name": "gemma-it",
       "credentials": {
         "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
+          "id": "DX8FKLrqc231mbg3",
           "name": "Groq account"
         }
       }
@@ -646,15 +640,15 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Response Formatter — per-item safe (no .first(), no .item())\n// Liest den Original-Kontext über $items('Context (original fields)') ein,\n// damit prompt/system/conversation_id zuverlässig vorhanden sind – auch wenn\n// der Provider-Call $json überschreibt.\n\nfunction robustExtractThinksAndStrip(s){\n  const src = String(s || '');\n  const thinks = [];\n  let clean = src.replace(/<think>([\\s\\S]*?)<\\/think>\\s*/gi, (_, t)=>{ const seg=String(t||'').trim(); if(seg)thinks.push(seg); return ''; });\n  clean = clean.replace(/```(?:think|thinking|reasoning)[\\t ]*\\n([\\s\\S]*?)```/gi, (_, t)=>{ const seg=String(t||'').trim(); if(seg)thinks.push(seg); return ''; });\n  clean = clean.replace(/(^|\\n)#{2,3}\\s*think\\b[\\s\\S]*?(?=(\\n#{2,3}\\s)|$)/gi, (m)=>{ const seg=m.replace(/^.*?\\n/,'').trim(); if(seg)thinks.push(seg); return ''; });\n  clean = clean.replace(/(^|\\n)think:\\s*([\\s\\S]*?)(?=\\n\\s*\\n|\\n#{1,6}\\s|$)/gi, (_, __, t)=>{ const seg=String(t||'').trim(); if(seg)thinks.push(seg); return ''; });\n  return { clean: clean.trim(), thinks };\n}\n\nfunction bulletsFromThinks(thinks){\n  const raw = thinks.join('\\n');\n  const lines = raw.split(/\\r?\\n+/).map(s=>s.trim()).filter(Boolean);\n  const sent  = raw.split(/(?<=[.!?])\\s+/).map(s=>s.trim()).filter(Boolean);\n  const pool  = (lines.length >= 3 ? lines : sent);\n  return pool.slice(0, 6);\n}\n\n//// ------ Kontext holen ------\nlet requested = {};\ntry {\n  const ctx = $items('Context (original fields)', 0) || [];\n  requested = (Array.isArray(ctx) && ctx[0] && ctx[0].json) ? ctx[0].json : {};\n} catch { requested = {}; }\n\n// Provider-Rohdaten sind im aktuellen Item:\nlet data = $json;\n\n//// ------ Stream-Parser (NDJSON / SSE) ------\nfunction parseNdjsonString(s){\n  try {\n    const lines = String(s).trim().split('\\n').filter(Boolean);\n    return lines.map(l=>JSON.parse(l));\n  } catch { return null; }\n}\nfunction parseSseString(s){\n  const out=[];\n  for (const line of String(s).split('\\n')) {\n    const t=line.trim();\n    if (!t || !t.toLowerCase().startsWith('data:')) continue;\n    const p=t.slice(5).trim();\n    if (!p || p==='[DONE]') continue;\n    try { out.push(JSON.parse(p)); } catch {}\n  }\n  return out.length ? out : null;\n}\nfunction extractTextFromChunk(o){\n  if (typeof o?.response === 'string') return o.response;\n  const c = o?.choices && o.choices[0];\n  if (c) {\n    if (c.delta && typeof c.delta.content === 'string') return c.delta.content;\n    if (c.message && typeof c.message.content === 'string') return c.message.content;\n    if (typeof c.text === 'string') return c.text;\n    if (Array.isArray(c.content)) return c.content.map(x => typeof x.text==='string' ? x.text : '').join('');\n  }\n  if (typeof o?.content === 'string') return o.content;\n  if (typeof o?.output_text === 'string') return o.output_text;\n  if (typeof o?.text === 'string') return o.text;\n  return '';\n}\n\n//// ------ Normalisierung & Extraktion ------\nlet result = '';\nlet provider = 'Unknown';\nlet actualModel = requested.model || '';\nlet usage = null;\nlet raw = data;\n\n// Wenn der Provider ein String ist, in {data} packen\nif (typeof data === 'string') { raw={data}; data={data}; }\n\n// Streaming-Formate erkennen\nif (data && typeof data.data === 'string') {\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o=>o.done===true)?.model) || chunks[0]?.model || requested.ollama_model || actualModel;\n    result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o=>o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o=>o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model || actualModel;\n      result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\n// Non-Streaming-Formate\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    // OpenAI-like\n    result = data.choices[0].message.content;\n    provider = 'OpenAI';\n    actualModel = data.model || requested.openai_model || actualModel;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    // Anthropic-like\n    result = data.content[0].text || data.content[0].content;\n    provider = 'Claude/Anthropic';\n    actualModel = data.model || requested.claude_model || actualModel;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    // HF pipeline (array)\n    result = data[0].generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model || actualModel;\n  } else if (data && data.generated_text) {\n    // HF pipeline (object)\n    result = data.generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model || actualModel;\n  } else if (data && typeof data.response === 'string') {\n    // Ollama\n    result = data.response;\n    provider = 'Ollama';\n    actualModel = data.model || requested.ollama_model || actualModel;\n  } else if (data && data.text) {\n    // OpenRouter/Groq-like plain\n    result = data.text;\n    provider = 'OpenRouter/Groq-like';\n    actualModel = requested.model || requested.openai_model || requested.ollama_model || actualModel;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`;\n    provider = 'Error';\n    actualModel = 'N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`;\n    provider = 'Unknown';\n    actualModel = 'N/A';\n  }\n}\n\n//// ------ Quellen, Tags & Label übernehmen (einmalig!) ------\nconst sources = Array.isArray(requested.sources)\n  ? requested.sources\n  : (Array.isArray($json.sources) ? $json.sources : []);\nconst used_tags = Array.isArray(requested.used_tags)\n  ? requested.used_tags\n  : (Array.isArray(requested.rag_tags) ? requested.rag_tags\n     : (Array.isArray($json.used_tags) ? $json.used_tags : []));\nconst inputLabel = requested.label ?? $json.label;\n\n// --- Thinks raus, Answer setzen ---\nconst { clean, thinks } = robustExtractThinksAndStrip(result);\n\n// Writer-Rationale (System-Zweig hat keine Personas): packe Thinks als Bullets\nconst artifacts = {};\nif (thinks.length) {\n  artifacts.rationale_summary = {\n    persona: [],\n    writer: bulletsFromThinks(thinks)\n  };\n}\n\n// Rückgabe IMMER mit { answer, sources, artifacts } (+result für Backcompat)\nreturn {\n  json: {\n    answer: clean,\n    result: clean,               // Backward-compat für Stellen, die noch 'result' lesen\n    status: (provider === 'Error') ? 'error' : 'success',\n    provider,\n    model_requested: requested.model,\n    model_used: actualModel,\n    timestamp: new Date().toISOString(),\n    usage,\n    raw_response: raw,\n    sources,\n    used_tags,\n    original_prompt: requested._original_prompt ?? requested.prompt ?? $json.original_prompt ?? $json.prompt,\n    conversation_id: requested.conversation_id ?? $json.conversation_id,\n    label: inputLabel,\n    artifacts\n  }\n};\n"
+        "jsCode": "// Response Formatter — per-item safe (runOnceForEachItem)\nfunction robustExtractThinksAndStrip(s){\n  const src = String(s || '');\n  const thinks = [];\n  let clean = src.replace(/<think>([\\s\\S]*?)<\\/think>\\s*/gi, (_, t)=>{ const seg=String(t||'').trim(); if(seg)thinks.push(seg); return ''; });\n  clean = clean.replace(/```(?:think|thinking|reasoning)[\\t ]*\\n([\\s\\S]*?)```/gi, (_, t)=>{ const seg=String(t||'').trim(); if(seg)thinks.push(seg); return ''; });\n  clean = clean.replace(/(^|\\n)#{2,3}\\s*think\\b[\\s\\S]*?(?=(\\n#{2,3}\\s)|$)/gi, (m)=>{ const seg=m.replace(/^.*?\\n/,'').trim(); if(seg)thinks.push(seg); return ''; });\n  clean = clean.replace(/(^|\\n)think:\\s*([\\s\\S]*?)(?=\\n\\s*\\n|\\n#{1,6}\\s|$)/gi, (_, __, t)=>{ const seg=String(t||'').trim(); if(seg)thinks.push(seg); return ''; });\n  return { clean: clean.trim(), thinks };\n}\nfunction bulletsFromThinks(thinks){\n  const raw = thinks.join('\\n');\n  const lines = raw.split(/\\r?\\n+/).map(s=>s.trim()).filter(Boolean);\n  const sent  = raw.split(/(?<=[.!?])\\s+/).map(s=>s.trim()).filter(Boolean);\n  const pool  = (lines.length >= 3 ? lines : sent);\n  return pool.slice(0, 6);\n}\n\n// ------ Kontext holen ------\nlet requested = {};\ntry {\n  const ctx = $items('Context (original fields)', 0) || [];\n  requested = (Array.isArray(ctx) && ctx[0] && ctx[0].json) ? ctx[0].json : {};\n} catch { requested = {}; }\n\n// Provider-Rohdaten sind im aktuellen Item:\nlet data = $json;\n\n// ------ Stream-Parser (NDJSON / SSE) ------\nfunction parseNdjsonString(s){\n  try { return String(s).trim().split('\\n').filter(Boolean).map(l=>JSON.parse(l)); }\n  catch { return null; }\n}\nfunction parseSseString(s){\n  const out=[];\n  for (const line of String(s).split('\\n')) {\n    const t=line.trim();\n    if (!t || !t.toLowerCase().startsWith('data:')) continue;\n    const p=t.slice(5).trim();\n    if (!p || p==='[DONE]') continue;\n    try { out.push(JSON.parse(p)); } catch {}\n  }\n  return out.length ? out : null;\n}\nfunction extractTextFromChunk(o){\n  if (typeof o?.response === 'string') return o.response;\n  const c = o?.choices && o.choices[0];\n  if (c) {\n    if (c.delta && typeof c.delta.content === 'string') return c.delta.content;\n    if (c.message && typeof c.message.content === 'string') return c.message.content;\n    if (typeof c.text === 'string') return c.text;\n    if (Array.isArray(c.content)) return c.content.map(x => typeof x.text==='string' ? x.text : '').join('');\n  }\n  if (typeof o?.content === 'string') return o.content;\n  if (typeof o?.output_text === 'string') return o.output_text;\n  if (typeof o?.text === 'string') return o.text;\n  return '';\n}\n\n// ------ Normalisierung & Extraktion ------\nlet result = '';\nlet provider = 'Unknown';\nlet actualModel = requested.model || '';\nlet usage = null;\nlet raw = data;\n\n// Wenn der Provider ein String ist, in {data} packen\nif (typeof data === 'string') { raw={data}; data={data}; }\n\n// Streaming-Formate erkennen\nif (data && typeof data.data === 'string') {\n  let chunks = parseNdjsonString(data.data);\n  if (chunks && chunks.length) {\n    provider = 'Ollama';\n    actualModel = (chunks.find(o=>o.done===true)?.model) || chunks[0]?.model || requested.ollama_model || actualModel;\n    result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n    raw = { ndjson: chunks };\n  } else {\n    chunks = parseSseString(data.data);\n    if (chunks && chunks.length) {\n      provider = (chunks.find(o=>o?.provider) ? 'OpenRouter' : 'Groq/OpenAI-like');\n      actualModel = (chunks.find(o=>o?.model)?.model) || requested.model || requested.openai_model || requested.ollama_model || actualModel;\n      result = chunks.map(extractTextFromChunk).filter(Boolean).join('').trim();\n      raw = { sse: chunks };\n    }\n  }\n}\n\n// Non-Streaming-Formate (inkl. vLLM / OpenAI-like)\nif (!result) {\n  if (data && data.choices?.[0]?.message) {\n    // OpenAI-kompatibel -> bei uns i.d.R. vLLM\n    result = data.choices[0].message.content;\n    provider = (requested.llm_target?.includes('allrounder') || requested.llm_target?.includes('base') || requested.model === 'vllm') ? 'vLLM' : 'OpenAI';\n    actualModel = data.model || requested.openai_model || requested.vLLM_model_allround || requested.vLLM_model_base || actualModel;\n    usage = data.usage || null;\n  } else if (data && Array.isArray(data.content) && data.content[0]) {\n    result = data.content[0].text || data.content[0].content;\n    provider = 'Claude/Anthropic';\n    actualModel = data.model || requested.claude_model || actualModel;\n  } else if (Array.isArray(data) && data[0]?.generated_text) {\n    result = data[0].generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model || actualModel;\n  } else if (data && data.generated_text) {\n    result = data.generated_text;\n    provider = 'Hugging Face';\n    actualModel = requested.hf_model || actualModel;\n  } else if (data && typeof data.response === 'string') {\n    result = data.response;\n    provider = 'Ollama';\n    actualModel = data.model || requested.ollama_model || actualModel;\n  } else if (data && data.text) {\n    result = data.text;\n    provider = 'OpenRouter/Groq-like';\n    actualModel = requested.model || requested.openai_model || requested.ollama_model || actualModel;\n  } else if (data && data.error) {\n    result = `Error: ${data.error.message || JSON.stringify(data.error)}`;\n    provider = 'Error';\n    actualModel = 'N/A';\n  } else {\n    result = `Unexpected response format: ${JSON.stringify(data)}`;\n    provider = 'Unknown';\n    actualModel = 'N/A';\n  }\n}\n\n// ------ Quellen, Tags & Label übernehmen ------\nconst sources = Array.isArray(requested.sources) ? requested.sources\n              : (Array.isArray($json.sources) ? $json.sources : []);\nconst used_tags = Array.isArray(requested.used_tags) ? requested.used_tags\n                : (Array.isArray(requested.rag_tags) ? requested.rag_tags\n                   : (Array.isArray($json.used_tags) ? $json.used_tags : []));\nconst inputLabel = requested.label ?? $json.label;\n\n// --- Thinks raus, Answer setzen ---\nconst { clean, thinks } = robustExtractThinksAndStrip(result);\nconst artifacts = {};\nif (thinks.length) {\n  artifacts.rationale_summary = { persona: [], writer: bulletsFromThinks(thinks) };\n}\n\n// Format Response — array-safe\nconst item = $json || {};\n\nconst out = {\n  ok: (item.status || 'success') !== 'error',\n  status: item.status || 'success',\n  provider: item.provider || provider || 'unknown',\n  model_used: item.model_used || actualModel || item.model || 'unknown',\n\n  // Wichtig: den normalisierten Text nehmen!\n  answer: (clean || result || item.answer || item.text || ''),\n\n  // die zuvor ermittelten Quellen/Tags nutzen\n  sources,\n  used_tags,\n\n  // Artefakte/Usage zusammenführen\n  artifacts: { ...(item.artifacts || {}), ...(artifacts || {}) },\n  usage: item.usage || usage || null,\n\n  conversation_id: item.conversation_id || '',\n  label: item.label || undefined,\n  timestamp: item.timestamp || new Date().toISOString(),\n\n  // rohdaten mitgeben, hilft beim Debuggen\n  raw,\n};\n// --- Helpers (falls noch nicht definiert) ---\nfunction get(o, p, d=''){ try{ return p.split('.').reduce((a,k)=>a?.[k], o) ?? d; }catch{ return d; } }\nfunction pickStr(...vals){ for (const v of vals) if (typeof v==='string' && v.trim()) return v.trim(); return ''; }\n\nfunction normalize(j){\n  const flat =\n    (typeof j.result === 'object') ? j.result :\n    (typeof j.data   === 'object') ? j.data   : j;\n\n  const openaiLike    = pickStr(get(flat,'choices.0.message.content'), get(flat,'choices.0.text'));\n  const anthropicLike = Array.isArray(flat?.content)\n      ? pickStr(flat.content.map(b => b.text).filter(Boolean).join('\\n'))\n      : pickStr(flat.completion, flat.output_text);\n  const hfLike        = Array.isArray(flat) ? pickStr(flat[0]?.generated_text) : pickStr(flat.generated_text);\n  const simple        = pickStr(flat.answer, flat.text, j.answer, j.text);\n\n  const clean = pickStr(openaiLike, anthropicLike, hfLike, simple);\n  const sources =\n    Array.isArray(j.sources) ? j.sources :\n    Array.isArray(flat?.sources) ? flat.sources : [];\n  const artifacts = { ...(j.artifacts||{}), ...(flat?.artifacts||{}) };\n\n  return {\n    ok: (j.status || 'success') !== 'error',\n    status: j.status || 'success',\n    provider: j.provider || 'unknown',\n    model_used: j.model_used || j.actualModel || j.model || 'unknown',\n    answer: clean,\n    sources,\n    used_tags: Array.isArray(j.used_tags) ? j.used_tags : [],\n    artifacts,\n    usage: j.usage || null,\n    conversation_id: j.conversation_id || '',\n    timestamp: j.timestamp || new Date().toISOString(),\n    raw: flat,\n  };\n}\n\n// --- Modus erkennen & korrekt zurückgeben ---\nconst inEachItemMode = (typeof items === 'undefined');\n\nif (inEachItemMode) {\n  // \"Run once for each item\" → EIN Objekt zurückgeben\n  return { json: normalize($json) };\n} else {\n  // \"Run once for all items\" → ARRAY von Items zurückgeben\n  return items.map(({ json }) => ({ json: normalize(json) }));\n}\n\n"
       },
-      "id": "4c354ee7-9cde-4727-b8e6-d5038672d9c4",
+      "id": "fda2b9dd-f148-409d-9eaa-2f529d051abf",
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        768,
-        1088
+        352,
+        1184
       ]
     },
     {
@@ -667,10 +661,10 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        416,
+        0,
         400
       ],
-      "id": "99f7ec4d-07d7-42f9-8404-8dfd3a049dc7",
+      "id": "9f40d726-d8bc-4f0b-b2af-55776e45298a",
       "name": "openrouter"
     },
     {
@@ -683,10 +677,10 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.7,
       "position": [
-        416,
+        0,
         0
       ],
-      "id": "ab76abd5-0396-419d-8917-73fd4b6eb6bd",
+      "id": "0be17daa-d936-4da8-a686-8133dc2e0d29",
       "name": "Groq"
     },
     {
@@ -700,14 +694,14 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        432,
+        16,
         224
       ],
-      "id": "d2502226-41dc-4da0-b3bf-458e63aa72d9",
+      "id": "5e32520d-880c-43fa-9d96-7d5a61709eb9",
       "name": "Qwen3",
       "credentials": {
         "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
+          "id": "DX8FKLrqc231mbg3",
           "name": "Groq account"
         }
       }
@@ -720,14 +714,14 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
       "position": [
-        432,
+        16,
         624
       ],
-      "id": "05d1a3f1-34fa-4ecc-a619-ccda6146691e",
+      "id": "ee6b4d2d-5cf5-48ed-95cd-6bc880d20c79",
       "name": "Llama3",
       "credentials": {
         "groqApi": {
-          "id": "mhumLW1ZXnpB1MfM",
+          "id": "DX8FKLrqc231mbg3",
           "name": "Groq account"
         }
       }
@@ -740,11 +734,78 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1584,
-        944
+        -2016,
+        1040
       ],
-      "id": "0a9896b4-d945-47b3-94dd-e5e33da199f5",
+      "id": "213facd7-fc01-40f0-9bcc-26939d96b502",
       "name": "Token Budget Gate"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const reqCtx = ($items('Context (original fields)', 0)?.[0]?.json) || {};\nconst res = $json || {};\n\n// Text extrahieren\nlet out = '';\nif (Array.isArray(res.choices) && res.choices[0]) {\n  const c = res.choices[0];\n  out = (c.message?.content) || c.text || '';\n}\n\n// Denk-Abschnitte entfernen\nout = String(out||'')\n  .replace(/<think>[\\s\\S]*?<\\/think>\\s*/gi,'')\n  .replace(/```(?:think|thinking|reasoning)[\\t ]*\\n[\\s\\S]*?```/gi,'')\n  .trim();\n\n// *** EINZELNES OBJEKT zurückgeben ***\nreturn {\n  json: {\n    provider: 'vllm',\n    model_used: res.model || reqCtx.vLLM_model_allround || reqCtx.model || 'vllm',\n    answer: out,\n    usage: res.usage || undefined,\n    raw: res\n  }\n};"
+      },
+      "id": "6547267d-83ab-4ab1-8161-df3c9fbfb31d",
+      "name": "Format vLLM Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1568
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "is-hf",
+              "leftValue": "={{ $json.model }}",
+              "rightValue": "vllm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "625f8cfc-5ca6-4e19-939e-51f49fa3de1d",
+      "name": "Is vLLM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.43:8001/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  model: $json.vLLM_model || $env.VLLM_MODEL_ALLROUNDER || 'Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4',\n  messages: [\n    ...((($('Context (original fields)').first().json.system || '').trim()) ? [{ role:'system', content: $('Context (original fields)').first().json.system }] : []),\n    { role:'user', content: $json.prompt }\n  ],\n  temperature: Number.isFinite($json.temperature) ? $json.temperature : 0.3,\n  top_p: Number.isFinite($json.top_p) ? $json.top_p : 0.9,\n  max_tokens: Number.isFinite($json.max_tokens) ? $json.max_tokens : 800,\n  stream: false\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "54712d43-ef4f-43e7-affc-c8fabbb02cf6",
+      "name": "Call vLLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -224,
+        1568
+      ]
     }
   ],
   "pinData": {},
@@ -912,7 +973,7 @@
         ],
         [
           {
-            "node": "Is Mistral?",
+            "node": "Is vLLM?",
             "type": "main",
             "index": 0
           }
@@ -1090,24 +1151,64 @@
           }
         ]
       ]
+    },
+    "Format vLLM Result": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is vLLM?": {
+      "main": [
+        [
+          {
+            "node": "Call vLLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Mistral?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call vLLM": {
+      "main": [
+        [
+          {
+            "node": "Format vLLM Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "65121e45-d031-4b85-9df4-d42bd75c2870",
+  "versionId": "2a2eff67-0618-49d2-8e6b-3dc3bf7574cb",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
-  "id": "2cmATLhSNBMN3a2H",
+  "id": "b40VJ560cdjZeCOR",
   "tags": [
     {
-      "createdAt": "2025-08-15T08:00:40.082Z",
-      "updatedAt": "2025-08-15T08:00:40.082Z",
-      "id": "MIGc52SFD5ylOxsf",
-      "name": "Subflow"
+      "name": "Subflow",
+      "id": "4ZXhh7HxNdYuxid7",
+      "createdAt": "2025-09-11T13:23:00.506Z",
+      "updatedAt": "2025-09-11T13:23:00.506Z"
     }
   ]
 }

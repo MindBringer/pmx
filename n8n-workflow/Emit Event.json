@@ -1,5 +1,5 @@
 {
-  "name": "emit_event",
+  "name": "Emit Event",
   "nodes": [
     {
       "parameters": {
@@ -8,10 +8,10 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        48,
-        48
+        0,
+        0
       ],
-      "id": "225f3680-e476-4c8f-a0f6-d3938763ae1a",
+      "id": "a9a40532-2576-46d2-9fd1-8f3988348e16",
       "name": "Post_Event"
     },
     {
@@ -26,10 +26,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        272,
-        48
+        224,
+        0
       ],
-      "id": "b24ecb9c-f224-4a73-8286-a18d52bd2081",
+      "id": "7bc89f8b-6c69-4f4c-ac50-746dfdc3d6fe",
       "name": "Post Event",
       "onError": "continueRegularOutput"
     }
@@ -52,10 +52,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "8a285baf-0f02-4ff6-a991-a5429e9b63c0",
+  "versionId": "0ad0ed56-bf4f-4fa2-a090-f6099008a487",
   "meta": {
-    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
-  "id": "gTyBULqGMjgEgoHd",
+  "id": "OjD3jrVzeEsAqnr7",
   "tags": []
 }

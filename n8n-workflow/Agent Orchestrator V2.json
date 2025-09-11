@@ -1,26 +1,26 @@
 {
-  "name": "agent_orchestrator_v2",
+  "name": "Agent Orchestrator V2",
   "nodes": [
     {
       "parameters": {
-        "jsCode": "// Prepare Persona Items — persona-only board, focus/questions in Prompt, robust provider/model mapping\n\n// --------------- helpers ---------------\nconst norm = v => String(v ?? '').trim();\nconst isArr = a => Array.isArray(a);\n\n// zugelassene Provider für den Router\nconst ALLOWED = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral']);\n\n// Heuristik: aus einem Modellstring den Provider raten\nfunction guessProviderFromModel(m) {\n  const s = norm(m).toLowerCase();\n  if (!s) return '';\n  if (s.includes('claude')) return 'anthropic';\n  if (s.includes('gpt') || s.startsWith('o3') || s.startsWith('o1')) return 'openai';\n  if (s.includes('openai/') || s.includes('/')) return 'openrouter';\n  if (s.includes('mistral') || s.includes('mixtral')) return 'mistral';\n  if (s.includes('llama') || s.includes('gemma') || s.includes('deepseek')) return 'groq';\n  return '';\n}\n\n// Provider/Model zu Router-Feldern mappen (+ Defaults)\nfunction mapProviderModel(providerIn, modelIn) {\n  let prov = norm(providerIn).toLowerCase();\n  let mdl  = norm(modelIn);\n\n  // wenn prov kein erlaubter Provider ist, könnte es das Modell sein\n  if (!ALLOWED.has(prov)) {\n    const guessed = guessProviderFromModel(prov);\n    if (guessed) { mdl = prov; prov = guessed; }\n  }\n  // weiterhin unklar? aus mdl raten\n  if (!ALLOWED.has(prov)) {\n    const guessed = guessProviderFromModel(mdl);\n    if (guessed) prov = guessed;\n  }\n  // finale Defaults\n  if (!ALLOWED.has(prov)) prov = 'groq';\n  if (!mdl) {\n    if (prov === 'groq')        mdl = 'llama-3.1-70b-versatile';\n    else if (prov === 'openai') mdl = 'gpt-4o-mini';\n    else if (prov === 'anthropic') mdl = 'claude-3-5-sonnet';\n    else if (prov === 'mistralapi') mdl = 'mistral-large-latest';\n    else if (prov === 'openrouter') mdl = 'openai/gpt-oss-120b';\n    else if (prov === 'huggingface') mdl = 'meta-llama/Meta-Llama-3-8B-Instruct';\n    else /* mistral (ollama) */ mdl = 'llama3';\n  }\n\n  switch (prov) {\n    case 'groq':        return { model: 'groq',        groq_model: mdl };\n    case 'openai':      return { model: 'openai',      openai_model: mdl };\n    case 'anthropic':   return { model: 'anthropic',   claude_model: mdl };\n    case 'mistralapi':  return { model: 'mistralapi',  mistral_model: mdl };\n    case 'openrouter':  return { model: 'openrouter',  openrouter_model: mdl };\n    case 'huggingface': return { model: 'huggingface', hf_model: mdl };\n    case 'mistral':\n    default:            return { model: 'mistral',     ollama_model: mdl };\n  }\n}\n\n// --------------- input normalize ---------------\nconst root  = ($json && typeof $json === 'object') ? $json : {};\nlet pre = root;\n\n// falls ein Preflight-Node die Personas normalisiert hat, dort abholen\nif (!root.personas && !root.body?.personas) {\n  try {\n    const it = $items(\"Agents Preflight (Normalize)\", 0)[0];\n    if (it && it.json) pre = it.json;\n  } catch {}\n}\n\n// Personas extrahieren\nconst personas =\n  isArr(root.personas) ? root.personas :\n  isArr(pre.personas)  ? pre.personas  :\n  isArr(root.body?.personas) ? root.body.personas :\n  [];\n\n// keine Personas → erklärbares Fehlerobjekt\nif (!isArr(personas) || personas.length === 0) {\n  return [{ json: { error: \"No personas provided\", info: \"Prepare Persona Items erwartet personas[]\" } }];\n}\n\n// State & globale Felder\nconst state     = root.state || {};\nconst task      = norm(root.prompt ?? pre.prompt ?? root.body?.prompt ?? state.task);\nconst globalSys = norm(root.system ?? pre.system ?? root.body?.system);\nconst rag       = !!(root.rag ?? pre.rag ?? root.body?.rag);\nconst rag_tags  = isArr(root.rag_tags ?? pre.rag_tags ?? root.body?.rag_tags) ? (root.rag_tags ?? pre.rag_tags ?? root.body?.rag_tags) : [];\nconst convId    = root.conversation_id ?? pre.conversation_id ?? null;\nconst jobId     = root.job_id ?? pre.job_id ?? root.body?.job_id ?? root.jobId ?? pre.jobId ?? null;\nconst memory    = root.memory ?? pre.memory ?? null;\n\nconst round         = Number(state.round ?? root.round ?? 1);\nconst agent_rounds  = Number(state.rounds_total ?? state.agent_rounds ?? root.agent_rounds ?? pre.agent_rounds ?? 1);\n\n// Persona-only Board als Kontext\nconst boardPersonaText = norm(state.boardPersonaText || root.boardPersonaText || root.boardText);\n\n// Critic-Hinweise nur im Prompt anzeigen (nicht ins Board)\nconst focus = Array.isArray(state.critic_focus) ? state.critic_focus : [];\nconst questions = Array.isArray(state.critic_questions) ? state.critic_questions : [];\n\nconst focusLines = (focus.length ? [`- Beantworte diese Fokusaufgaben:`, ...focus.map(s => `  - ${norm(s)}`)] : []);\nconst questionLines = (questions.length ? [`- Beantworte diese Fragen:`, ...questions.map(s => `  - ${norm(s)}`)] : []);\n\n// --------------- build per-persona items ---------------\nconst items = personas.map((p, idx) => {\n  const label = norm(p.label || `Persona ${idx+1}`);\n  const mapped = mapProviderModel(p.provider, p.model);\n\n  const roleSystem = [globalSys, `Rolle: ${label}.`].filter(Boolean).join('\\n\\n');\n\n  const personaPrompt = [\n    `Teamaufgabe: ${task}`,\n    `Dein Beitrag (Rolle: \"${label}\") in Runde ${round} von ${agent_rounds}:`,\n    `- Liefere einen fokussierten, in sich verständlichen Abschnitt (max. 12 Sätze).`,\n    `- Beziehe dich auf die bisherigen Team-Ergebnisse (nur Persona-Inhalte).`,\n    ...focusLines,\n    ...questionLines,\n    boardPersonaText ? `\\nBisherige Team-Ergebnisse (Persona-Inhalte):\\n${boardPersonaText}` : ''\n  ].filter(Boolean).join('\\n');\n\n  return {\n    json: {\n      ...mapped,                  // <- setzt model + provider-spezifisches Modellfeld\n      label,\n      prompt: personaPrompt,\n      system: roleSystem,\n      rag, rag_tags,\n      conversation_id: convId,\n      memory,\n      round,\n      agent_rounds,\n      // rückwärts-kompatible Felder:\n      board: Array.isArray(root.board) ? root.board : [],\n      boardText: boardPersonaText,\n      job_id: jobId\n    }\n  };\n});\n\nreturn items;\n"
+        "jsCode": "// Prepare Persona Items — persona-only board, focus/questions in Prompt, robust provider/model mapping\n\n// --------------- helpers ---------------\nconst norm = v => String(v ?? '').trim();\nconst isArr = a => Array.isArray(a);\n\n// zugelassene Provider für den Router\nconst ALLOWED = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral','vllm']);\n\n// Heuristik: aus einem Modellstring den Provider raten\nfunction guessProviderFromModel(m) {\n  const s = norm(m).toLowerCase();\n  if (!s) return '';\n  if (s.includes('claude')) return 'anthropic';\n  if (s.includes('gpt') || s.startsWith('o3') || s.startsWith('o1')) return 'openai';\n  if (s.includes('openai/') || s.includes('/')) return 'openrouter';\n  if (s.includes('mistral') || s.includes('mixtral')) return 'mistral';\n  if (s.includes('llama') || s.includes('gemma') || s.includes('deepseek')) return 'groq';\n  return '';\n}\n\n// Provider/Model zu Router-Feldern mappen (+ Defaults)\nfunction mapProviderModel(providerIn, modelIn) {\n  let prov = norm(providerIn).toLowerCase();\n  let mdl  = norm(modelIn);\n\n  // wenn prov kein erlaubter Provider ist, könnte es das Modell sein\n  if (!ALLOWED.has(prov)) {\n    const guessed = guessProviderFromModel(prov);\n    if (guessed) { mdl = prov; prov = guessed; }\n  }\n  // weiterhin unklar? aus mdl raten\n  if (!ALLOWED.has(prov)) {\n    const guessed = guessProviderFromModel(mdl);\n    if (guessed) prov = guessed;\n  }\n  // finale Defaults\n  if (!ALLOWED.has(prov)) prov = 'groq';\n  if (!mdl) {\n    if (prov === 'groq')        mdl = 'llama-3.1-70b-versatile';\n    else if (prov === 'openai') mdl = 'gpt-4o-mini';\n    else if (prov === 'anthropic') mdl = 'claude-3-5-sonnet';\n    else if (prov === 'mistralapi') mdl = 'mistral-large-latest';\n    else if (prov === 'openrouter') mdl = 'openai/gpt-oss-120b';\n    else if (prov === 'huggingface') mdl = 'meta-llama/Meta-Llama-3-8B-Instruct';\n    else /* mistral (ollama) */ mdl = 'llama3';\n  }\n\n  switch (prov) {\n    case 'groq':        return { model: 'groq',        groq_model: mdl };\n    case 'openai':      return { model: 'openai',      openai_model: mdl };\n    case 'anthropic':   return { model: 'anthropic',   claude_model: mdl };\n    case 'mistralapi':  return { model: 'mistralapi',  mistral_model: mdl };\n    case 'openrouter':  return { model: 'openrouter',  openrouter_model: mdl };\n    case 'huggingface': return { model: 'huggingface', hf_model: mdl };\n    case 'mistral':\n    default:            return { model: 'mistral',     ollama_model: mdl };\n  }\n}\n\n// --------------- input normalize ---------------\nconst root  = ($json && typeof $json === 'object') ? $json : {};\nlet pre = root;\n\n// falls ein Preflight-Node die Personas normalisiert hat, dort abholen\nif (!root.personas && !root.body?.personas) {\n  try {\n    const it = $items(\"Agents Preflight (Normalize)\", 0)[0];\n    if (it && it.json) pre = it.json;\n  } catch {}\n}\n\n// Personas extrahieren\nconst personas =\n  isArr(root.personas) ? root.personas :\n  isArr(pre.personas)  ? pre.personas  :\n  isArr(root.body?.personas) ? root.body.personas :\n  [];\n\n// keine Personas → erklärbares Fehlerobjekt\nif (!isArr(personas) || personas.length === 0) {\n  return [{ json: { error: \"No personas provided\", info: \"Prepare Persona Items erwartet personas[]\" } }];\n}\n\n// State & globale Felder\nconst state     = root.state || {};\nconst task      = norm(root.prompt ?? pre.prompt ?? root.body?.prompt ?? state.task);\nconst globalSys = norm(root.system ?? pre.system ?? root.body?.system);\nconst rag       = !!(root.rag ?? pre.rag ?? root.body?.rag);\nconst rag_tags  = isArr(root.rag_tags ?? pre.rag_tags ?? root.body?.rag_tags) ? (root.rag_tags ?? pre.rag_tags ?? root.body?.rag_tags) : [];\nconst convId    = root.conversation_id ?? pre.conversation_id ?? null;\nconst jobId     = root.job_id ?? pre.job_id ?? root.body?.job_id ?? root.jobId ?? pre.jobId ?? null;\nconst memory    = root.memory ?? pre.memory ?? null;\n\nconst round         = Number(state.round ?? root.round ?? 1);\nconst agent_rounds  = Number(state.rounds_total ?? state.agent_rounds ?? root.agent_rounds ?? pre.agent_rounds ?? 1);\n\n// Persona-only Board als Kontext\nconst boardPersonaText = norm(state.boardPersonaText || root.boardPersonaText || root.boardText);\n\n// Critic-Hinweise nur im Prompt anzeigen (nicht ins Board)\nconst focus = Array.isArray(state.critic_focus) ? state.critic_focus : [];\nconst questions = Array.isArray(state.critic_questions) ? state.critic_questions : [];\n\nconst focusLines = (focus.length ? [`- Beantworte diese Fokusaufgaben:`, ...focus.map(s => `  - ${norm(s)}`)] : []);\nconst questionLines = (questions.length ? [`- Beantworte diese Fragen:`, ...questions.map(s => `  - ${norm(s)}`)] : []);\n\n// --------------- build per-persona items ---------------\nconst items = personas.map((p, idx) => {\n  const label = norm(p.label || `Persona ${idx+1}`);\n  const mapped = mapProviderModel(p.provider, p.model);\n\n  const roleSystem = [globalSys, `Rolle: ${label}.`].filter(Boolean).join('\\n\\n');\n\n  const personaPrompt = [\n    `Teamaufgabe: ${task}`,\n    `Dein Beitrag (Rolle: \"${label}\") in Runde ${round} von ${agent_rounds}:`,\n    `- Liefere einen fokussierten, in sich verständlichen Abschnitt (max. 12 Sätze).`,\n    `- Beziehe dich auf die bisherigen Team-Ergebnisse (nur Persona-Inhalte).`,\n    ...focusLines,\n    ...questionLines,\n    boardPersonaText ? `\\nBisherige Team-Ergebnisse (Persona-Inhalte):\\n${boardPersonaText}` : ''\n  ].filter(Boolean).join('\\n');\n\n  return {\n    json: {\n      ...mapped,                  // <- setzt model + provider-spezifisches Modellfeld\n      label,\n      prompt: personaPrompt,\n      system: roleSystem,\n      rag, rag_tags,\n      conversation_id: convId,\n      memory,\n      round,\n      agent_rounds,\n      // rückwärts-kompatible Felder:\n      board: Array.isArray(root.board) ? root.board : [],\n      boardText: boardPersonaText,\n      job_id: jobId\n    }\n  };\n});\n\nreturn items;\n"
       },
-      "id": "4a3f8c68-33a5-4f2a-9cdb-af3c94e32498",
+      "id": "2db3ee54-af1c-4092-883a-6cb97dd975c9",
       "name": "Prepare Persona Items",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        288,
-        -864
+        -2240,
+        64
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "2cmATLhSNBMN3a2H",
+          "value": "b40VJ560cdjZeCOR",
           "mode": "list",
-          "cachedResultName": "RAG_router_v3"
+          "cachedResultName": "RAG Router V3"
         },
         "workflowInputs": {
           "mappingMode": "passThrough",
@@ -33,35 +33,35 @@
         "mode": "each",
         "options": {}
       },
-      "id": "af4779a0-d10f-457f-9916-d77c4ea65f99",
+      "id": "d4683843-a00b-4471-8c7c-f39164f5ec75",
       "name": "Run RAG_Router (Agents)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        960,
-        -736
+        -1568,
+        192
       ]
     },
     {
       "parameters": {
         "jsCode": "// Collect Agent Outputs — persona-only, strip <think>, collect thinkPersona[]\n// Quelle für Rundeninfos aus \"Prepare Persona Items\"\nconst preItems  = $items('Prepare Persona Items', 0);\nconst baseState = preItems?.[0]?.json ?? {};\nconst prevState = $json || {};\nconst state     = { ...baseState, ...prevState };\n\nconst agentResults = $input.all();\n\n// Collect Agent Outputs — persona-only, robust think-extraction\nfunction extractThinkAndClean(s) {\n  const src = String(s || '');\n  const thinks = [];\n\n  // 1) <think>...</think>\n  let clean = src.replace(/<think>([\\s\\S]*?)<\\/think>\\s*/gi, (_, t) => {\n    const seg = String(t || '').trim(); if (seg) thinks.push(seg); return '';\n  });\n\n  // 2) ```think ... ```\n  clean = clean.replace(/```(?:think|thinking|reasoning)[\\t ]*\\n([\\s\\S]*?)```/gi, (_, t) => {\n    const seg = String(t || '').trim(); if (seg) thinks.push(seg); return '';\n  });\n\n  // 3) Markdown-Heading \"### Think ... (bis zum nächsten Heading oder Ende)\"\n  clean = clean.replace(/(^|\\n)#{2,3}\\s*think\\b[\\s\\S]*?(?=(\\n#{2,3}\\s)|$)/gi, (m) => {\n    const seg = m.replace(/^.*?\\n/, '').trim(); if (seg) thinks.push(seg); return '';\n  });\n\n  // 4) \"THINK:\" Block (bis zur nächsten Leerzeile / Heading / Ende)\n  clean = clean.replace(/(^|\\n)think:\\s*([\\s\\S]*?)(?=\\n\\s*\\n|\\n#{1,6}\\s|$)/gi, (_, __, t) => {\n    const seg = String(t || '').trim(); if (seg) thinks.push(seg); return '';\n  });\n\n  return { clean: clean.trim(), thinks };\n}\n\nconst board = agentResults.map(it => {\n  const j   = it.json || {};\n  const raw = (j.text || j.result || '').trim();\n  if (!raw) return null;\n  const { clean, thinks } = extractThinkAndClean(raw);\n  const label    = j.label || j.persona?.label || 'Agent';\n  const provider = j.provider || j.model || j.model_used || '';\n  return { label, text: clean, provider, thinks };\n}).filter(Boolean);\n\nconst boardPersonaText = board.map(b => `### ${b.label}\\n${b.text}`).join('\\n\\n');\n\nconst thinkPersona = Array.isArray(state.thinkPersona) ? state.thinkPersona.slice() : [];\nboard.forEach(b => {\n  if (b.thinks && b.thinks.length) {\n    thinkPersona.push({\n      round: Number(state.round || 1),\n      label: b.label,\n      raw: b.thinks\n    });\n  }\n});\n\nreturn [{\n  json: {\n    ...state,\n    board: board.map(({ thinks, ...rest }) => rest),\n    boardText: boardPersonaText,     // rückwärts-kompatibel\n    boardPersonaText,                // Writer-Material\n    thinkPersona\n  }\n}];\n"
       },
-      "id": "8409e106-2b43-42eb-af49-4bd98b50a719",
+      "id": "c6a3c593-298d-419f-aa8e-ddd328ede893",
       "name": "Collect Agent Outputs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1856,
-        -864
+        -672,
+        64
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "2cmATLhSNBMN3a2H",
+          "value": "b40VJ560cdjZeCOR",
           "mode": "list",
-          "cachedResultName": "RAG_router_v3"
+          "cachedResultName": "RAG Router V3"
         },
         "workflowInputs": {
           "mappingMode": "passThrough",
@@ -73,13 +73,13 @@
         },
         "options": {}
       },
-      "id": "551f7f21-2929-42fd-b580-f325e75ad80b",
+      "id": "390a6777-28d7-4594-b06e-3fe6ca22a790",
       "name": "Run RAG_Router (Writer)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6112,
-        -592
+        3584,
+        336
       ]
     },
     {
@@ -87,74 +87,74 @@
         "mode": "runOnceForEachItem",
         "jsCode": "// Format Agent Response — writer-only final text, JSON/Focus/Questions herausziehen, think-strip, Moderator-Notes anhängen\n\nfunction pickStr(...cands){ for (const v of cands) if (typeof v === 'string' && v.trim()) return v.trim(); return ''; }\nfunction get(o, p){ return p.split('.').reduce((a,k)=>(a && a[k] !== undefined ? a[k] : undefined), o); }\nfunction stripThink(s){ return String(s || '').replace(/<think>[\\s\\S]*?<\\/think>\\s*/gi, '').trim(); }\n\n// --- NEW: JSON/Sections erkennen -> in Notes verschieben\nfunction formatNotes(obj){\n  const parts = [];\n  if (obj.summary) parts.push(`### Zusammenfassung (Moderator)\\n${String(obj.summary).trim()}`);\n  if (Array.isArray(obj.focus) && obj.focus.length) parts.push(`### Fokus für die nächste Runde\\n${obj.focus.map(s=>`- ${String(s).trim()}`).join('\\n')}`);\n  if (Array.isArray(obj.questions) && obj.questions.length) parts.push(`### Fragen für die nächste Runde\\n${obj.questions.map(s=>`- ${String(s).trim()}`).join('\\n')}`);\n  return parts.join('\\n\\n');\n}\nfunction tryParseJson(s){\n  try { return JSON.parse(s); } catch { return null; }\n}\nfunction extractEmbeddedModeratorFromText(txt){\n  let out = String(txt || '');\n  let collected = [];\n\n  // 1) ```json ... ```\n  out = out.replace(/```json\\s*([\\s\\S]*?)```/gi, (_, body)=>{\n    const parsed = tryParseJson(String(body||'').trim());\n    if (parsed && (parsed.summary || parsed.focus || parsed.questions)) {\n      const note = formatNotes(parsed);\n      if (note) collected.push(note);\n      return '';\n    }\n    return '';\n  });\n\n  // 2) reines JSON-Objekt als ganzer Text\n  const trimmed = out.trim();\n  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {\n    const parsed = tryParseJson(trimmed);\n    if (parsed && (parsed.summary || parsed.focus || parsed.questions)) {\n      const note = formatNotes(parsed);\n      if (note) collected.push(note);\n      out = '';\n    }\n  }\n\n  // 3) Überschriften/Abschnitte \"Fokus/Fragen\" im Text (LLM-Eigenleistung) entfernen → Notes sammeln\n  function harvestSection(name){\n    // Bis nächste Überschrift (### ...) oder Ende\n    const re = new RegExp(`(^|\\\\n)###\\\\s*${name}\\\\b[\\\\s\\\\S]*?(?=(\\\\n###\\\\s)|$)`, 'gi');\n    out = out.replace(re, (m)=>{\n      const body = m.replace(/^.*?\\n/, '').trim();\n      if (body) {\n        const lines = body.split(/\\r?\\n/).map(s=>s.replace(/^\\s*[-*]\\s?/, '').trim()).filter(Boolean);\n        const obj = (name.toLowerCase().startsWith('fokus')||name.toLowerCase().startsWith('focus'))\n          ? { focus: lines } : { questions: lines };\n        const note = formatNotes(obj);\n        if (note) collected.push(note);\n      }\n      return '';\n    });\n  }\n  harvestSection('Fokus');\n  harvestSection('Focus');\n  harvestSection('Fragen');\n  harvestSection('Questions');\n\n  return { text: out.trim(), notes: collected.filter(Boolean).join('\\n\\n') };\n}\nfunction unwrapWholeTextBrackets(s){\n  // Entfernt nur EIN Paar rund/ eckig, wenn es den GESAMTEN Text umschließt.\n  const t = String(s||'').trim();\n  const m1 = t.match(/^\\(\\s*([\\s\\S]*?)\\s*\\)$/);\n  if (m1) return m1[1].trim();\n  const m2 = t.match(/^\\[\\s*([\\s\\S]*?)\\s*\\]$/);\n  if (m2) return m2[1].trim();\n  return t;\n}\nfunction sanitizeAnswer(s){\n  let out = stripThink(s);\n  // JSON & Sections herausziehen (hier nur der Text; Notes sammeln wir separat)\n  const ex = extractEmbeddedModeratorFromText(out);\n  out = ex.text;\n  // führende/backende Klammern, wenn sie *alles* umschließen\n  out = unwrapWholeTextBrackets(out);\n  // übrig gebliebene ```json```/```...``` Fences ohne Inhalt entsorgen\n  out = out.replace(/```[\\s\\S]*?```/g, '').trim();\n  return { text: out, embeddedNotes: ex.notes };\n}\n\n// --------- Bestehende Flatten-Logik (gekürzt aus deiner Version) ---------\nfunction tryParse(x){ if (typeof x === 'string') { try { return JSON.parse(x); } catch {} } return x; }\nfunction flattenToPayload(data){\n  let cur = data, hops = 0;\n  while (cur && typeof cur === 'object' && !Array.isArray(cur) && cur.result !== undefined && hops < 6){\n    cur.result = tryParse(cur.result);\n    const r = cur.result || {};\n    if (typeof r.answer === 'string' || typeof r.text === 'string' || Array.isArray(r.sources) || r.artifacts) break;\n    cur = r; hops++;\n  }\n  return (cur && typeof cur.result === 'object') ? cur.result : cur;\n}\n\nconst cur         = item.json ?? {};\nconst writerItems = $items('Run RAG_Router (Writer)', 0) || [];\nconst writerRaw   = writerItems[0]?.json || {};\nconst critic      = $items('Apply Critic Feedback', 0)?.[0]?.json ?? {};\n\nconst flatWriter  = flattenToPayload(writerRaw);\nconst flatCur     = flattenToPayload(cur);\n\n// 1) Writer bevorzugt, dann aktuelles Item (KEIN Critic-Fallback)\nconst writerAnswer = pickStr(\n  flatWriter?.answer, flatWriter?.text,\n  get(writerRaw,'result.answer'), get(writerRaw,'result.text'),\n  get(writerRaw,'choices.0.message.content'), get(writerRaw,'choices.0.text'),\n  get(writerRaw,'data.choices.0.message.content')\n);\nconst curAnswer = pickStr(\n  flatCur?.answer, flatCur?.text,\n  get(cur,'result.answer'), get(cur,'result.text'),\n  get(cur,'choices.0.message.content'), get(cur,'choices.0.text'),\n  get(cur,'data.choices.0.message.content')\n);\n\nconst rawText = writerAnswer || curAnswer || '';\nconst { text: cleanText, embeddedNotes } = sanitizeAnswer(rawText);\n\n// 2) Quellen & Artefakte mergen (Writer bevorzugt)\nconst sources =\n  (Array.isArray(cur.sources) && cur.sources) ||\n  (Array.isArray(flatCur?.sources) && flatCur.sources) ||\n  (Array.isArray(writerRaw.sources) && writerRaw.sources) ||\n  (Array.isArray(flatWriter?.sources) && flatWriter.sources) || [];\n\nconst artifacts = {\n  ...(flatCur?.artifacts || {}),\n  ...(cur.artifacts || {}),\n  ...(flatWriter?.artifacts || {}),\n  ...(writerRaw.artifacts || {}),\n};\n\n// 3) Moderator-Notizen aus State + ggf. eingebettete Notes hinzufügen\nconst state = cur.state || writerRaw.state || critic.state || {};\nconst moderatorNotes = String(state.boardModeratorNotes || '').trim();\nconst notesMerged = [ moderatorNotes, embeddedNotes ].filter(Boolean).join('\\n\\n');\nif (notesMerged) artifacts.moderator_notes = notesMerged;\n\n// 4) Setzen — boardText NICHT überschreiben (bleibt Persona-only)\ncur.answer    = cleanText;\ncur.sources   = cur.sources ?? sources;\ncur.artifacts = artifacts;\n\nitem.json = cur;\nreturn item;\n"
       },
-      "id": "d8411de4-f532-421f-ac57-a0af730438a9",
+      "id": "8253ca25-313a-4e05-bf05-83569d5ab44b",
       "name": "Format Agent Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6560,
-        -736
+        4032,
+        192
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Agents Preflight (Normalize) — SINGLE item with personas[]\nconst base = ($json && typeof $json === 'object') ? $json : {};\n\nlet personas = base.personas ?? base.body?.personas ?? [];\nif (typeof personas === 'string') {\n  try { personas = JSON.parse(personas); }\n  catch {\n    personas = personas.split(/\\r?\\n|;|\\|/).map(s => ({ label: s.trim() })).filter(p => p.label);\n  }\n}\nif (!Array.isArray(personas) || personas.length === 0) {\n  personas = [{\n    label: base.persona_label || base.label || 'Agent',\n    provider: base.persona_provider || base.provider || base.model || 'groq',\n    model: base.persona_model || base.openai_model || base.groq_model || base.ollama_model || base.mistral_model || base.hf_model || base.model || 'llama3',\n    system: base.persona_system || base.system || '',\n    prompt: base.persona_prompt || ''\n  }];\n}\n\n// optional: Mapping beibehalten, aber NICHT mehr pro Item ausgeben\nfunction mapProvider(prov, model){\n  const p = String(prov || '').toLowerCase();\n  if (p === 'groq')        return { model: 'groq',       groq_model: model };\n  if (p === 'openai')      return { model: 'openai',     openai_model: model };\n  if (p === 'anthropic')   return { model: 'anthropic',  claude_model: model };\n  if (p === 'mistralapi')  return { model: 'mistralapi', mistral_model: model };\n  if (p === 'openrouter')  return { model: 'openrouter', openrouter_model: model || 'openai/gpt-oss-120b' };\n  if (p === 'huggingface') return { model: 'huggingface', hf_model: model };\n  return { model: 'mistral',  ollama_model: model || 'llama3' };\n}\n\npersonas = personas.map((p, i) => {\n  const prov = p.provider || base.provider || 'groq';\n  const mdl  = p.model || base.model || 'llama3';\n  const mapped = mapProvider(prov, mdl);\n  return { ...p, label: p.label || `Agent ${i+1}`, provider: prov, model: mdl, ...mapped };\n});\n\n// EIN Item mit personas[]\nreturn [{ json: { ...base, personas } }];\n"
+        "jsCode": "// Agents Preflight (Normalize) — SINGLE item with personas[]\nconst base = ($json && typeof $json === 'object') ? $json : {};\n\nlet personas = base.personas ?? base.body?.personas ?? [];\nif (typeof personas === 'string') {\n  try { personas = JSON.parse(personas); }\n  catch {\n    personas = personas.split(/\\r?\\n|;|\\|/).map(s => ({ label: s.trim() })).filter(p => p.label);\n  }\n}\nif (!Array.isArray(personas) || personas.length === 0) {\n  personas = [{\n    label: base.persona_label || base.label || 'Agent',\n    provider: base.persona_provider || base.provider || base.model || 'groq',\n    model: base.persona_model || base.openai_model || base.groq_model || base.ollama_model || base.mistral_model || base.hf_model || base.model || 'llama3',\n    system: base.persona_system || base.system || '',\n    prompt: base.persona_prompt || ''\n  }];\n}\n\n// optional: Mapping beibehalten, aber NICHT mehr pro Item ausgeben\nfunction mapProvider(prov, model){\n  const p = String(prov || '').toLowerCase();\n  if (p === 'groq')        return { model: 'groq',       groq_model: model };\n  if (p === 'openai')      return { model: 'openai',     openai_model: model };\n  if (p === 'anthropic')   return { model: 'anthropic',  claude_model: model };\n  if (p === 'mistralapi')  return { model: 'mistralapi', mistral_model: model };\n  if (p === 'openrouter')  return { model: 'openrouter', openrouter_model: model || 'openai/gpt-oss-120b' };\n  if (p === 'huggingface') return { model: 'huggingface', hf_model: model };\n  return { model: 'vllm' };\n}\n\npersonas = personas.map((p, i) => {\n  const prov = p.provider || base.provider || 'groq';\n  const mdl  = p.model || base.model || 'llama3';\n  const mapped = mapProvider(prov, mdl);\n  return { ...p, label: p.label || `Agent ${i+1}`, provider: prov, model: mdl, ...mapped };\n});\n\n// EIN Item mit personas[]\nreturn [{ json: { ...base, personas } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -160,
-        -784
+        -2688,
+        144
       ],
-      "id": "c8a0b65d-7075-43a1-be63-d788111f3d36",
+      "id": "0ea4de9c-8b43-48b8-82d0-c5980b3c2fc2",
       "name": "Agents Preflight (Normalize)"
     },
     {
       "parameters": {
-        "jsCode": "// Build Writer Prompt — Persona-only material, strip <think>, promote prompt/system, **carry job_id + __event_base**\n\nconst j = ($json && typeof $json === 'object') ? $json : {};\nconst norm = v => String(v ?? '').trim();\nconst isArr = a => Array.isArray(a);\n\n// ---- Provider/Model (unverändert aus deiner letzten Fassung) ----\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral']);\nconst provIn  = norm(j.writer?.provider || j.model || j.provider).toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'groq';\n\nlet modelFields = {};\nswitch (provider) {\n  case 'groq':       modelFields = { model:'groq',       groq_model: j.groq_model || j.writer?.model || 'llama-3.1-70b-versatile' }; break;\n  case 'openai':     modelFields = { model:'openai',     openai_model: j.openai_model || j.writer?.model || 'gpt-4o-mini'           }; break;\n  case 'anthropic':  modelFields = { model:'anthropic',  claude_model: j.claude_model || j.writer?.model || 'claude-3-5-sonnet'     }; break;\n  case 'mistralapi': modelFields = { model:'mistralapi', mistral_model: j.mistral_model || j.writer?.model || 'mistral-large-latest'}; break;\n  case 'openrouter': modelFields = { model:'openrouter', openrouter_model: j.openrouter_model || j.writer?.model || 'openai/gpt-oss-120b' }; break;\n  case 'huggingface':modelFields = { model:'huggingface',hf_model: j.hf_model || j.writer?.model || 'meta-llama/Meta-Llama-3-8B-Instruct'}; break;\n  case 'mistral':\n  default:           modelFields = { model:'mistral',    ollama_model: j.ollama_model || j.writer?.model || 'llama3'                }; break;\n}\n\n// ---- Persona-only Material + Think-strip (defensiv) ----\nconst stripThink = s => String(s || '').replace(/<think>[\\s\\S]*?<\\/think>\\s*/g,'').trim();\nconst personaBoardRaw =\n  j.boardPersonaText ??\n  (isArr(j.board) ? j.board.map(b=>`### ${b.label||'Agent'}\\n${norm(b.text)}`).join('\\n\\n') : '');\nconst boardPersonaText = stripThink(personaBoardRaw);\nconst basePrompt = j.prompt ?? j.body?.prompt ?? j.input?.prompt ?? '';\n\nconst writerSystem = [\n  (j.system || j.body?.system || ''),\n  'Du bist der **Writer/Redakteur**.',\n  'Erzeuge eine klare, strukturierte Abschlussfassung ausschließlich auf Basis der Persona-Inhalte.',\n  'Ignoriere Moderator-/Critic-Notizen, Tool-/Observation-Texte und interne Denkabschnitte.',\n  'Struktur: 1) Kurzfassung (max. 5 Sätze)  2) Details je Bereich  3) Entscheidungen  4) Offene Punkte / Risiken',\n  'Formatiere mit sinnvollen Überschriften und Listen.'\n].filter(Boolean).join('\\n');\n\nconst writerPrompt = [\n  `Teamaufgabe: ${basePrompt}`,\n  '',\n  'Team-Ergebnisse (nur Persona-Inhalte):',\n  boardPersonaText || '(keine Persona-Inhalte verfügbar)'\n].join('\\n');\n\n// ---- 🔧 job_id + event-base robust übernehmen ----\nconst state = j.state || {};\nconst jobId =\n  j.job_id ??\n  j.jobId ??\n  state.job_id ??\n  j.__event_base?.job_id ??\n  j.__event?.job_id ??\n  j.body?.job_id ??\n  null;\n\n// Runde / Runden\nconst round        = Number(state.round ?? j.round ?? 1);\nconst rounds_total = Number(state.rounds_total ?? state.agent_rounds ?? j.agent_rounds ?? 1);\n\n// __event_base vorbereiten (vom Writer-Branch aus nutzbar)\nconst eventBase = {\n  job_id: jobId,\n  persona: 'Writer',\n  role: 'writer',\n  round,\n  rounds_total\n};\n\n// ---- Promote prompt/system & carry job_id ----\nconst promoted = {\n  ...modelFields,\n  prompt: writerPrompt,\n  system: writerSystem,\n  rag: !!j.rag,\n  rag_tags: isArr(j.rag_tags) ? j.rag_tags : [],\n  conversation_id: j.conversation_id ?? null,\n  memory: j.memory ?? null,\n  job_id: jobId,                 // <<—— WICHTIG: top-level job_id für Subflows\n  __event_base: eventBase        // <<—— WICHTIG: für emit_event-Subflow\n};\n\n// Keep writer_call for logging/debugging\nconst writer_call = { ...promoted };\n\nreturn { json: { ...j, ...promoted, writer_call } };\n"
+        "jsCode": "// Build Writer Prompt — Persona-only material, strip <think>, promote prompt/system, **carry job_id + __event_base**\n\nconst j = ($json && typeof $json === 'object') ? $json : {};\nconst norm = v => String(v ?? '').trim();\nconst isArr = a => Array.isArray(a);\n\n// ---- Provider/Model (unverändert aus deiner letzten Fassung) ----\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral','vllm']);\nconst provIn  = norm(j.writer?.provider || j.model || j.provider).toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'vllm';\n\nlet modelFields = {};\nswitch (provider) {\n  case 'groq':       modelFields = { model:'groq',       groq_model: j.groq_model || j.writer?.model || 'llama-3.1-70b-versatile' }; break;\n  case 'openai':     modelFields = { model:'openai',     openai_model: j.openai_model || j.writer?.model || 'gpt-4o-mini'           }; break;\n  case 'anthropic':  modelFields = { model:'anthropic',  claude_model: j.claude_model || j.writer?.model || 'claude-3-5-sonnet'     }; break;\n  case 'mistralapi': modelFields = { model:'mistralapi', mistral_model: j.mistral_model || j.writer?.model || 'mistral-large-latest'}; break;\n  case 'openrouter': modelFields = { model:'openrouter', openrouter_model: j.openrouter_model || j.writer?.model || 'openai/gpt-oss-120b' }; break;\n  case 'vllm':\n  modelFields = { model:'vllm', persona:'writer' };\n  break;\n  case 'huggingface':modelFields = { model:'huggingface',hf_model: j.hf_model || j.writer?.model || 'meta-llama/Meta-Llama-3-8B-Instruct'}; break;\n  case 'mistral':\n  default:           modelFields = { model:'mistral',    ollama_model: j.ollama_model || j.writer?.model || 'llama3'                }; break;\n}\n\n// ---- Persona-only Material + Think-strip (defensiv) ----\nconst stripThink = s => String(s || '').replace(/<think>[\\s\\S]*?<\\/think>\\s*/g,'').trim();\nconst personaBoardRaw =\n  j.boardPersonaText ??\n  (isArr(j.board) ? j.board.map(b=>`### ${b.label||'Agent'}\\n${norm(b.text)}`).join('\\n\\n') : '');\nconst boardPersonaText = stripThink(personaBoardRaw);\nconst basePrompt = j.prompt ?? j.body?.prompt ?? j.input?.prompt ?? '';\n\nconst writerSystem = [\n  (j.system || j.body?.system || ''),\n  'Du bist der **Writer/Redakteur**.',\n  'Erzeuge eine klare, strukturierte Abschlussfassung ausschließlich auf Basis der Persona-Inhalte.',\n  'Ignoriere Moderator-/Critic-Notizen, Tool-/Observation-Texte und interne Denkabschnitte.',\n  'Struktur: 1) Kurzfassung (max. 5 Sätze)  2) Details je Bereich  3) Entscheidungen  4) Offene Punkte / Risiken',\n  'Formatiere mit sinnvollen Überschriften und Listen.'\n].filter(Boolean).join('\\n');\n\nconst writerPrompt = [\n  `Teamaufgabe: ${basePrompt}`,\n  '',\n  'Team-Ergebnisse (nur Persona-Inhalte):',\n  boardPersonaText || '(keine Persona-Inhalte verfügbar)'\n].join('\\n');\n\n// ---- 🔧 job_id + event-base robust übernehmen ----\nconst state = j.state || {};\nconst jobId =\n  j.job_id ??\n  j.jobId ??\n  state.job_id ??\n  j.__event_base?.job_id ??\n  j.__event?.job_id ??\n  j.body?.job_id ??\n  null;\n\n// Runde / Runden\nconst round        = Number(state.round ?? j.round ?? 1);\nconst rounds_total = Number(state.rounds_total ?? state.agent_rounds ?? j.agent_rounds ?? 1);\n\n// __event_base vorbereiten (vom Writer-Branch aus nutzbar)\nconst eventBase = {\n  job_id: jobId,\n  persona: 'Writer',\n  role: 'writer',\n  round,\n  rounds_total\n};\n\n// ---- Promote prompt/system & carry job_id ----\nconst promoted = {\n  ...modelFields,\n  prompt: writerPrompt,\n  system: writerSystem,\n  rag: !!j.rag,\n  rag_tags: isArr(j.rag_tags) ? j.rag_tags : [],\n  conversation_id: j.conversation_id ?? null,\n  memory: j.memory ?? null,\n  job_id: jobId,                 // <<—— WICHTIG: top-level job_id für Subflows\n  __event_base: eventBase        // <<—— WICHTIG: für emit_event-Subflow\n};\n\n// Keep writer_call for logging/debugging\nconst writer_call = { ...promoted };\n\nreturn { json: { ...j, ...promoted, writer_call } };\n"
       },
-      "id": "0eb5272d-96d3-4ea0-8fed-afa5a69341c8",
+      "id": "d14f27a5-3e80-4d74-8cc2-9c2e7b0b81cf",
       "name": "Build Writer Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5216,
-        -736
+        2688,
+        192
       ]
     },
     {
       "parameters": {
         "jsCode": "// Init Round State\nconst j = $json || {};\nconst rounds = Number(j.agent_rounds ?? j.body?.agent_rounds ?? 1);\nreturn [{\n  json: {\n    ...j,\n    round: 1,\n    agent_rounds: Math.max(1, rounds),\n    board: Array.isArray(j.board) ? j.board : [],\n    boardText: String(j.boardText || ''),\n  }\n}];"
       },
-      "id": "3390e9b9-e5a9-4cc8-a0b9-9d8acb670c1c",
+      "id": "abf7f178-3bd8-4393-a84d-1ae66aa41ffc",
       "name": "Init Round State",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4320,
-        -448
+        1792,
+        480
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Prepare Critic/Facilitator Prompt — keine Resets von round/agent_rounds\nconst j = $json || {};\n\n// Provider-Mapping (separat steuerbar über j.critic)\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral']);\nconst provIn  = String(j.critic?.provider || j.model || j.provider || '').toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'groq';\nconst mdlIn   = String(j.critic?.model || '').toLowerCase();\n\nlet mapped = {};\nswitch (provider) {\n  case 'groq':       mapped = { model: 'groq',       groq_model: mdlIn || j.groq_model || 'llama-3.1-70b-versatile' }; break;\n  case 'openai':     mapped = { model: 'openai',     openai_model: mdlIn || j.openai_model || 'gpt-4o-mini' }; break;\n  case 'anthropic':  mapped = { model: 'anthropic',  claude_model: mdlIn || j.claude_model || 'claude-3-5-sonnet' }; break;\n  case 'mistralapi': mapped = { model: 'mistralapi', mistral_model: mdlIn || j.mistral_model || 'mistral-large-latest' }; break;\n  case 'openrouter': mapped = { model: 'openrouter', openrouter_model: mdlIn || j.openrouter_model || 'openai/gpt-oss-120b' }; break;\n  case 'huggingface':mapped = { model: 'huggingface',hf_model: mdlIn || j.hf_model || 'meta-llama/Meta-Llama-3-8B-Instruct' }; break;\n  default:           mapped = { model: 'mistral',    ollama_model: mdlIn || j.ollama_model || 'llama3' };\n}\n\n// State sicher beibehalten\nconst round = Number(j.round ?? 1);\nconst total = Number(j.agent_rounds ?? 1);\n\n// Base-Prompt des Users für Anzeige/Memory konservieren\nconst basePrompt = j._original_prompt ?? j.prompt ?? '';\n\n// Prompt für den Critic\nconst criticSystem = [\n  'Du bist der **Facilitator/Critic** einer Agentenbesprechung.',\n  'Aufgaben:',\n  '- Verdichte die bisherigen Team-Ergebnisse,',\n  '- markiere Widersprüche/Lücken.',\n  '- Stelle 1–3 präzise Fragen an den/die Agent:in (kurz, nummeriert).',\n  '- Formuliere max. 3 konkrete Fokusaufgaben für die nächste Runde,',\n  '- entscheide, ob eine weitere Runde nötig ist (stop=true/false).'\n].join('\\n');\n\nconst boardText = j.boardText || '';\nconst criticUser = [\n  `Aufgabe (User): ${basePrompt}`,\n  '',\n  `Runde ${round} von ${total}`,\n  '',\n  'Bisherige Team-Ergebnisse:',\n  boardText || '(noch keine)',\n  '',\n  'Erwarte JSON: { \"summary\": string, \"focus\": [string], \"questions\": [string], \"stop\": boolean }'\n].join('\\n');\n\nreturn {\n  json: {\n    ...j,\n    ...mapped,\n    // WICHTIG: State-Felder explizit mitgeben\n    round,\n    agent_rounds: total,\n    // Anzeige/Memory: _original_prompt setzen, prompt für den Critic setzen\n    _original_prompt: basePrompt,\n    prompt: criticUser,\n    system: criticSystem\n  }\n};\n"
+        "jsCode": "// Prepare Critic/Facilitator Prompt — keine Resets von round/agent_rounds\nconst j = $json || {};\n\n// Provider-Mapping (separat steuerbar über j.critic)\nconst allowed = new Set(['groq','openai','anthropic','mistralapi','openrouter','huggingface','mistral','vllm']);\nconst provIn  = String(j.critic?.provider || j.model || j.provider || '').toLowerCase();\nconst provider = allowed.has(provIn) ? provIn : 'vllm';\nconst mdlIn   = String(j.critic?.model || '').toLowerCase();\n\nlet mapped = {};\nswitch (provider) {\n  case 'groq':       mapped = { model: 'groq',       groq_model: mdlIn || j.groq_model || 'llama-3.1-70b-versatile' }; break;\n  case 'openai':     mapped = { model: 'openai',     openai_model: mdlIn || j.openai_model || 'gpt-4o-mini' }; break;\n  case 'anthropic':  mapped = { model: 'anthropic',  claude_model: mdlIn || j.claude_model || 'claude-3-5-sonnet' }; break;\n  case 'mistralapi': mapped = { model: 'mistralapi', mistral_model: mdlIn || j.mistral_model || 'mistral-large-latest' }; break;\n  case 'vllm':\n  modelFields = { model:'vllm', persona:'critic' };\n  break;\n  case 'openrouter': mapped = { model: 'openrouter', openrouter_model: mdlIn || j.openrouter_model || 'openai/gpt-oss-120b' }; break;\n  case 'huggingface':mapped = { model: 'huggingface',hf_model: mdlIn || j.hf_model || 'meta-llama/Meta-Llama-3-8B-Instruct' }; break;\n  default:           mapped = { model: 'mistral',    ollama_model: mdlIn || j.ollama_model || 'llama3' };\n}\n\n// State sicher beibehalten\nconst round = Number(j.round ?? 1);\nconst total = Number(j.agent_rounds ?? 1);\n\n// Base-Prompt des Users für Anzeige/Memory konservieren\nconst basePrompt = j._original_prompt ?? j.prompt ?? '';\n\n// Prompt für den Critic\nconst criticSystem = [\n  'Du bist der **Facilitator/Critic** einer Agentenbesprechung.',\n  'Aufgaben:',\n  '- Verdichte die bisherigen Team-Ergebnisse,',\n  '- markiere Widersprüche/Lücken.',\n  '- Stelle 1–3 präzise Fragen an den/die Agent:in (kurz, nummeriert).',\n  '- Formuliere max. 3 konkrete Fokusaufgaben für die nächste Runde,',\n  '- entscheide, ob eine weitere Runde nötig ist (stop=true/false).'\n].join('\\n');\n\nconst boardText = j.boardText || '';\nconst criticUser = [\n  `Aufgabe (User): ${basePrompt}`,\n  '',\n  `Runde ${round} von ${total}`,\n  '',\n  'Bisherige Team-Ergebnisse:',\n  boardText || '(noch keine)',\n  '',\n  'Erwarte JSON: { \"summary\": string, \"focus\": [string], \"questions\": [string], \"stop\": boolean }'\n].join('\\n');\n\nreturn {\n  json: {\n    ...j,\n    ...mapped,\n    // WICHTIG: State-Felder explizit mitgeben\n    round,\n    agent_rounds: total,\n    // Anzeige/Memory: _original_prompt setzen, prompt für den Critic setzen\n    _original_prompt: basePrompt,\n    prompt: criticUser,\n    system: criticSystem\n  }\n};\n"
       },
-      "id": "d9f684a0-7546-42e2-b2f7-0456871d0c05",
+      "id": "3ef98bdc-1e9f-480c-921d-d39faebd7fb9",
       "name": "Prepare Critic Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2976,
-        -864
+        448,
+        64
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "2cmATLhSNBMN3a2H",
+          "value": "b40VJ560cdjZeCOR",
           "mode": "list",
-          "cachedResultName": "RAG_router_v3"
+          "cachedResultName": "RAG Router V3"
         },
         "workflowInputs": {
           "mappingMode": "passThrough",
@@ -166,26 +166,26 @@
         },
         "options": {}
       },
-      "id": "271ea56b-3a1a-45a0-830c-7b6ecba858a0",
+      "id": "d03e1b82-717e-4fc2-b51c-c369adcb13f6",
       "name": "Run RAG_Router (Critic)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        3648,
-        -736
+        1120,
+        192
       ]
     },
     {
       "parameters": {
         "jsCode": "// Apply Critic Feedback — Moderator-Notizen + job_id passthrough\n\nfunction firstValidJson(items) {\n  for (const it of items) {\n    const v = it.json;\n    if (v && (v.summary || v.focus || v.questions || v.stop !== undefined)) return v;\n    try { const p = JSON.parse(String(v||'{}')); if (p && (p.summary || p.focus || p.questions || p.stop !== undefined)) return p; } catch {}\n  }\n  return {};\n}\n\nconst cur    = $json || {};\nconst state0 = cur.state || {};\n// job_id aus allen sinnvollen Quellen zusammensuchen (inkl. Critic-Run)\nconst job_id =\n  cur.job_id ??\n  state0.job_id ??\n  $items('Run RAG_Router (Critic)', 0)?.[0]?.json?.job_id ??\n  $items('Run RAG_Router (Critic)', 0)?.[0]?.json?.state?.job_id ??\n  cur.__event_base?.job_id ??\n  cur.body?.job_id ??\n  null;\n\nconst parsed = firstValidJson(items);\nconst summary   = String(parsed.summary || '').trim();\nconst focus     = Array.isArray(parsed.focus)     ? parsed.focus.map(s=>String(s).trim()).filter(Boolean) : [];\nconst questions = Array.isArray(parsed.questions) ? parsed.questions.map(s=>String(s).trim()).filter(Boolean) : [];\nconst stop      = Boolean(parsed.stop);\n\nconst blocks = [];\nif (summary)          blocks.push(`### Zusammenfassung (Moderator)\\n${summary}`);\nif (focus.length)     blocks.push(`### Fokus für die nächste Runde\\n${focus.map(s=>`- ${s}`).join('\\n')}`);\nif (questions.length) blocks.push(`### Fragen für die nächste Runde\\n${questions.map(s=>`- ${s}`).join('\\n')}`);\n\nconst boardModeratorNotes = [state0.boardModeratorNotes || '', blocks.join('\\n\\n')].filter(Boolean).join('\\n\\n');\n\nconst state = {\n  ...state0,\n  job_id,                       // <<— wichtig\n  critic_summary: summary || undefined,\n  critic_focus: focus,\n  critic_questions: questions,\n  boardModeratorNotes,\n  stop\n};\n\nreturn [{ json: { ...cur, job_id, state } }];\n"
       },
-      "id": "2fa88c52-73ad-410d-82fe-80772e7aae38",
+      "id": "273682ae-07b3-4e74-b5a2-99760e362667",
       "name": "Apply Critic Feedback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4096,
-        -864
+        1568,
+        64
       ]
     },
     {
@@ -195,10 +195,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4544,
-        -864
+        2016,
+        64
       ],
-      "id": "41427986-dd1c-4863-a182-2a758a97d77c",
+      "id": "40d8f0fd-433c-4208-946c-3c978731c815",
       "name": "State Manager"
     },
     {
@@ -208,23 +208,23 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4768,
-        -864
+        2240,
+        64
       ],
-      "id": "f04a318b-0948-43be-afe6-f32738cd7a4e",
+      "id": "eb40a550-0899-4f38-a5f5-2d3d955062c2",
       "name": "Loop Checker"
     },
     {
       "parameters": {
         "jsCode": "// Round Incrementer — collapse to single state & bump round\nconst items = $input.all();\nconst base  = (items[items.length - 1]?.json) || ($json || {});\nconst currentMax = Math.max(...items.map(it => Number(it.json?.round ?? 1)), Number(base.round ?? 1));\nconst total = Number(base.agent_rounds ?? items[0]?.json?.agent_rounds ?? 1);\n\nreturn [{ json: { ...base, round: currentMax + 1, agent_rounds: total } }];\n"
       },
-      "id": "3819c219-8ef5-46ee-b0e8-51386deff4f1",
+      "id": "cbe17307-e2d1-48e0-9556-ab4c1a990c1b",
       "name": "Round Incrementer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4320,
-        -864
+        1792,
+        64
       ]
     },
     {
@@ -232,10 +232,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        64,
-        -784
+        -2464,
+        144
       ],
-      "id": "7bfbc1fb-fe1e-4090-a3a3-7b8213c3f7df",
+      "id": "bf492d36-152d-4cf7-b0fd-310c41fe336a",
       "name": "Merge"
     },
     {
@@ -266,10 +266,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        4992,
-        -864
+        2464,
+        64
       ],
-      "id": "7fb6a304-f7d7-496b-bbef-f18629f3d4f9",
+      "id": "1d8dc6b1-b77e-4f12-9957-508ee185bc18",
       "name": "Loop Gate"
     },
     {
@@ -279,10 +279,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
-        -864
+        -448,
+        64
       ],
-      "id": "a025293a-5821-4bcf-b267-6f55cbe0e697",
+      "id": "caccbd4f-fc07-4d33-9cfb-54b502c9c1f7",
       "name": "Parse Tool Calls"
     },
     {
@@ -292,19 +292,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2752,
-        -928
+        224,
+        0
       ],
-      "id": "f5925164-aa96-4a56-ab6d-ffe15feb34c0",
+      "id": "f078b6c2-9fe7-4b09-a216-5cf924c8fdf5",
       "name": "Merge Tool Observations"
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "7TJSkMtcQ9WBo4YM",
+          "value": "IWAVpQy5PXkHrGWQ",
           "mode": "list",
-          "cachedResultName": "tools_router_v1"
+          "cachedResultName": "Tools Router"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -319,10 +319,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2528,
-        -928
+        0,
+        0
       ],
-      "id": "785f05ea-2008-49bf-aeff-7b378c3d048e",
+      "id": "b4fcb8f7-a3e0-432a-8799-4ac160388c87",
       "name": "Run Tools Router"
     },
     {
@@ -353,10 +353,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2304,
-        -864
+        -224,
+        64
       ],
-      "id": "bedbe805-182e-4a43-874f-fbe40ffb47d0",
+      "id": "20a03dfd-8b5a-428e-bc19-181164e866fa",
       "name": "If"
     },
     {
@@ -366,10 +366,10 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -384,
-        -720
+        -2912,
+        208
       ],
-      "id": "0ae73f5c-5fca-42b5-9aa6-a6ec974ebfa4",
+      "id": "ad7598ea-db3a-4832-b454-3da2f33037fd",
       "name": "Execute Subflow"
     },
     {
@@ -379,19 +379,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6784,
-        -736
+        4256,
+        192
       ],
-      "id": "146349ae-bfda-4e01-a568-2ca23a21a567",
+      "id": "cdc5f613-baaf-4793-9715-d45c821d26be",
       "name": "Finalize State"
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "gTyBULqGMjgEgoHd",
+          "value": "OjD3jrVzeEsAqnr7",
           "mode": "list",
-          "cachedResultName": "emit_event"
+          "cachedResultName": "Emit Event"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -409,10 +409,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5440,
-        -928
+        2912,
+        0
       ],
-      "id": "ad6f7ceb-e444-4cca-bdbf-c991338ff261",
+      "id": "4ac3d5c9-6607-4f31-92f7-f6d52fb3ac59",
       "name": "Run emit_event",
       "onError": "continueRegularOutput"
     },
@@ -424,10 +424,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5216,
-        -928
+        2688,
+        0
       ],
-      "id": "a63e523f-5686-4047-8998-ae76706b6af0",
+      "id": "f91b1ea2-f6cb-4c63-a451-1c9a8db98efb",
       "name": "Build Event: Round Start"
     },
     {
@@ -438,19 +438,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5440,
-        -736
+        2912,
+        192
       ],
-      "id": "e0c9b077-de4b-4947-8b22-3d773b1f0a3b",
+      "id": "e3e40f82-dab4-496f-8b31-cf0a9728e521",
       "name": "Build Event: Writer"
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "gTyBULqGMjgEgoHd",
+          "value": "OjD3jrVzeEsAqnr7",
           "mode": "list",
-          "cachedResultName": "emit_event"
+          "cachedResultName": "Emit Event"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -468,10 +468,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5888,
-        -592
+        3360,
+        336
       ],
-      "id": "18975f28-ed63-4062-929b-7dfa3c0a25f2",
+      "id": "67221828-c49b-4aad-94b0-ac672b459384",
       "name": "Run emit_event1",
       "onError": "continueRegularOutput"
     },
@@ -483,19 +483,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3200,
-        -864
+        672,
+        64
       ],
-      "id": "f99cafff-ddd3-4c79-ac2b-2e3f3fbf1be0",
+      "id": "20fb1d93-de31-48e7-81ca-46d195559535",
       "name": "Build Event: Critic"
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "gTyBULqGMjgEgoHd",
+          "value": "OjD3jrVzeEsAqnr7",
           "mode": "list",
-          "cachedResultName": "emit_event"
+          "cachedResultName": "Emit Event"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -513,10 +513,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        3424,
-        -736
+        896,
+        192
       ],
-      "id": "d14a826c-4538-46f2-b416-6230be243aab",
+      "id": "9b1c048e-50a8-4ca9-bb23-7c0d3c8a6524",
       "name": "Run emit_event2",
       "onError": "continueRegularOutput"
     },
@@ -528,19 +528,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        512,
-        -736
+        -2016,
+        192
       ],
-      "id": "c991d9b4-261e-4361-b6dd-f28c7cca5f9c",
+      "id": "5405e9f4-3679-4b23-8ae7-302f81f7b190",
       "name": "Build Event: Persona Start"
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "gTyBULqGMjgEgoHd",
+          "value": "OjD3jrVzeEsAqnr7",
           "mode": "list",
-          "cachedResultName": "emit_event"
+          "cachedResultName": "Emit Event"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -558,10 +558,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        736,
-        -736
+        -1792,
+        192
       ],
-      "id": "9c61cce9-d4ea-4f74-a51d-9b059b287600",
+      "id": "360de8f2-d94c-4d25-b0ef-74f26531ac64",
       "name": "Run emit_event3",
       "onError": "continueRegularOutput"
     },
@@ -573,19 +573,19 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1408,
-        -864
+        -1120,
+        64
       ],
-      "id": "8075d855-79dc-4462-aeba-172582735b4d",
+      "id": "00b4717e-bada-4c58-8969-970a1efd80ff",
       "name": "Build Event: Persona Done"
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "gTyBULqGMjgEgoHd",
+          "value": "OjD3jrVzeEsAqnr7",
           "mode": "list",
-          "cachedResultName": "emit_event"
+          "cachedResultName": "Emit Event"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
@@ -603,10 +603,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1632,
-        -864
+        -896,
+        64
       ],
-      "id": "eed89c6b-1bab-4ea0-8b01-b2f3eeed6d1d",
+      "id": "1fc2ee07-8d4d-49a4-b11e-5dd5e61c40a7",
       "name": "Run emit_event4",
       "onError": "continueRegularOutput"
     },
@@ -619,10 +619,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        1184,
-        -864
+        -1344,
+        64
       ],
-      "id": "8cae806d-41bb-46aa-acea-989a4b57263f",
+      "id": "d8d1cd1a-b998-41fb-aa06-e7bafaae83c0",
       "name": "Collect Data"
     },
     {
@@ -632,10 +632,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5664,
-        -736
+        3136,
+        192
       ],
-      "id": "63fce752-65a9-4529-afd4-7d3aba659d51",
+      "id": "f87939cb-7293-49b3-a254-9442e96fed3a",
       "name": "Summarize Think Blocks (Safe)"
     },
     {
@@ -647,10 +647,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        3872,
-        -864
+        1344,
+        64
       ],
-      "id": "47ac4980-4fc1-4e3f-a7d8-ca2840f8ecae",
+      "id": "0bcfd7dc-a14b-47bd-b590-ccf3a8dadb96",
       "name": "Collect Data1"
     },
     {
@@ -662,10 +662,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        6336,
-        -736
+        3808,
+        192
       ],
-      "id": "aff5d592-6d82-4309-94e5-c25a70cdf73a",
+      "id": "b901c8ef-789a-4e83-bae5-8d33422052ba",
       "name": "Collect Data2"
     }
   ],
@@ -926,11 +926,6 @@
         ]
       ]
     },
-    "Finalize State": {
-      "main": [
-        []
-      ]
-    },
     "Build Event: Round Start": {
       "main": [
         [
@@ -1100,17 +1095,17 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "8ca13a81-60b4-4930-a0fb-5f190410975a",
+  "versionId": "5ee60b97-61d0-407a-8b93-916fb107b9c7",
   "meta": {
-    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
-  "id": "sbK9V2KSnyb2GGxG",
+  "id": "Aiz81noQbgD9M62I",
   "tags": [
     {
-      "createdAt": "2025-08-15T08:00:40.082Z",
-      "updatedAt": "2025-08-15T08:00:40.082Z",
-      "id": "MIGc52SFD5ylOxsf",
-      "name": "Subflow"
+      "name": "Subflow",
+      "id": "4ZXhh7HxNdYuxid7",
+      "createdAt": "2025-09-11T13:23:00.506Z",
+      "updatedAt": "2025-09-11T13:23:00.506Z"
     }
   ]
 }

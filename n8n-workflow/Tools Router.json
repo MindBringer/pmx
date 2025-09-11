@@ -1,5 +1,5 @@
 {
-  "name": "tools_router_v1",
+  "name": "Tools Router",
   "nodes": [
     {
       "parameters": {
@@ -8,10 +8,10 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -496,
-        384
+        -1120,
+        560
       ],
-      "id": "7c8ee817-131e-4a84-a58c-df6ccf83f973",
+      "id": "8707ce1c-c455-422a-aab1-fd2711e2d55f",
       "name": "When Executed by Another Workflow"
     },
     {
@@ -21,10 +21,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -272,
-        384
+        -896,
+        560
       ],
-      "id": "ad324ce1-b27e-4c79-9d4e-202a38c4dd3a",
+      "id": "f5f2714b-c430-4a92-bccc-33422fcff7a4",
       "name": "Validate & Normalize"
     },
     {
@@ -152,10 +152,10 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        -48,
-        112
+        -672,
+        288
       ],
-      "id": "45941c20-a9d6-49ba-9903-c7d644776fae",
+      "id": "7582baa7-9f6c-4c40-bacc-7793449c0b82",
       "name": "Define Tool"
     },
     {
@@ -166,10 +166,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        624,
-        -176
+        0,
+        0
       ],
-      "id": "dac4225b-e43b-45c6-a934-238fa87d23b7",
+      "id": "b8eaa1ad-7226-412f-879e-256bf846d2bb",
       "name": "Google"
     },
     {
@@ -179,10 +179,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1072,
-        208
+        448,
+        384
       ],
-      "id": "601ef9d5-92a6-42a6-82c9-f11aff526776",
+      "id": "803df101-70ee-4c61-bfa3-bed5ce3bb6b3",
       "name": "Tools: Aggregate Observations"
     },
     {
@@ -206,10 +206,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        624,
-        16
+        0,
+        192
       ],
-      "id": "6f963523-d74e-4e13-bc4a-90c20e23e1f2",
+      "id": "97b6e487-ce38-47f8-8037-7205b2c69d70",
       "name": "Call DB c16"
     },
     {
@@ -217,10 +217,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        848,
-        112
+        224,
+        288
       ],
-      "id": "c2252dc3-1334-4f5b-a951-cfd3c22df01d",
+      "id": "faadb804-2008-40bf-ba8e-60b69b539dbb",
       "name": "Merge"
     },
     {
@@ -230,10 +230,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        176,
-        432
+        -448,
+        608
       ],
-      "id": "26247469-3460-4624-8850-32a3ac8ff996",
+      "id": "2b27b4c1-ca9a-40ca-b84b-bb1f32f80337",
       "name": "Resolve SOA Action → HTTP Spec"
     },
     {
@@ -261,10 +261,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        400,
-        432
+        -224,
+        608
       ],
-      "id": "76b2911f-c3a3-43a2-81d3-1b8f52635d2c",
+      "id": "25a7bdc6-7435-4ca3-a339-749c5a8b278a",
       "name": "Call SOA c16"
     },
     {
@@ -274,10 +274,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        624,
-        432
+        0,
+        608
       ],
-      "id": "9de6c918-3357-4b17-b2db-98d7ebc89286",
+      "id": "6d904fdc-5244-490c-a36a-6b342aee3281",
       "name": "Mapper → c16.soa Result"
     }
   ],
@@ -420,10 +420,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "978bf7c5-e548-4cc2-b1c1-ddc3c81d3fc4",
+  "versionId": "ccc3d9a3-56dd-4e09-bf20-78fdb29fe726",
   "meta": {
-    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
-  "id": "7TJSkMtcQ9WBo4YM",
+  "id": "IWAVpQy5PXkHrGWQ",
   "tags": []
 }

@@ -1,5 +1,5 @@
 {
-  "name": "main_v3",
+  "name": "Main V3",
   "nodes": [
     {
       "parameters": {
@@ -8,13 +8,13 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "222f6857-0bdb-4310-82ff-d0e18c9a9146",
+      "id": "9a78604b-7ddf-4c66-85e6-42f762332f87",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        -1296,
-        -224
+        -1104,
+        400
       ],
       "webhookId": "llm-router"
     },
@@ -101,6 +101,12 @@
               "type": "string"
             },
             {
+              "id": "914bf0dc-439d-4afa-836a-aa6c6af0f654",
+              "name": "vLLM_model",
+              "value": "={{ $json.vLLM_model || $env.VLLM_MODEL_ALLROUNDER || 'Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4' }}",
+              "type": "string"
+            },
+            {
               "id": "8bece766-e196-4628-9855-f2b7111e1460",
               "name": "conversation_id",
               "value": "=={{ String(\n     $json.body?.conversation_id\n  || $json.conversation_id\n  || $json.headers?.['x-conversation-id']\n  || $json.query?.conversation_id\n  || ''\n).replace(/^[=\\s]+/, '').trim() }}\n\n",
@@ -129,19 +135,25 @@
               "name": "writer",
               "value": "={{ $json.body?.writer ?? $json.writer ?? null }}\n",
               "type": "string"
+            },
+            {
+              "id": "51d02db7-0340-4f0c-a5ae-29298143f3bd",
+              "name": "llm_target",
+              "value": "={{ $json.body?.llm_target ?? $json.llm_target ?? '' }}",
+              "type": "string"
             }
           ]
         },
         "includeOtherFields": true,
         "options": {}
       },
-      "id": "ac7eccea-42c1-40e7-9e19-3ea0da02d3f3",
+      "id": "93557436-53a6-4e16-9a84-8917e5bd4855",
       "name": "Extract Fields",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -1072,
-        -224
+        -880,
+        400
       ]
     },
     {
@@ -150,22 +162,22 @@
         "responseBody": "={{ $json }}",
         "options": {}
       },
-      "id": "41fb6e4f-772f-4d75-b481-0c4c0ebd8a95",
+      "id": "5bf3c96a-344d-4d78-a749-2815dce72d19",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1808,
-        -112
+        2000,
+        512
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "2cmATLhSNBMN3a2H",
+          "value": "b40VJ560cdjZeCOR",
           "mode": "list",
-          "cachedResultName": "RAG_router_v3"
+          "cachedResultName": "RAG Router V3"
         },
         "workflowInputs": {
           "mappingMode": "passThrough",
@@ -180,10 +192,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        928,
-        -112
+        1120,
+        512
       ],
-      "id": "d4c5ce71-cb20-4e1d-8f28-7de9f92aae3a",
+      "id": "c6b095dc-e21a-49fa-b54c-57d773867905",
       "name": "Run RAG_Router Sub"
     },
     {
@@ -193,10 +205,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        704,
-        -112
+        896,
+        512
       ],
-      "id": "a1a8ee53-800c-426c-a7d2-d96b2b34cf5a",
+      "id": "c377ac1c-3314-4d52-9652-85c5cb13679f",
       "name": "Load Memory"
     },
     {
@@ -206,32 +218,32 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1360,
-        -208
+        1552,
+        416
       ],
-      "id": "f16688e5-804a-4436-bc60-e92030afafb6",
+      "id": "7ea51fc9-e42d-46a2-a776-0a5ad204ffb3",
       "name": "Update Memory"
     },
     {
       "parameters": {
-        "jsCode": "function normalizeLabel(s){ s=String(s||'').trim(); s=s.replace(/^(ein|eine|einen|der|die|das)\\s+/i,''); return s.replace(/[,:;.\\s]+$/,'').trim(); }\nfunction parsePersonasString(s){\n  return String(s||'').split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n    const m=t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n    return { label:(m?.[1]||t).trim(), provider:String(m?.[2]||'mistral').toLowerCase() };\n  });\n}\nfunction tryJson(v){ if (typeof v!=='string') return v; try { return JSON.parse(v); } catch { return v; } }\nfunction toPersonaArray(x){\n  const v=tryJson(x);\n  if (Array.isArray(v)) return v;\n  if (typeof v==='string') return parsePersonasString(v);\n  return [];\n}\n\nconst raw = $json || {};\nconst b   = raw.body || {};\n\n// 🔧 NEU: Priorität = NICHT-LEERES Top-Level > NICHT-LEERES body > Strings/Fallback\nlet personas =\n  (Array.isArray(raw.personas) && raw.personas.length) ? raw.personas :\n  (Array.isArray(b.personas)   && b.personas.length)   ? b.personas   :\n  (toPersonaArray(raw.personas).length ? toPersonaArray(raw.personas) :\n   toPersonaArray(b.personas));\n\n// Fallback: aus system „Label (provider)“\nif (!Array.isArray(personas) || !personas.length) {\n  const sysText = String(raw.system ?? b.system ?? '').trim();\n  if (sysText){\n    const norm = sysText.replace(/\\s+(und|sowie|plus)\\s+/gi, ', ');\n    const rx = /([^(),;]+?)\\s*\\(([^)]+)\\)/g; const found=[]; let m;\n    while ((m = rx.exec(norm)) !== null) found.push({ label: normalizeLabel(m[1]), provider: String(m[2]).trim().toLowerCase() });\n    personas = found;\n  }\n}\n\n// Normieren & zählen\npersonas = Array.isArray(personas) ? personas.map((p,i)=>({\n  label: normalizeLabel(p.label || `Persona ${i+1}`),\n  provider: String(p.provider || 'mistral').toLowerCase(),\n  model: p.model || ''\n})) : [];\n\nconst count = personas.length;\n\nreturn [{\n  json: {\n    ...raw,\n    body: { ...b, personas },   // jetzt konsistent als Array\n    personas,                   // und auch Top-Level\n    persona_count: count,\n    multi_persona: count > 1\n  }\n}];\n"
+        "jsCode": "function normalizeLabel(s){ s=String(s||'').trim(); s=s.replace(/^(ein|eine|einen|der|die|das)\\s+/i,''); return s.replace(/[,:;.\\s]+$/,'').trim(); }\nfunction parsePersonasString(s){\n  return String(s||'').split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n    const m=t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n    return { label:(m?.[1]||t).trim(), provider:String(m?.[2]||'vllm').toLowerCase() };\n  });\n}\nfunction tryJson(v){ if (typeof v!=='string') return v; try { return JSON.parse(v); } catch { return v; } }\nfunction toPersonaArray(x){\n  const v=tryJson(x);\n  if (Array.isArray(v)) return v;\n  if (typeof v==='string') return parsePersonasString(v);\n  return [];\n}\n\nconst raw = $json || {};\nconst b   = raw.body || {};\n\n// 🔧 NEU: Priorität = NICHT-LEERES Top-Level > NICHT-LEERES body > Strings/Fallback\nlet personas =\n  (Array.isArray(raw.personas) && raw.personas.length) ? raw.personas :\n  (Array.isArray(b.personas)   && b.personas.length)   ? b.personas   :\n  (toPersonaArray(raw.personas).length ? toPersonaArray(raw.personas) :\n   toPersonaArray(b.personas));\n\n// Fallback: aus system „Label (provider)“\nif (!Array.isArray(personas) || !personas.length) {\n  const sysText = String(raw.system ?? b.system ?? '').trim();\n  if (sysText){\n    const norm = sysText.replace(/\\s+(und|sowie|plus)\\s+/gi, ', ');\n    const rx = /([^(),;]+?)\\s*\\(([^)]+)\\)/g; const found=[]; let m;\n    while ((m = rx.exec(norm)) !== null) found.push({ label: normalizeLabel(m[1]), provider: String(m[2]).trim().toLowerCase() });\n    personas = found;\n  }\n}\n\n// Normieren & zählen\npersonas = Array.isArray(personas) ? personas.map((p,i)=>({\n  label: normalizeLabel(p.label || `Persona ${i+1}`),\n  provider: String(p.provider || 'vllm').toLowerCase(),\n  model: p.model || ''\n})) : [];\n\nconst count = personas.length;\n\nreturn [{\n  json: {\n    ...raw,\n    body: { ...b, personas },   // jetzt konsistent als Array\n    personas,                   // und auch Top-Level\n    persona_count: count,\n    multi_persona: count > 1\n  }\n}];\n"
       },
-      "id": "5a7599d5-115d-4b6c-968e-bfbd08275562",
+      "id": "3f86874b-2477-48f8-b445-4c358094ac85",
       "name": "Parse Personas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        256,
-        -208
+        448,
+        416
       ]
     },
     {
       "parameters": {
         "workflowId": {
           "__rl": true,
-          "value": "sbK9V2KSnyb2GGxG",
+          "value": "Aiz81noQbgD9M62I",
           "mode": "list",
-          "cachedResultName": "agent_orchestrator_v2"
+          "cachedResultName": "Agent Orchestrator V2"
         },
         "workflowInputs": {
           "mappingMode": "passThrough",
@@ -245,26 +257,26 @@
           "waitForSubWorkflow": true
         }
       },
-      "id": "ff501a8a-20aa-44d6-b902-46ca56bb4850",
+      "id": "a5afff0e-9149-4dd2-9606-fa4b1746b5d6",
       "name": "Run Agent_Orchestrator Sub",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        928,
-        -304
+        1120,
+        320
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Normalisiert personas (Array), writer (Objekt/String) UND critic (Objekt/String) + agent_rounds (Number)\n\nfunction parsePersonasString(s){\n  // \"Rolle (provider); Rolle2 (provider2)\"\n  return String(s||'')\n    .split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n      const m = t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n      return {\n        label: (m?.[1]||t).trim(),\n        provider: String(m?.[2]||'mistral').toLowerCase()\n      };\n    });\n}\nfunction toObjMaybe(str){\n  if (typeof str !== 'string') return str;\n  try { return JSON.parse(str); } catch { return null; }\n}\n\nlet personas = $json.personas ?? $json.body?.personas ?? null;\nif (typeof personas === 'string') {\n  try {\n    const parsed = JSON.parse(personas);\n    personas = Array.isArray(parsed) ? parsed : parsePersonasString(personas);\n  } catch {\n    personas = parsePersonasString(personas);\n  }\n}\n\n// Writer normalisieren (Objekt oder String→JSON)\nlet writer = $json.writer ?? $json.body?.writer ?? null;\nif (typeof writer === 'string') writer = toObjMaybe(writer) ?? null;\n\n// Critic normalisieren (Objekt oder String→JSON)\nlet critic = $json.critic ?? $json.body?.critic ?? null;\nif (typeof critic === 'string') critic = toObjMaybe(critic) ?? null;\n\n// agent_rounds -> Number (>=1, sinnvolle Obergrenze)\nlet agent_rounds = Number($json.agent_rounds ?? $json.body?.agent_rounds ?? 1);\nif (!Number.isFinite(agent_rounds) || agent_rounds < 1) agent_rounds = 1;\nagent_rounds = Math.min(10, Math.round(agent_rounds));\n\n// Personas final normieren\nfunction normalizeLabel(s){ s=String(s||'').trim(); s=s.replace(/^(ein|eine|einen|der|die|das)\\s+/i,''); return s.replace(/[,:;.\\s]+$/,'').trim(); }\npersonas = Array.isArray(personas) ? personas.map((p,i)=>({\n  label: normalizeLabel(p.label || `Persona ${i+1}`),\n  provider: String(p.provider || 'mistral').toLowerCase(),\n  model: p.model || ''\n})) : [];\n\nreturn [{ json: { ...$json, personas, writer, critic, agent_rounds } }];\n"
+        "jsCode": "// Normalisiert personas (Array), writer (Objekt/String) UND critic (Objekt/String) + agent_rounds (Number)\n\nfunction parsePersonasString(s){\n  // \"Rolle (provider); Rolle2 (provider2)\"\n  return String(s||'')\n    .split(/[;|]\\s*/).map(t=>t.trim()).filter(Boolean).map(t=>{\n      const m = t.match(/^(.+?)(?:\\s*\\(([^)]+)\\))?$/);\n      return {\n        label: (m?.[1]||t).trim(),\n        provider: String(m?.[2]||'vllm').toLowerCase()\n      };\n    });\n}\nfunction toObjMaybe(str){\n  if (typeof str !== 'string') return str;\n  try { return JSON.parse(str); } catch { return null; }\n}\n\nlet personas = $json.personas ?? $json.body?.personas ?? null;\nif (typeof personas === 'string') {\n  try {\n    const parsed = JSON.parse(personas);\n    personas = Array.isArray(parsed) ? parsed : parsePersonasString(personas);\n  } catch {\n    personas = parsePersonasString(personas);\n  }\n}\n\n// Writer normalisieren (Objekt oder String→JSON)\nlet writer = $json.writer ?? $json.body?.writer ?? null;\nif (typeof writer === 'string') writer = toObjMaybe(writer) ?? null;\n\n// Critic normalisieren (Objekt oder String→JSON)\nlet critic = $json.critic ?? $json.body?.critic ?? null;\nif (typeof critic === 'string') critic = toObjMaybe(critic) ?? null;\n\n// agent_rounds -> Number (>=1, sinnvolle Obergrenze)\nlet agent_rounds = Number($json.agent_rounds ?? $json.body?.agent_rounds ?? 1);\nif (!Number.isFinite(agent_rounds) || agent_rounds < 1) agent_rounds = 1;\nagent_rounds = Math.min(10, Math.round(agent_rounds));\n\n// Personas final normieren\nfunction normalizeLabel(s){ s=String(s||'').trim(); s=s.replace(/^(ein|eine|einen|der|die|das)\\s+/i,''); return s.replace(/[,:;.\\s]+$/,'').trim(); }\npersonas = Array.isArray(personas) ? personas.map((p,i)=>({\n  label: normalizeLabel(p.label || `Persona ${i+1}`),\n  provider: String(p.provider || 'mistral').toLowerCase(),\n  model: p.model || ''\n})) : [];\n\nreturn [{ json: { ...$json, personas, writer, critic, agent_rounds } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        32,
-        -208
+        224,
+        416
       ],
-      "id": "37860fd8-5e30-48ee-805e-671840165189",
+      "id": "77a86890-b23f-4951-9380-f0314c11510a",
       "name": "Normalize Personas & Writer"
     },
     {
@@ -295,10 +307,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -848,
-        -224
+        -656,
+        400
       ],
-      "id": "d2ab7a04-7b74-4ed4-a956-5f624b742f0c",
+      "id": "2bfe8b1a-5d26-46c0-83c4-032e06faaaa8",
       "name": "Async?"
     },
     {
@@ -313,10 +325,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -624,
-        -496
+        -432,
+        128
       ],
-      "id": "1e8ef8c4-8e39-45a1-82e4-dc64f33ed148",
+      "id": "afe9b9db-898a-4355-8ece-8196c4426340",
       "name": "Create Job"
     },
     {
@@ -338,10 +350,10 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        -192,
-        -624
+        0,
+        0
       ],
-      "id": "8cba218c-86e3-4645-8ab7-322c4c2eabac",
+      "id": "8af6ea5f-b574-42c4-a5f0-a2f02db2bf54",
       "name": "ACK 202"
     },
     {
@@ -372,10 +384,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1584,
-        -208
+        1776,
+        416
       ],
-      "id": "ea38aa9b-c4df-4e41-9119-74559cc7df42",
+      "id": "bf79ceef-3d2d-4268-af20-7b252997dcc6",
       "name": "Async? (Final)"
     },
     {
@@ -390,10 +402,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1808,
-        -304
+        2000,
+        320
       ],
-      "id": "ea1d4401-7981-4da1-9aae-1c9d065c8854",
+      "id": "ca585c31-3e86-4933-8d22-7a4d97132383",
       "name": "Complete Job"
     },
     {
@@ -405,10 +417,10 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        -192,
-        -272
+        0,
+        352
       ],
-      "id": "4932b929-ff5c-4227-b16d-81e072e2f220",
+      "id": "20841d95-8bf2-4f54-b29b-575e2621e04c",
       "name": "Merge"
     },
     {
@@ -419,10 +431,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -624,
-        -304
+        -432,
+        320
       ],
-      "id": "4d60029e-3500-4260-8354-5f00ccc2c39a",
+      "id": "dd3ab90a-5af0-44a5-877f-b712439818d9",
       "name": "Pass Original"
     },
     {
@@ -473,10 +485,10 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -416,
-        -560
+        -224,
+        64
       ],
-      "id": "ab6d3c62-f250-456f-8ea7-3707d8bf658e",
+      "id": "da544ce4-c741-4170-80ac-10f88ca342bc",
       "name": "Build ACK"
     },
     {
@@ -523,13 +535,13 @@
         },
         "options": {}
       },
-      "id": "790093c0-3cff-41c0-8cc7-10444f584714",
+      "id": "cbd9885f-5f7c-43e5-976a-4be7cc5c43f8",
       "name": "Agent Mode?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        480,
-        -208
+        672,
+        416
       ]
     }
   ],
@@ -701,11 +713,6 @@
         ]
       ]
     },
-    "ACK 202": {
-      "main": [
-        []
-      ]
-    },
     "Async? (Final)": {
       "main": [
         [
@@ -722,11 +729,6 @@
             "index": 0
           }
         ]
-      ]
-    },
-    "Complete Job": {
-      "main": [
-        []
       ]
     },
     "Merge": {
@@ -785,10 +787,10 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "98487218-9af8-425f-956f-f050822fd5ae",
+  "versionId": "4f7136ff-b7fa-48a6-96e1-a7fa2e4300f9",
   "meta": {
-    "instanceId": "5e9f1d1029083353f9423560cb0b3070390ad03855815e064cf1d2e50cd094b4"
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
-  "id": "vPH5vQOIKaPEHHna",
+  "id": "ntFgm5LuYfYPMKiM",
   "tags": []
 }

@@ -1,0 +1,276 @@
+{
+  "name": "Transcribe and Summarize",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meetings/upload",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true
+        }
+      },
+      "id": "a305709e-1613-4891-8cd9-90139fde959d",
+      "name": "Webhook Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "meeting-upload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://192.168.30.42/rag/transcribe",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "change-me"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "diarize_flag",
+              "value": "true"
+            },
+            {
+              "name": "identify",
+              "value": "true"
+            },
+            {
+              "name": "speaker_hints",
+              "value": "=={{json.speaker_hints}}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "redirect": {
+            "redirect": {}
+          },
+          "timeout": 1800000
+        }
+      },
+      "id": "00b23d44-e705-47d5-bee6-e1a9109ae4ae",
+      "name": "Transcribe (/rag/transcribe)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "dd5fbc99-9262-4b9c-b9bc-458d659b14fb",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $binary.file || $binary.data ||\n  (Object.keys($binary||{}).length ? $binary[Object.keys($binary)[0]] : null);\nif (!src) throw new Error('Kein Binary-Upload gefunden. Erwarte Feld \"file\".');\n\nconst filename = src.fileName || $json.filename || 'meeting.m4a';\nconst mIso = filename.match(/\\d{4}-\\d{2}-\\d{2}/);\nconst mDe  = filename.match(/\\b(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})\\b/);\nlet meeting_date = mIso ? mIso[0]\n  : (mDe ? `${mDe[3]}-${String(mDe[2]).padStart(2,'0')}-${String(mDe[1]).padStart(2,'0')}`\n         : new Date().toISOString().slice(0,10));\n\nconst title = $json.title || `Vertriebssitzung ${meeting_date}`;\nconst meeting_id = ($json.meeting_id || `${meeting_date}-vertrieb`).toLowerCase();\nconst speaker_hints = ($json.speaker_hints || 'Jan (IT), Michael (GF)');\n\nreturn [{\n  json: { meeting_date, meeting_id, title, speaker_hints, filename },\n  binary: { file: src }   // <— WICHTIG: Originalobjekt durchreichen\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "e325b328-dcbb-48f0-94f3-e7e07522b2c4",
+      "name": "Prepare Metadata"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Antwort von /rag/transcribe liegt in $json\nconst res = $json;\nconst fallback = res?.identify?.name || null;\n\n// Segmente säubern & Felder normalisieren\nconst segs = (res.segments || []).map(s => ({\n  start_ms: Number(s.start_ms || 0),\n  end_ms: Number(s.end_ms || 0),\n  text: String(s.text || '').trim(),\n  name: s.name || s.speaker || fallback || null\n})).filter(s => s.text);\n\n// Sprecherliste\nconst speakers = Array.from(new Set(segs.map(s => s.name).filter(Boolean)));\n\n// Meta aus \"Prepare Metadata\" holen\nconst meta = $item(0, 'Prepare Metadata').json;\n\nreturn [{\n  json: {\n    meeting: {\n      meeting_id: meta.meeting_id,\n      meeting_date: meta.meeting_date,\n      title: meta.title,\n      speakers\n    },\n    transcribe: {\n      text: String(res.text || '').trim(),\n      segments: segs,\n      identify: res.identify || null\n    },\n    speaker_hints: meta.speaker_hints\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "d5f5bbe6-551a-4968-9871-4d65b86248f5",
+      "name": "Normalize Segments"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json; // kommt aus \"Normalize Segments\"\nconst t = data.transcribe;\n\n// Zeitformat MM:SS\nfunction mmss(ms){ const s=Math.max(0, Math.floor(ms/1000)); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }\n\n// Vollständiges Transkript mit Sprechern & Zeitstempeln für die LLM\nconst lines = (t.segments||[]).map(s => `[${mmss(s.start_ms)}-${mmss(s.end_ms)}] ${(s.name||'Unbekannt')}: ${s.text}`);\nconst transcript = lines.join('\\n');\n\nconst SYSTEM = `Du bist ein präziser Meeting-Analyst. Antworte ausschließlich als gültiges JSON mit genau diesen Schlüsseln:\n{\n  \"tldr\": [\"<max 5 Bulletpoints>\"],\n  \"entscheidungen\": [ { \"text\": \"...\", \"impact\": \"hoch|mittel|niedrig\" } ],\n  \"aktionen\": [ { \"owner\": \"<Name>\", \"task\": \"...\", \"due\": \"<YYYY-MM-DD oder leer>\" } ],\n  \"offene_fragen\": [ \"...\" ],\n  \"risiken\": [ \"...\" ],\n  \"zeitachse\": [ { \"from\": \"MM:SS\", \"to\": \"MM:SS\", \"topic\": \"...\" } ],\n  \"redeanteile\": [ { \"name\": \"<Name>\", \"sekunden\": <int>, \"anteil_prozent\": <float> } ]\n}\nRegeln: Nutze die gelieferten Sprechernamen exakt. Keine Halluzinationen. Keine zusätzlichen Felder.`;\n\nconst PROMPT = `Transkript mit Zeitstempeln und Sprechern:\n\n${transcript}\n\nErzeuge das JSON.`;\n\n// Wir geben system/prompt PLUS die nötigen Daten für den Merge später zurück\nreturn [{\n  json: {\n    system: SYSTEM,\n    prompt: PROMPT,\n    transcribe: t,\n    meeting: data.meeting\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "f4e37e72-df00-48db-a30c-b830dcc0a067",
+      "name": "Build Summary Prompt"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) LLM-Response (dieser Node-Eingang)\nconst res = $json;\nlet summary;\n\ntry {\n  const rawText = (res.response ?? res.answer ?? '').toString()\n    .trim()\n    .replace(/^```(?:json)?/i,'')\n    .replace(/```$/,'')\n    .trim();\n\n  summary = JSON.parse(rawText);\n} catch (e) {\n  summary = { tldr: [], entscheidungen: [], aktionen: [], offene_fragen: [], risiken: [], zeitachse: [], redeanteile: [] };\n}\n\n// 2) Hole Transkript & Meeting-Meta aus \"Build Summary Prompt\"\nconst build = $item(0, 'Build Summary Prompt').json;\nconst transcribe = build.transcribe;\nconst meeting = build.meeting || {};\n\n// 3) Fallback: Redeanteile lokal berechnen, falls LLM nichts geliefert hat\nif (!Array.isArray(summary.redeanteile) || !summary.redeanteile.length) {\n  const agg = {};\n  for (const s of (transcribe.segments || [])) {\n    const n = s.name || 'Unbekannt';\n    agg[n] = (agg[n] || 0) + Math.max(0, (s.end_ms - s.start_ms));\n  }\n  const total = Object.values(agg).reduce((a,b)=>a+b,0) || 1;\n  summary.redeanteile = Object.entries(agg)\n    .sort((a,b)=>b[1]-a[1])\n    .map(([name,ms]) => ({ name, sekunden: Math.floor(ms/1000), anteil_prozent: Math.round((ms*100/total)*10)/10 }));\n}\n\n// 4) Finale Antwort (passt zu deiner Frontend-Logik)\nreturn [{\n  json: {\n    status: 'ok',\n    meeting,\n    transcribe,\n    summary\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "2af58267-ca04-49cf-8d1a-aac6a7caff83",
+      "name": "Merge Output"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "b40VJ560cdjZeCOR",
+          "mode": "list",
+          "cachedResultName": "RAG Router V3"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "ecb51738-7141-4174-b9b3-5d7fda7a0f68",
+      "name": "Call 'RAG Router V3'"
+    }
+  ],
+  "pinData": {
+    "Prepare Metadata": [
+      {
+        "json": {
+          "name": "First item",
+          "code": 1
+        }
+      },
+      {
+        "json": {
+          "name": "Second item",
+          "code": 2
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Metadata": {
+      "main": [
+        [
+          {
+            "node": "Transcribe (/rag/transcribe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe (/rag/transcribe)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Segments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Segments": {
+      "main": [
+        [
+          {
+            "node": "Build Summary Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call 'RAG Router V3'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'RAG Router V3'": {
+      "main": [
+        [
+          {
+            "node": "Merge Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "527c6cae-4152-442b-941b-9c33d574ab78",
+  "meta": {
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
+  },
+  "id": "bXoSJZ6WXrYS5LvE",
+  "tags": []
+}
