@@ -95,6 +95,11 @@ services:
       - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-false}
       - N8N_BASIC_AUTH_USER=${N8N_USER:-}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASS:-}
+      # Summarize und Transcribe
+      - N8N_DEFAULT_BINARY_DATA_MODE=memory
+      # optional, je nach Größe deiner Audios:
+      - N8N_BINARY_DATA_TTL=7200            # 2h
+      - N8N_BINARY_DATA_MAX_SIZE=200000000  # 200 MB
       # Optional: direkte Targets zur AI-VM
       - OLLAMA_GPU0_URL=${OLLAMA_GPU0_URL:-http://192.168.30.43:11434}
     extra_hosts:
