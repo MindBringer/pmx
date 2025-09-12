@@ -311,3 +311,19 @@ form?.addEventListener("submit", async (e)=>{
   });
 })();
 
+// --- Safe activator for the 'Besprechungen & Audio' tab (works even if existing tabs.js ignores new button)
+(function activateMeetTabFallback(){
+  const meetBtn = document.querySelector('.tab[data-target="tab-meet"]');
+  const meetPanel = document.getElementById('tab-meet');
+  if (!meetBtn || !meetPanel) return;
+  // If clicking the button doesn't switch (some tab libs block), we enforce our own toggle.
+  meetBtn.addEventListener('click', (ev)=>{
+    // If a different handler already activated it, do nothing
+    if (meetPanel.classList.contains('active')) return;
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    meetBtn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    meetPanel.classList.add('active');
+  });
+})();
+
