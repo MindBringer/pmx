@@ -880,3 +880,155 @@
         await checkHardware(micStatusEnroll, micSelectEnroll);
       });
     });
+
+
+// ---------- Meeting Summary (n8n Webhook) ----------
+(function(){
+  const meetingForm   = document.getElementById("meeting-form");
+  if (!meetingForm) return;
+
+  const meetingFile   = document.getElementById("meetingFile");
+  const diarEl        = document.getElementById("meetDiarize");
+  const identEl       = document.getElementById("meetIdentify");
+  const hintsEl       = document.getElementById("meetSpeakerHints");
+  const hookEl        = document.getElementById("meetingWebhook");
+  const mStartBtn     = document.getElementById("micStartMeet");
+  const mStopBtn      = document.getElementById("micStopMeet");
+  const mCheckBtn     = document.getElementById("micCheckMeet");
+  const mSel          = document.getElementById("micSelectMeet");
+  const mStatus       = document.getElementById("micStatusMeet");
+  const mMeter        = document.getElementById("micMeterMeet");
+  const mTimer        = document.getElementById("micTimerMeet");
+
+  // Persist webhook url
+  try {
+    const saved = localStorage.getItem('meetingWebhookUrl');
+    if (saved && hookEl) hookEl.value = saved;
+    hookEl?.addEventListener('input', ()=>{
+      localStorage.setItem('meetingWebhookUrl', hookEl.value.trim());
+    });
+  } catch {}
+
+  function getMeetingWebhook(){
+    const v = (hookEl?.value || "").trim();
+    return v || "/webhook/meeting/summary";
+  }
+
+  // Simple functional audio validation
+  async function isPlayableAudio(file, timeoutMs=3000){
+    if (!file || !(file instanceof Blob)) return false;
+    // quick check by creating a temporary audio element
+    return await new Promise((resolve)=>{
+      try{
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('audio');
+        let timer = setTimeout(()=>{ cleanup(); resolve(false); }, timeoutMs);
+        function cleanup(){ try{ URL.revokeObjectURL(url); }catch{}; a.remove(); clearTimeout(timer); }
+        a.addEventListener('loadedmetadata', ()=>{ cleanup(); resolve(true); }, {once:true});
+        a.addEventListener('error', ()=>{ cleanup(); resolve(false); }, {once:true});
+        a.src = url;
+        a.load();
+      }catch{ resolve(false); }
+    });
+  }
+
+  // Mic wiring
+  mCheckBtn?.addEventListener('click', ()=> checkHardware(mStatus, mSel));
+  mStartBtn?.addEventListener('click', async ()=>{
+    mStartBtn.disabled = true;
+    mStopBtn.disabled = false;
+    await startRecording(mSel, mStatus, mMeter, mTimer, meetingFile, 'meeting');
+  });
+  mStopBtn?.addEventListener('click', ()=>{
+    try{ mic.rec?.stop(); }catch{};
+    try{ mic.stream?.getTracks().forEach(t=>t.stop()); }catch{};
+    mStartBtn.disabled = false;
+    mStopBtn.disabled = true;
+  });
+
+  meetingForm.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const file = meetingFile?.files?.[0];
+    const apiKey = document.getElementById("apiKey")?.value?.trim();
+
+    const resultDiv = document.getElementById('result');
+    const resultOut = document.getElementById('result-output');
+    const spinner   = document.getElementById('spinner');
+    resultOut.innerHTML = "";
+    resultDiv.className = "";
+    const hideSpinner = showFor(spinner, 300);
+
+    try {
+      if (!file) throw new Error("Bitte eine Audio-Datei auswählen oder aufnehmen.");
+      const ok = await isPlayableAudio(file);
+      if (!ok) throw new Error("Die ausgewählte Datei konnte nicht geprüft werden (kein abspielbares Audio).");
+
+      const fd = new FormData();
+      fd.append('file', file);
+      if (diarEl)  fd.append('diarize_flag', diarEl.checked ? 'true' : 'false');
+      if (identEl) fd.append('identify', identEl.checked ? 'true' : 'false');
+      if (hintsEl && hintsEl.value.trim()) fd.append('speaker_hints', hintsEl.value.trim());
+
+      const headers = {};
+      if (apiKey) headers['x-api-key'] = apiKey;
+
+      const hook = getMeetingWebhook();
+      const resp = await fetch(hook, { method:'POST', headers, body: fd });
+      const raw  = await resp.text();
+      if (!resp.ok) throw new Error(raw || `Fehler ${resp.status}`);
+
+      let data = null, html = "";
+      try { data = JSON.parse(raw); } catch {}
+
+      // Normalize summary-like fields
+      const summary = data?.summary || data?.result?.summary || data?.answer || data?.text || "";
+      const actions = data?.action_items || data?.result?.action_items || data?.todos || [];
+      const decisions = data?.decisions || data?.result?.decisions || [];
+      const speakers = data?.speakers || data?.result?.speakers || [];
+      const sources  = data?.sources || data?.documents || [];
+
+      if (summary){
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                  <div>✅ Fertig – Sitzungszusammenfassung:</div>
+                  <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
+                </div>`;
+        html += `<pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>`;
+      } else {
+        html += `<div>✅ Ergebnis empfangen.</div>`;
+        html += `<pre class="prewrap mono" style="margin-top:6px;">${escapeHtml(raw)}</pre>`;
+      }
+
+      if (Array.isArray(actions) && actions.length){
+        html += `<div style="margin-top:10px;font-weight:700">To-Dos</div><ul>` +
+                actions.map(a=>`<li>${escapeHtml(String(a?.title||a))}</li>`).join('') + `</ul>`;
+      }
+      if (Array.isArray(decisions) && decisions.length){
+        html += `<div style="margin-top:10px;font-weight:700">Entscheidungen</div><ul>` +
+                decisions.map(a=>`<li>${escapeHtml(String(a?.title||a))}</li>`).join('') + `</ul>`;
+      }
+      if (Array.isArray(speakers) && speakers.length){
+        html += `<div style="margin-top:10px;font-weight:700">Erkannte Sprecher</div><ul>` +
+                speakers.map(s=>`<li>${escapeHtml(String(s?.name||s))}</li>`).join('') + `</ul>`;
+      }
+
+      // Try to reuse renderSources if present
+      try { html += (renderSources ? renderSources(sources) : ""); } catch {}
+
+      resultOut.innerHTML = html;
+      const pre = document.getElementById('answer-pre');
+      if (pre) pre.textContent = String(summary || (data ? JSON.stringify(data, null, 2) : raw));
+      document.getElementById('copy-answer')?.addEventListener('click', ()=>{
+        navigator.clipboard.writeText(pre?.textContent||"");
+      });
+      resultDiv.className = "success";
+    } catch (err){
+      const resultOut = document.getElementById('result-output');
+      const resultDiv = document.getElementById('result');
+      resultOut.textContent = `❌ Fehler: ${err.message}`;
+      resultDiv.className = "error";
+    } finally {
+      hideSpinner();
+    }
+  });
+})();
+
