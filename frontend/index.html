@@ -507,5 +507,27 @@
   
   
   <script type="module" src="./js/main.js"></script>
+
+  <script>
+  (function(){
+    function activate(id){
+      document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+      const btn = document.querySelector('.tab[data-target="'+id+'"]');
+      if (btn) btn.classList.add('active');
+      document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+      const panel = document.getElementById(id);
+      if (panel) panel.classList.add('active');
+    }
+    document.addEventListener('click', function(e){
+      const btn = e.target.closest('.tab[data-target]');
+      if (!btn) return;
+      const id = btn.getAttribute('data-target');
+      if (!id) return;
+      // Enforce activation
+      setTimeout(()=>activate(id), 0);
+    }, true);
+  })();
+  </script>
+
 </body>
 </html>
