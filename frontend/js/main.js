@@ -39,6 +39,27 @@ function getRagApiKey(){
 }
 window.getRagApiKey = getRagApiKey;
 
+
+// --- Rendering helpers ---
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function asText(x){
+  if (x == null) return "";
+  if (typeof x === "string") return x;
+  try { return JSON.stringify(x, null, 2); } catch { return String(x); }
+}
+function li(items){
+  if (!Array.isArray(items) || !items.length) return "";
+  const parts = items.map(it => {
+    const val = (typeof it === "object" && it && ("title" in it || "name" in it))
+      ? (it.title ?? it.name ?? it)
+      : it;
+    return `<li>${escapeHtml(asText(val))}</li>`;
+  });
+  return parts.join("");
+}
+
 // ---------- Fetch wrapper: add x-api-key for same-origin ----------
 (function patchFetchForApiKey(){
   const orig = window.fetch;
@@ -306,7 +327,7 @@ promptForm?.addEventListener('submit', async (e) => {
 
       resultOut.innerHTML = html;
       const pre = document.getElementById('answer-pre');
-      if (pre) pre.textContent = String(summary || (data ? JSON.stringify(data, null, 2) : raw));
+      if (pre) pre.textContent = asText(summary || (data ? data : raw));
       document.getElementById('copy-answer')?.addEventListener('click', ()=> navigator.clipboard.writeText(pre?.textContent||""));
       resultDiv.className = "success";
     } catch (err){

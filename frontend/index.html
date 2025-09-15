@@ -14,11 +14,14 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <button class="tab active" data-target="tab-prompt">Fragen</button>
-      <button class="tab" data-target="tab-docs">Dateien</button>
-    <button class="tab" data-target="tab-meet" type="button">Besprechungen &amp; Audio</button>
+      <button class="tab active" data-target="tab-prompt" type="button">Fragen</button>
+      <button class="tab" data-target="tab-docs" type="button">Dateien</button>
+    <button class="tab" data-target="tab-meet" type="button" type="button">Besprechungen &amp; Audio</button>
 
     </div>
+<div id="result" class="result-box">
+        <div id="result-output"></div>
+
 
     <!-- Panel: Prompt -->
     <div class="panel active" id="tab-prompt">
@@ -276,8 +279,7 @@
         <div id="job-log" class="mono" style="border:1px solid #ddd; padding:8px; max-height:240px; overflow:auto; background:#fafafa; font-size: 12px;"></div>
       </section>
 
-      <div id="result" class="result-box">
-        <div id="result-output"></div>
+      
         <div class="loading-container" id="spinner" style="display:none">
           <div class="spinner"></div>
           <div class="loading-text">Ich arbeite<span class="dots"></span></div>
