@@ -325,7 +325,7 @@
         </div>
       </div>
 
-      <!-- --- Audio Upload (Transkription & Diarization) --- -->
+      <!-- --- Audio Upload (Transcribe & Diarization & optional Summary) --- -->
       <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="audio-form">
         <div class="form-group">
@@ -333,6 +333,64 @@
           <input type="file" id="audioFile" accept="audio/*" />
           <div class="inline-help">Unterstützt: wav, mp3, m4a, ogg, webm, flac</div>
         </div>
+
+
+        <div class="row">
+          <div class="form-group col">
+            <label><input type="checkbox" id="doDiar" checked/> Sprecher trennen (Diarization)</label>
+            <div class="inline-help">Segmentiert Sprecher unabhängig von Namen.</div>
+          </div>
+          <div class="form-group col">
+            <label><input type="checkbox" id="doIdentify" checked/> Personen identifizieren</label>
+            <div class="inline-help">Versucht bekannte Personen zuzuordnen.</div>
+          </div>
+        </div>
+
+
+        <div class="form-group">
+          <label for="speakerHints">Speaker Hints (optional)</label>
+          <input type="text" id="speakerHints" placeholder="alice,bob" />
+          <div class="inline-help">Bevorzugte Kandidaten (Komma-getrennt).</div>
+        </div>
+
+
+        <div class="form-group">
+          <label for="audioTags">Tags</label>
+          <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
+          <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
+        </div>
+
+
+        <!-- NEU: Zusammenfassung + Modellwahl -->
+        <div class="row">
+          <div class="form-group col">
+            <label><input type="checkbox" id="audioSummarize" checked/> Zusammenfassung erstellen</label>
+          </div>
+          <div class="form-group col">
+            <label for="audioModel">Modell</label>
+            <select id="audioModel">
+              <option value="vLLM" selected>vLLM</option>
+              <option value="ollama">Ollama</option>
+              <option value="groq">Groq API</option>
+              <option value="openai">OpenAI API</option>
+              <option value="anthropic">Anthropic API</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-grid cols-2">
+          <button type="submit" id="audio-upload-btn">Audio verarbeiten</button>
+        </div>
+      </form>
+
+      <div id="audio-upload-result" class="upload-box">
+        <div id="audio-upload-output"></div>
+        <div id="audio-segments" class="timeline"></div>
+        <div class="loading-container" id="audio-upload-spinner" style="display:none">
+          <div class="spinner"></div>
+          <div class="loading-text">Transkribiere<span class="dots"></span></div>
+        </div>
+      </div>
 
         <!-- Mic controls (Transcribe) -->
         <div class="row">
