@@ -1,6 +1,5 @@
 import { showFor } from "../utils/dom.js";
 import { fmtMs, fmtBytes, escapeHtml } from "../utils/format.js";
-import { showFor } from "../utils/dom.js";
 import { setFinalAnswer, setMeetingResult, setError } from "../ui/renderers.js";
 
 const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
