@@ -34,7 +34,7 @@
     /* Tabs: volle Breite, gleich große Spalten */
     .tabs{
       display:grid;
-      grid-template-columns:repeat(3, 1fr);
+      grid-template-columns:repeat(2, 1fr);
       gap:10px; margin-bottom:14px
     }
     .tab{
@@ -68,7 +68,7 @@
     .panel.active{display:block}
 
     /* Sub-Tabs inside Prompt */
-    .subtab-bar{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:8px 0 12px}
+    .subtab-bar{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:8px 0 12px}
     .subtab{width:100%;text-align:center;border:1px solid #dfe3f0;background:#fff;color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700}
     .subtab.active{background:var(--grad);color:#fff;border-color:transparent}
     .subpanel{display:none}
@@ -158,4 +158,3 @@
       .btn-grid.cols-2{grid-template-columns:1fr 1fr}
       .btn-grid.cols-3{grid-template-columns:1fr 1fr 1fr}
     }
-.tabs .tab{width:100%}

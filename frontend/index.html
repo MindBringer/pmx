@@ -14,10 +14,14 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <button class="tab active" data-target="tab-prompt">Fragen</button>
-      <button class="tab" data-target="tab-docs">Dateien</button>
-    <button class="tab" data-target="tab-meet" type="button">Besprechungen &amp; Audio</button>
-</div>
+      <button class="tab active" data-target="tab-prompt" type="button">Fragen</button>
+      <button class="tab" data-target="tab-docs" type="button">Dateien</button>
+    </div>
+
+<div id="result" class="result-box">
+        <div id="result-output"></div>
+
+
 
     <!-- Panel: Prompt -->
     <div class="panel active" id="tab-prompt">
@@ -275,8 +279,7 @@
         <div id="job-log" class="mono" style="border:1px solid #ddd; padding:8px; max-height:240px; overflow:auto; background:#fafafa; font-size: 12px;"></div>
       </section>
 
-      <div id="result" class="result-box">
-        <div id="result-output"></div>
+      
         <div class="loading-container" id="spinner" style="display:none">
           <div class="spinner"></div>
           <div class="loading-text">Ich arbeite<span class="dots"></span></div>
@@ -322,65 +325,7 @@
         </div>
       </div>
 
-      
-  </div>
-<!-- Panel: Besprechungen & Audio -->
-  <div class="panel" id="tab-meet">
-    <form id="meeting-form">
-      <div class="form-group">
-        <label for="meetingFile">Zusammenfassung einer Sitzung – Audio auswählen</label>
-        <input type="file" id="meetingFile" accept="audio/*" />
-        <div class="inline-help">Nur abspielbare Audioformate. Wir prüfen die Datei vor dem Upload.</div>
-      
-
-
-
-  
-  
-  <script type="module" src="./js/main.js"></script>
-</body>
-</html>
-
-  
-</div>
-
-      <div class="row">
-        <div class="form-group col">
-          <label>Mikrofon</label>
-          <select id="micSelectMeet"></select>
-          <div class="inline-help" id="micStatusMeet">–</div>
-        </div>
-        <div class="form-group col">
-          <label>Aufnahme</label>
-          <div class="btn-grid cols-2">
-            <button type="button" id="micCheckMeet" class="secondary">Hardware prüfen</button>
-            <button type="button" id="micStartMeet">Aufnehmen</button>
-            <button type="button" id="micStopMeet" class="secondary" disabled>Stop</button>
-          </div>
-          <div class="inline-help"><span id="micTimerMeet">00:00</span></div>
-          <div class="meter"><i id="micMeterMeet"></i></div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="form-group col">
-          <label><input type="checkbox" id="meetDiarize" checked/> Sprecher trennen (Diarization)</label>
-        </div>
-        <div class="form-group col">
-          <label><input type="checkbox" id="meetIdentify" checked/> Personen identifizieren</label>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label for="meetSpeakerHints">Speaker Hints (optional)</label>
-        <input type="text" id="meetSpeakerHints" placeholder="alice,bob" />
-      </div>
-
-      <div class="btn-grid cols-2">
-        <button type="submit" id="meeting-upload-btn">Hochladen &amp; zusammenfassen</button>
-      </div>
-    </form>
-    <!-- --- Audio Upload (Transkription & Diarization) --- -->
+      <!-- --- Audio Upload (Transkription & Diarization) --- -->
       <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="audio-form">
         <div class="form-group">
@@ -504,3 +449,9 @@
       </div>
     </div>
   </div>
+
+  
+  
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
