@@ -1,62 +1,65 @@
-import { escapeHtml } from "../utils/format.js";
+// --- Live Zwischenstände (SSE) ---
+// Einheitlicher Append für Zwischen-Ergebnisse
+export function appendIntermediate(payload={}){
+  const tl = ensureTimeline();
+  if (!tl) return;
 
-const jobBox     = document.getElementById('job-status');
-const jobTitleEl = document.getElementById('job-title');
-const jobLine    = document.getElementById('job-statusline');
-const jobLog     = document.getElementById('job-log');
+  const title = payload.title ? String(payload.title) : '';
+  const text  = asText(payload.text ?? payload.answer ?? payload.content ?? '');
+  const sources = payload.sources;
+  const artifacts = payload.artifacts;
 
-export function showJob(title){
-  if (!jobBox) return;
-  jobTitleEl.textContent = title || 'Agentenlauf';
-  jobLine.textContent  = 'Gestartet …';
-  jobLog.innerHTML     = '';
-  jobBox.style.display = 'block';
-}
+  const box = document.createElement('details');
+  box.open = false;
+  box.className = 'intermediate-block';
+  box.style.marginTop = '8px';
 
-export function logJob(msg){
-  if (!jobLog) return;
-  const div = document.createElement('div');
-  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  jobLog.appendChild(div);
-  jobLog.scrollTop = jobLog.scrollHeight;
-}
+  const summary = document.createElement('summary');
+  summary.style.cursor = 'pointer';
+  summary.textContent = title || 'Zwischenergebnis';
 
-export function sseLabel(jobTitle, evt){
-  const parts = [];
-  if (jobTitle) parts.push(jobTitle);
-  if (evt.persona) parts.push(evt.persona);
-  if (evt.role) parts.push('/'+evt.role);
-  if (evt.round && evt.rounds_total) parts.push(` – Runde ${evt.round}/${evt.rounds_total}`);
-  return parts.join(' ');
-}
+  const pre = document.createElement('pre');
+  pre.className = 'prewrap mono';
+  pre.style.marginTop = '6px';
+  pre.textContent = text;
 
-export function renderSources(sources){
+  box.appendChild(summary);
+  box.appendChild(pre);
+
+  // optional: Quellen/Artifacts
   try {
-    const arr = Array.isArray(sources) ? sources : [];
-    if (!arr.length) return '';
-    let html = `<div style="margin-top:12px;font-weight:700">Quellen</div><ul>`;
-    html += arr.map((s,i)=>{
-      if (typeof s === "string") return `<li>${escapeHtml(s)}</li>`;
-      const title = escapeHtml(String(s.title || s.name || s.id || `Quelle ${i+1}`));
-      const meta  = escapeHtml(String(s.meta || s.metadata || s.tags || ''));
-      const url   = s.url ? `<a href="${escapeHtml(String(s.url))}" target="_blank" rel="noopener">Link</a>` : '';
-      const snippet = escapeHtml(String(s.snippet || s.content || s.text || ''));
-      return `<li><b>${title}</b>${meta?` – <span class="muted">${meta}</span>`:''} ${url}${snippet?`<div class="inline-help" style="margin-top:4px">${snippet}</div>`:''}</li>`;
-    }).join('');
-    html += `</ul>`;
-    return html;
-  } catch { return ''; }
+    const srcHtml = renderSources(sources);
+    if (srcHtml){
+      const div = document.createElement('div');
+      div.innerHTML = srcHtml;
+      box.appendChild(div);
+    }
+  } catch {}
+
+  if (artifacts?.code){
+    const codeTitle = document.createElement('div');
+    codeTitle.style.marginTop = '12px';
+    codeTitle.style.fontWeight = '700';
+    codeTitle.textContent = 'Code';
+    const codePre = document.createElement('pre');
+    codePre.className = 'prewrap mono';
+    codePre.textContent = String(artifacts.code);
+    box.appendChild(codeTitle);
+    box.appendChild(codePre);
+  }
+
+  tl.appendChild(box);
 }
 
-/**
- * Tolerante Signatur:
- *   setFinalAnswer({ answer, sources, artifacts })
- *   setFinalAnswer("antwort-als-string", { sources, artifacts })
- */
-export function setFinalAnswer(input, opts){
-  const resultDiv = document.getElementById("result");
-  const resultOut = document.getElementById("result-output");
+// Convenience: für Agents kann ein Event-Handler direkt aufgerufen werden
+export function appendSseEvent(jobTitle, evt={}){
+  const label = sseLabel(jobTitle, evt);
+  const text  = (evt?.delta ?? evt?.text ?? evt?.message ?? evt?.content ?? '');
+  appendIntermediate({ title: label || 'Zwischenergebnis', text, sources: evt?.sources, artifacts: evt?.artifacts });
+}
 
+// --- Finale Antwort ---
+export function setFinalAnswer(input, opts){
   // Defensive: DOM-Container vorhanden?
   if (!resultOut || !resultDiv) {
     console.warn('setFinalAnswer: #result or #result-output nicht gefunden.');
@@ -91,7 +94,7 @@ export function setFinalAnswer(input, opts){
     <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
   `;
 
-  // --- Moderator-/Critic-Notizen (separater, aufklappbarer Block) ---
+  // --- Moderator-/Critic-Notizen ---
   if (artifacts?.moderator_notes) {
     const notes = String(artifacts.moderator_notes).trim();
     if (notes) {
@@ -104,7 +107,7 @@ export function setFinalAnswer(input, opts){
     }
   }
 
-  // --- Rationale (zusammengefasst aus Think-Blöcken) ---
+  // --- Rationale (zusammengefasst) ---
   if (artifacts?.rationale_summary) {
     const rs = artifacts.rationale_summary || {};
     const persona = Array.isArray(rs.persona) ? rs.persona : [];
@@ -162,7 +165,6 @@ export function setFinalAnswer(input, opts){
     }).join('') + `</ul>`;
   }
 
-  // In DOM schreiben
   if (resultOut) resultOut.innerHTML = html;
 
   // Antwort-Text immer als Text (kein HTML)
@@ -186,11 +188,77 @@ export function setFinalAnswer(input, opts){
 }
 
 export function setError(msg){
-  const resultDiv = document.getElementById("result");
-  const resultOut = document.getElementById("result-output");
   if (resultOut) resultOut.textContent = `❌ Fehler: ${msg}`;
   if (resultDiv) {
     resultDiv.className = "error";
     resultDiv.style.display = '';
   }
 }
+
+export function clearResult(){
+  if (resultOut) resultOut.innerHTML = '';
+  if (resultDiv) {
+    resultDiv.className = '';
+    resultDiv.style.display = '';
+  }
+}
+
+export function setMeetingResult({ summary, actions=[], decisions=[], speakers=[], sources=[], raw="" } = {}){
+  if (!resultDiv || !resultOut) {
+    console.warn('setMeetingResult: #result or #result-output nicht gefunden.');
+    return;
+  }
+
+  let html = "";
+  if (summary){
+    html += `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div>✅ Fertig – Sitzungszusammenfassung:</div>
+        <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
+      </div>
+      <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
+    `;
+  } else {
+    html += `<div>✅ Ergebnis empfangen.</div>
+             <pre class="prewrap mono" style="margin-top:6px;">${escapeHtml(String(raw||""))}</pre>`;
+  }
+
+  if (Array.isArray(actions) && actions.length){
+    html += `<div style="margin-top:10px;font-weight:700">To-Dos</div><ul>` +
+            actions.map(a=>`<li>${escapeHtml(String(a?.title||a))}</li>`).join('') + `</ul>`;
+  }
+  if (Array.isArray(decisions) && decisions.length){
+    html += `<div style="margin-top:10px;font-weight:700">Entscheidungen</div><ul>` +
+            decisions.map(a=>`<li>${escapeHtml(String(a?.title||a))}</li>`).join('') + `</ul>`;
+  }
+  if (Array.isArray(speakers) && speakers.length){
+    html += `<div style="margin-top:10px;font-weight:700">Erkannte Sprecher</div><ul>` +
+            speakers.map(s=>`<li>${escapeHtml(String(s?.name||s))}</li>`).join('') + `</ul>`;
+  }
+
+  const srcHtml = renderSources(sources);
+  if (srcHtml) html += srcHtml;
+
+  resultOut.innerHTML = html;
+  const pre = document.getElementById('answer-pre');
+  if (pre) pre.textContent = asText(summary || (raw ?? ""));
+  document.getElementById('copy-answer')?.addEventListener('click', ()=> navigator.clipboard.writeText(pre?.textContent||""));
+  resultDiv.className = "success";
+  resultDiv.style.display = '';
+}
+
+// Optional: kleine Hilfs-API für andere Module
+// (z.B. features/agents.js kann diese Funktionen direkt nutzen)
+window.renderers = window.renderers || {
+  showJob,
+  updateJobStatus,
+  logJob,
+  sseLabel,
+  appendIntermediate,
+  appendSseEvent,
+  setFinalAnswer,
+  setMeetingResult,
+  setError,
+  clearResult,
+  renderSources,
+};

@@ -1,6 +1,10 @@
-// main.js — full version
+// ==============================
+// File: frontend/main.js
+// Refactor: nutzt zentrale Renderer (ui/renderers.js)
+// Enthält: API-Key-Handling, Fetch-Patch, Prompt-/Meeting-Forms,
+//          Mic-Recording-Helpers, Tab-Guard
+// ==============================
 
-// ---------- Imports from your app ----------
 import { initTabs, activeSubtab } from "./ui/tabs.js";
 import { showFor } from "./utils/dom.js";
 import { startSyncRun } from "./features/syncChat.js";
@@ -9,6 +13,14 @@ import { initDocsUpload } from "./features/docs.js";
 import { initAudioUpload } from "./features/audio.js";
 import { initSpeakers } from "./features/speakers.js";
 import { renderConvStatus } from "./state/conversation.js";
+import {
+  showJob,
+  logJob,
+  setFinalAnswer,
+  setError,
+  renderSources,
+  setMeetingResult,
+} from "./ui/renderers.js";
 
 // ---------- Boot ----------
 initTabs();
@@ -38,27 +50,6 @@ function getRagApiKey(){
   return (apiKeyInput?.value || '').trim() || (localStorage.getItem('ragApiKey')||'').trim();
 }
 window.getRagApiKey = getRagApiKey;
-
-
-// --- Rendering helpers ---
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-}
-function asText(x){
-  if (x == null) return "";
-  if (typeof x === "string") return x;
-  try { return JSON.stringify(x, null, 2); } catch { return String(x); }
-}
-function li(items){
-  if (!Array.isArray(items) || !items.length) return "";
-  const parts = items.map(it => {
-    const val = (typeof it === "object" && it && ("title" in it || "name" in it))
-      ? (it.title ?? it.name ?? it)
-      : it;
-    return `<li>${escapeHtml(asText(val))}</li>`;
-  });
-  return parts.join("");
-}
 
 // ---------- Fetch wrapper: add x-api-key for same-origin ----------
 (function patchFetchForApiKey(){
@@ -101,13 +92,13 @@ promptForm?.addEventListener('submit', async (e) => {
   }
 
   if (!prompt){
-    resultOut.textContent = "⚠️ Bitte gib einen Prompt ein.";
-    resultDiv.className = "error";
+    if (resultOut) resultOut.textContent = "⚠️ Bitte gib einen Prompt ein.";
+    if (resultDiv) resultDiv.className = "error";
     return;
   }
 
-  resultOut.innerHTML = "";
-  resultDiv.className = "";
+  if (resultOut) resultOut.innerHTML = "";
+  if (resultDiv) resultDiv.className = "";
   const hideSpinner = showFor(spinner, 300);
   if (submitBtn) submitBtn.disabled = true;
 
@@ -139,6 +130,7 @@ promptForm?.addEventListener('submit', async (e) => {
         const key = getRagApiKey();
         if (key) payload.api_key = key;
 
+        // Hinweis: Live-Zwischenstände erfolgen in features/agents.js via renderers.appendIntermediate()
         await startAsyncRun('Personas', payload);
         return;
       }
@@ -149,8 +141,7 @@ promptForm?.addEventListener('submit', async (e) => {
     if (key) payload.api_key = key;
     await startSyncRun('Frage', payload);
   } catch (err){
-    resultOut.textContent = `❌ Fehler: ${err.message}`;
-    resultDiv.className = "error";
+    setError(err?.message || String(err));
   } finally {
     hideSpinner();
     if (submitBtn) submitBtn.disabled = false;
@@ -211,7 +202,9 @@ promptForm?.addEventListener('submit', async (e) => {
         if (mMeter) mMeter.style.width = pct + '%';
         if (mTimer && mic.startTs){
           const s = Math.floor((Date.now()-mic.startTs)/1000);
-          mTimer.textContent = String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60,'0');
+          const mm = String(Math.floor(s/60)).padStart(2,'0');
+          const ss = String(s%60).padStart(2,'0');
+          mTimer.textContent = `${mm}:${ss}`;
         }
       })();
     } catch {}
@@ -221,20 +214,20 @@ promptForm?.addEventListener('submit', async (e) => {
       await navigator.mediaDevices.getUserMedia({audio:true});
       const devs = await navigator.mediaDevices.enumerateDevices();
       const mics = devs.filter(d=>d.kind==='audioinput');
-      mSel.innerHTML = "";
+      if (mSel) mSel.innerHTML = "";
       for (const d of mics){
         const opt = document.createElement('option');
         opt.value = d.deviceId;
-        opt.textContent = d.label || ('Mikrofon ' + (mSel.length+1));
-        mSel.appendChild(opt);
+        opt.textContent = d.label || ('Mikrofon ' + ((mSel?.length||0)+1));
+        mSel?.appendChild(opt);
       }
-      mStatus.textContent = mics.length ? `Geräte: ${mics.length}` : "Kein Mikro gefunden.";
+      if (mStatus) mStatus.textContent = mics.length ? `Geräte: ${mics.length}` : "Kein Mikro gefunden.";
     } catch (err){
-      mStatus.textContent = 'Zugriff verweigert? ' + err.message;
+      if (mStatus) mStatus.textContent = 'Zugriff verweigert? ' + err.message;
     }
   }
   async function startRecording(){
-    mStartBtn.disabled = true; mStopBtn.disabled  = false;
+    if (mStartBtn) mStartBtn.disabled = true; if (mStopBtn) mStopBtn.disabled  = false;
     const deviceId = mSel?.value;
     mic.stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? {deviceId:{exact:deviceId}} : true });
     runMeter(mic.stream);
@@ -249,14 +242,14 @@ promptForm?.addEventListener('submit', async (e) => {
         const dt = new DataTransfer();
         const f = new File([blob], 'aufnahme.webm', { type:'audio/webm' });
         dt.items.add(f);
-        meetingFile.files = dt.files;
-        mStatus.textContent = 'Aufnahme übernommen.';
+        if (meetingFile) meetingFile.files = dt.files;
+        if (mStatus) mStatus.textContent = 'Aufnahme übernommen.';
       } catch {}
       try { mic.stream.getTracks().forEach(t=>t.stop()); } catch {}
-      mStartBtn.disabled = false; mStopBtn.disabled  = true;
+      if (mStartBtn) mStartBtn.disabled = false; if (mStopBtn) mStopBtn.disabled  = true;
     };
     mic.rec.start(1000);
-    mStatus.textContent = 'Aufnahme läuft...';
+    if (mStatus) mStatus.textContent = 'Aufnahme läuft...';
   }
   function stopRecording(){ try { mic.rec?.stop(); } catch {} }
 
@@ -271,8 +264,8 @@ promptForm?.addEventListener('submit', async (e) => {
     const resultDiv = document.getElementById('result');
     const resultOut = document.getElementById('result-output');
     const spinner   = document.getElementById('spinner');
-    resultOut.innerHTML = "";
-    resultDiv.className = "";
+    if (resultOut) resultOut.innerHTML = "";
+    if (resultDiv) resultDiv.className = "";
     const hideSpinner = showFor(spinner, 300);
 
     try {
@@ -292,47 +285,17 @@ promptForm?.addEventListener('submit', async (e) => {
       if (!resp.ok) throw new Error(raw || `Fehler ${resp.status}`);
 
       let data = null; try { data = JSON.parse(raw); } catch {}
-      const summary = data?.summary || data?.result?.summary || data?.answer || data?.text || "";
-      const actions = data?.action_items || data?.result?.action_items || data?.todos || [];
-      const decisions = data?.decisions || data?.result?.decisions || [];
-      const speakers = data?.speakers || data?.result?.speakers || [];
-      const sources  = data?.sources || data?.documents || [];
 
-      let html = "";
-      if (summary){
-        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                  <div>✅ Fertig – Sitzungszusammenfassung:</div>
-                  <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
-                </div>`;
-        html += `<pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>`;
-      } else {
-        html += `<div>✅ Ergebnis empfangen.</div>`;
-        html += `<pre class="prewrap mono" style="margin-top:6px;">${(raw||"").replace(/[&<>]/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]))}</pre>`;
-      }
-
-      if (Array.isArray(actions) && actions.length){
-        html += `<div style="margin-top:10px;font-weight:700">To-Dos</div><ul>` +
-                actions.map(a=>`<li>${String(a?.title||a)}</li>`).join('') + `</ul>`;
-      }
-      if (Array.isArray(decisions) && decisions.length){
-        html += `<div style="margin-top:10px;font-weight:700">Entscheidungen</div><ul>` +
-                decisions.map(a=>`<li>${String(a?.title||a)}</li>`).join('') + `</ul>`;
-      }
-      if (Array.isArray(speakers) && speakers.length){
-        html += `<div style="margin-top:10px;font-weight:700">Erkannte Sprecher</div><ul>` +
-                speakers.map(s=>`<li>${String(s?.name||s)}</li>`).join('') + `</ul>`;
-      }
-
-      try { if (typeof renderSources === 'function') html += renderSources(sources); } catch {}
-
-      resultOut.innerHTML = html;
-      const pre = document.getElementById('answer-pre');
-      if (pre) pre.textContent = asText(summary || (data ? data : raw));
-      document.getElementById('copy-answer')?.addEventListener('click', ()=> navigator.clipboard.writeText(pre?.textContent||""));
-      resultDiv.className = "success";
+      setMeetingResult({
+        summary:   data?.summary || data?.result?.summary || data?.answer || data?.text || "",
+        actions:   data?.action_items || data?.result?.action_items || data?.todos || [],
+        decisions: data?.decisions || data?.result?.decisions || [],
+        speakers:  data?.speakers || data?.result?.speakers || [],
+        sources:   data?.sources || data?.documents || [],
+        raw:       data || raw
+      });
     } catch (err){
-      resultOut.textContent = `❌ Fehler: ${err.message}`;
-      resultDiv.className = "error";
+      setError(err?.message || String(err));
     } finally {
       hideSpinner();
     }
@@ -361,3 +324,79 @@ promptForm?.addEventListener('submit', async (e) => {
     }, 0);
   }, true);
 })();
+
+
+// ==============================
+// File: frontend/ui/renderers.js
+// Zentrale Rendering-Schicht + Live-Zwischenstände (SSE)
+// ==============================
+
+import { escapeHtml, asText } from "../utils/format.js";
+
+// --- DOM refs (defensiv) ---
+const jobBox     = document.getElementById('job-status');
+const jobTitleEl = document.getElementById('job-title');
+const jobLine    = document.getElementById('job-statusline');
+const jobLog     = document.getElementById('job-log');
+
+const resultDiv  = document.getElementById("result");
+const resultOut  = document.getElementById("result-output");
+
+// Ensure a timeline container for intermediate chunks
+function ensureTimeline(){
+  if (!resultOut) return null;
+  let tl = resultOut.querySelector('#result-timeline');
+  if (!tl){
+    tl = document.createElement('div');
+    tl.id = 'result-timeline';
+    tl.style.marginTop = '8px';
+    resultOut.appendChild(tl);
+  }
+  return tl;
+}
+
+export function showJob(title){
+  if (jobBox) jobBox.style.display = 'block';
+  if (jobTitleEl) jobTitleEl.textContent = title || 'Agentenlauf';
+  if (jobLine) jobLine.textContent  = 'Gestartet …';
+  if (jobLog) jobLog.innerHTML     = '';
+}
+
+export function updateJobStatus(text){
+  if (jobLine) jobLine.textContent = String(text ?? '');
+}
+
+export function logJob(msg){
+  if (!jobLog) return;
+  const div = document.createElement('div');
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  jobLog.appendChild(div);
+  jobLog.scrollTop = jobLog.scrollHeight;
+}
+
+export function sseLabel(jobTitle, evt){
+  const parts = [];
+  if (jobTitle) parts.push(jobTitle);
+  if (evt?.persona) parts.push(evt.persona);
+  if (evt?.role) parts.push('/'+evt.role);
+  if (evt?.round && evt?.rounds_total) parts.push(` – Runde ${evt.round}/${evt.rounds_total}`);
+  return parts.join(' ');
+}
+
+export function renderSources(sources){
+  try {
+    const arr = Array.isArray(sources) ? sources : [];
+    if (!arr.length) return '';
+    let html = `<div style="margin-top:12px;font-weight:700">Quellen</div><ul>`;
+    html += arr.map((s,i)=>{
+      if (typeof s === "string") return `<li>${escapeHtml(s)}</li>`;
+      const title = escapeHtml(String(s.title || s.name || s.id || `Quelle ${i+1}`));
+      const meta  = escapeHtml(String(s.meta || s.metadata || s.tags || ''));
+      const url   = s.url ? `<a href="${escapeHtml(String(s.url))}" target="_blank" rel="noopener">Link</a>` : '';
+      const snippet = escapeHtml(String(s.snippet || s.content || s.text || ''));
+      return `<li><b>${title}</b>${meta?` – <span class="muted">${meta}</span>`:''} ${url}${snippet?`<div class="inline-help" style="margin-top:4px">${snippet}</div>`:''}</li>`;
+    }).join('');
+    html += `</ul>`;
+    return html;
+  } catch { return ''; }
+}
