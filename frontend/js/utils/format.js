@@ -1,13 +1,40 @@
+// utils/format.js
 
-export function fmtTime(sec){const h=String(Math.floor(sec/3600)).padStart(2,"0");const m=String(Math.floor((sec%3600)/60)).padStart(2,"0");const s=String(Math.floor(sec%60)).padStart(2,"0");return `${h}:${m}:${s}`;}
-export function fmtMs(ms){ if(ms==null) return "–"; if(ms<1000) return `${Math.round(ms)} ms`; return `${(ms/1000).toFixed(2)} s`; }
-export function fmtBytes(b){ if(typeof b!=="number") return "–"; const u=["B","KB","MB","GB","TB"]; let i=0,n=b; while(n>=1024 && i<u.length-1){ n/=1024; i++; } return `${n.toFixed(n<10?2:(n<100?1:0))} ${u[i]}`; }
+export function fmtTime(sec){
+  const h = String(Math.floor(sec / 3600)).padStart(2, "0");
+  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+  const s = String(Math.floor(sec % 60)).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
+
+export function fmtMs(ms){
+  if (ms == null) return "–";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+export function fmtBytes(b){
+  if (typeof b !== "number") return "–";
+  const u = ["B","KB","MB","GB","TB"];
+  let i = 0, n = b;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  const digits = n < 10 ? 2 : (n < 100 ? 1 : 0);
+  return `${n.toFixed(digits)} ${u[i]}`;
+}
+
 export function escapeHtml(s){
-  return String(s).replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch]));
+  return String(s).replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[ch]));
 }
 
 export function asText(x){
   if (x == null) return "";
   if (typeof x === "string") return x;
-  try { return JSON.stringify(x, null, 2); } catch { return String(x); }
+  try { return JSON.stringify(x, null, 2); }
+  catch { return String(x); }
 }
