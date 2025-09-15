@@ -1,5 +1,7 @@
 import { showFor } from "../utils/dom.js";
 import { fmtMs, fmtBytes, escapeHtml } from "../utils/format.js";
+import { showFor } from "../utils/dom.js";
+import { setFinalAnswer, setMeetingResult, setError } from "../ui/renderers.js";
 
 const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
 const AUDIO_API_BASE = (typeof window !== 'undefined' && window.AUDIO_API_URL) ? window.AUDIO_API_URL : "http://localhost:6080";
@@ -150,8 +152,14 @@ export function initDocsUpload(){
             }).join('') + '</ul>';
           }
 
-          if (audioOut) audioOut.innerHTML = html;
-          if (audioOutBox) audioOutBox.className = 'upload-box success';
+          setMeetingResult({
+            summary:   data?.summary || data?.result?.summary || data?.answer || data?.text || "",
+            actions:   data?.action_items || data?.result?.action_items || data?.todos || [],
+            decisions: data?.decisions || data?.result?.decisions || [],
+            speakers:  data?.speakers || data?.result?.speakers || [],
+            sources:   data?.sources  || data?.documents || [],
+            raw:       data || raw
+          });
         } else {
           // → direkte Transkription via Audio-API
           const url = AUDIO_API_BASE.replace(/\/$/, '') + AUDIO_TRANSCRIBE_PATH;
@@ -160,14 +168,13 @@ export function initDocsUpload(){
           if (!resp.ok) throw new Error(raw || `Fehler ${resp.status}`);
           let data=null; try{ data = JSON.parse(raw); }catch{}
 
-          let html = '<div>✅ Ergebnis empfangen.</div>';
-          html += '<pre class="prewrap mono" style="margin-top:6px;">' + escapeHtml(String(data ? JSON.stringify(data, null, 2) : raw)) + '</pre>';
-          if (audioOut) audioOut.innerHTML = html;
-          if (audioOutBox) audioOutBox.className = 'upload-box success';
+          setFinalAnswer({
+            answer: data ?? raw,     // Renderer formatiert via asText() in <pre>
+            sources: data?.sources || []
+          });
         }
       } catch(err){
-        if (audioOut) audioOut.textContent = '❌ Fehler: ' + err.message;
-        if (audioOutBox) audioOutBox.className = 'upload-box error';
+          setError(err?.message || String(err));
       } finally {
         hide();
         if (audioBtn) audioBtn.disabled = false;
