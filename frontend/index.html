@@ -15,8 +15,7 @@
     <!-- Tabs -->
     <div class="tabs">
       <button class="tab active" data-target="tab-prompt">Fragen</button>
-      <button class="tab" data-target="tab-docs">Dateien</button>      <button class="tab" data-target="tab-meet">Besprechungen &amp; Audio</button>
-
+      <button class="tab" data-target="tab-docs">Dateien</button>
     </div>
 
     <!-- Panel: Prompt -->
@@ -322,61 +321,6 @@
         </div>
       </div>
 
-      
-    <!-- Panel: Besprechungen & Audio -->
-    <div class="panel" id="tab-meet">
-      <form id="meeting-form">
-        <div class="form-group">
-          <label for="meetingWebhook">Webhook-URL (n8n)</label>
-          <input type="text" id="meetingWebhook" placeholder="/webhook/meeting/summary" />
-          <div class="inline-help">Optional. Wird in <code>localStorage</code> gespeichert. Standard: <code>/webhook/meeting/summary</code></div>
-        </div>
-
-        <div class="form-group">
-          <label for="meetingFile">Zusammenfassung einer Sitzung – Audio auswählen</label>
-          <input type="file" id="meetingFile" accept="audio/*" />
-          <div class="inline-help">Nur abspielbare Audioformate. Wir prüfen die Datei vor dem Upload.</div>
-        </div>
-
-        <!-- Mic controls (Meeting) -->
-        <div class="row">
-          <div class="form-group col">
-            <label>Mikrofon</label>
-            <select id="micSelectMeet"></select>
-            <div class="inline-help" id="micStatusMeet">–</div>
-          </div>
-          <div class="form-group col">
-            <label>Aufnahme</label>
-            <div class="btn-grid cols-2">
-              <button type="button" id="micCheckMeet" class="secondary">Hardware prüfen</button>
-              <button type="button" id="micStartMeet">Aufnehmen</button>
-              <button type="button" id="micStopMeet" class="secondary" disabled>Stop</button>
-            </div>
-            <div class="inline-help"><span id="micTimerMeet">00:00</span></div>
-            <div class="meter"><i id="micMeterMeet"></i></div>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="form-group col">
-            <label><input type="checkbox" id="meetDiarize" checked/> Sprecher trennen (Diarization)</label>
-          </div>
-          <div class="form-group col">
-            <label><input type="checkbox" id="meetIdentify" checked/> Personen identifizieren</label>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="meetSpeakerHints">Speaker Hints (optional)</label>
-          <input type="text" id="meetSpeakerHints" placeholder="alice,bob" />
-        </div>
-
-        <div class="btn-grid cols-2">
-          <button type="submit" id="meeting-upload-btn">Hochladen &amp; zusammenfassen</button>
-        </div>
-      </form>
-
-      <!-- Nachfolgend: bisherige Audio-Abschnitte (Upload & Sprecherverwaltung) -->
       <!-- --- Audio Upload (Transkription & Diarization) --- -->
       <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="audio-form">
@@ -500,34 +444,10 @@
         <div id="speaker-list" class="timeline" style="margin-top:8px"></div>
       </div>
     </div>
-    </div>
-
   </div>
 
   
   
   <script type="module" src="./js/main.js"></script>
-
-  <script>
-  (function(){
-    function activate(id){
-      document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-      const btn = document.querySelector('.tab[data-target="'+id+'"]');
-      if (btn) btn.classList.add('active');
-      document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-      const panel = document.getElementById(id);
-      if (panel) panel.classList.add('active');
-    }
-    document.addEventListener('click', function(e){
-      const btn = e.target.closest('.tab[data-target]');
-      if (!btn) return;
-      const id = btn.getAttribute('data-target');
-      if (!id) return;
-      // Enforce activation
-      setTimeout(()=>activate(id), 0);
-    }, true);
-  })();
-  </script>
-
 </body>
 </html>
