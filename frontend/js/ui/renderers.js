@@ -278,59 +278,172 @@ export function clearResult(){
   }
 }
 
-export function setMeetingResult(opts){
-  opts = opts || {};
-  if (!resultDiv || !resultOut) {
-    console.warn('setMeetingResult: #result or #result-output nicht gefunden.');
-    return;
+// ==============================
+// ui/renderers.js – hübsches Meeting-Rendering
+// ==============================
+
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+function section(title, innerHTML, {open=false, id}={}){
+  const openAttr = open ? ' open' : '';
+  const idAttr = id ? ` id="${id}"` : '';
+  return `
+  <details class="card" ${openAttr}${idAttr}>
+    <summary class="card-head">${esc(title)}</summary>
+    <div class="card-body">${innerHTML}</div>
+  </details>`;
+}
+
+export function setMeetingResult(payload){
+  // payload kann aus main.js kommen (summary/actions/decisions/...) ODER rohes JSON in payload.raw* (deutsche Keys)
+  let {
+    summary,
+    actions,
+    decisions,
+    speakers,
+    sources,
+    raw
+  } = (payload || {});
+
+  // 1) Deutsche Keys aus raw erkennen (falls summary/actions/... leer sind)
+  const d = (raw && typeof raw === 'object') ? raw : {};
+  if (!summary && (Array.isArray(d.tldr) || typeof d.tldr === 'string')) summary = d.tldr;
+  if (!actions && (Array.isArray(d.aktionen))) actions = d.aktionen;
+  if (!decisions && (Array.isArray(d.entscheidungen))) decisions = d.entscheidungen;
+
+  // optionale Felder
+  const offeneFragen = Array.isArray(d.offene_fragen) ? d.offene_fragen : [];
+  const risiken      = Array.isArray(d.risiken) ? d.risiken : [];
+  const timeline     = Array.isArray(d.zeitachse) ? d.zeitachse : [];
+  const redeanteile  = Array.isArray(d.redeanteile) ? d.redeanteile : [];
+
+  // 2) Zusammenfassung normalisieren → Array von Zeilen
+  let tldrList = [];
+  if (Array.isArray(summary)) tldrList = summary.map(s => String(s));
+  else if (typeof summary === 'string' && summary.trim()) {
+    // Split an Aufzählungen/Zeilenumbrüchen
+    tldrList = summary.split(/\r?\n|\u2022|-/).map(s => s.trim()).filter(Boolean);
+    if (tldrList.length === 0) tldrList = [summary.trim()];
   }
 
-  const summary   = opts.summary   || "";
-  const actions   = Array.isArray(opts.actions)   ? opts.actions   : [];
-  const decisions = Array.isArray(opts.decisions) ? opts.decisions : [];
-  const speakers  = Array.isArray(opts.speakers)  ? opts.speakers  : [];
-  const sources   = opts.sources || [];
-  const raw       = opts.raw ?? "";
+  // 3) HTML-Renderer je Abschnitt
+  const renderList = (arr) => {
+    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
+    return `<ul class="bullet">${arr.map(x => `<li>${esc(typeof x === 'string' ? x : x?.text ?? JSON.stringify(x))}</li>`).join('')}</ul>`;
+  };
 
-  let html = '';
-  if (summary){
-    html += ''
-      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
-      +   '<div>✅ Fertig – Sitzungszusammenfassung:</div>'
-      +   '<button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>'
-      + '</div>'
-      + '<pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>';
-  } else {
-    html += '<div>✅ Ergebnis empfangen.</div>'
-         +  '<pre class="prewrap mono" style="margin-top:6px;">' + escapeHtml(String(raw||"")) + '</pre>';
+  const renderDecisions = (arr) => {
+    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
+    return `<ul class="bullet">${arr.map(d => {
+      const impact = d.impact ? `<span class="badge" data-variant="${esc(d.impact)}">${esc(String(d.impact))}</span>` : '';
+      return `<li>${esc(d.text || '')} ${impact}</li>`;
+    }).join('')}</ul>`;
+  };
+
+  const renderActions = (arr) => {
+    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
+    return `
+      <div class="table">
+        <div class="tr th"><div>Owner</div><div>Aufgabe</div><div>Fällig</div></div>
+        ${arr.map(a => `
+          <div class="tr">
+            <div>${esc(a.owner || a.assignee || '')}</div>
+            <div>${esc(a.task  || a.title    || '')}</div>
+            <div>${esc(a.due   || a.due_date || '')}</div>
+          </div>`).join('')}
+      </div>`;
+  };
+
+  const renderTimeline = (arr) => {
+    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
+    return `
+      <div class="table">
+        <div class="tr th"><div>von</div><div>bis</div><div>Topic</div></div>
+        ${arr.map(t => `
+          <div class="tr">
+            <div>${esc(t.from || '')}</div>
+            <div>${esc(t.to   || '')}</div>
+            <div>${esc(t.topic|| '')}</div>
+          </div>`).join('')}
+      </div>`;
+  };
+
+  const renderRedeanteile = (arr) => {
+    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
+    return `
+      <div class="shares">
+        ${arr.map(r => {
+          const pct = Number(r.anteil_prozent ?? r.percent ?? 0);
+          const w = Math.max(0, Math.min(100, Math.round(pct)));
+          return `
+            <div class="share-row">
+              <div class="share-name">${esc(r.name || '')}</div>
+              <div class="share-bar"><i style="width:${w}%"></i></div>
+              <div class="share-pct">${w}%</div>
+            </div>`;
+        }).join('')}
+      </div>`;
+  };
+
+  const copyBlock = (textLines) => {
+    const plain = textLines.join('\n');
+    const id = 'copy-' + Math.random().toString(36).slice(2);
+    // Button + Script (inline, damit ohne extra JS bindet)
+    return `
+      <div class="copyline">
+        <button type="button" class="secondary" data-copy="${id}">kopieren</button>
+      </div>
+      <script>
+        (function(){
+          const btn = document.querySelector('button[data-copy="${id}"]');
+          if (!btn) return;
+          btn.addEventListener('click', async ()=>{
+            try{
+              await navigator.clipboard.writeText(${JSON.stringify(plain)});
+              btn.textContent = 'kopiert ✓';
+              setTimeout(()=>{ btn.textContent = 'kopieren'; }, 1200);
+            }catch(e){ btn.textContent = 'Fehler'; }
+          });
+        })();
+      </script>
+    `;
+  };
+
+  // 4) Karten bauen (Zusammenfassung offen, Rest einklappbar)
+  const parts = [];
+
+  parts.push(section('Zusammenfassung', `
+    ${tldrList.length ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>` : '<div class="inline-help">–</div>'}
+    ${tldrList.length ? copyBlock(tldrList) : ''}
+  `, { open:true, id:'sec-summary' }));
+
+  parts.push(section('Entscheidungen', renderDecisions(decisions || []), { open:false, id:'sec-decisions' }));
+  parts.push(section('Aktionen',      renderActions(actions || []),      { open:false, id:'sec-actions' }));
+  parts.push(section('Offene Fragen', renderList(offeneFragen),           { open:false, id:'sec-questions' }));
+  parts.push(section('Risiken',       renderList(risiken),                { open:false, id:'sec-risks' }));
+  parts.push(section('Zeitachse',     renderTimeline(timeline),           { open:false, id:'sec-timeline' }));
+  parts.push(section('Redeanteile',   renderRedeanteile(redeanteile),     { open:false, id:'sec-shares' }));
+
+  // optional: Quellen (falls vorhanden)
+  if (Array.isArray(sources) && sources.length){
+    parts.push(section('Quellen', renderList(sources), { open:false, id:'sec-sources' }));
   }
 
-  if (actions.length){
-    html += '<div style="margin-top:10px;font-weight:700">To-Dos</div><ul>'
-         +  actions.map(a => '<li>' + escapeHtml(String((a && a.title) || a)) + '</li>').join('')
-         +  '</ul>';
-  }
-  if (decisions.length){
-    html += '<div style="margin-top:10px;font-weight:700">Entscheidungen</div><ul>'
-         +  decisions.map(a => '<li>' + escapeHtml(String((a && a.title) || a)) + '</li>').join('')
-         +  '</ul>';
-  }
-  if (speakers.length){
-    html += '<div style="margin-top:10px;font-weight:700">Erkannte Sprecher</div><ul>'
-         +  speakers.map(s => '<li>' + escapeHtml(String((s && s.name) || s)) + '</li>').join('')
-         +  '</ul>';
-  }
+  const html = `
+    <div class="result meeting-result">
+      <div class="done">✅ Fertig – Sitzungszusammenfassung:</div>
+      ${parts.join('\n')}
+    </div>
+  `;
 
-  const srcHtml2 = renderSources(sources);
-  if (srcHtml2) html += srcHtml2;
+  // in den Standard-Output schreiben
+  const out = document.getElementById('result-output');
+  if (out) out.innerHTML = html;
 
-  resultOut.innerHTML = html;
-  const pre = document.getElementById('answer-pre');
-  if (pre) pre.textContent = asText(summary || (raw || ""));
-  const copyBtn = document.getElementById('copy-answer');
-  if (copyBtn && pre) copyBtn.addEventListener('click', ()=> navigator.clipboard.writeText(pre.textContent || ""));
-  resultDiv.className = "success";
-  resultDiv.style.display = '';
+  // Falls dein main.js spiegelt, wird docs automatisch aktualisiert.
+  // Wenn nicht, kannst du hier zusätzlich:
+  const outDocs = document.getElementById('result-output-docs');
+  if (outDocs) outDocs.innerHTML = html;
 }
 
 // Optional: kleine Hilfs-API für andere Module

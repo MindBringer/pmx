@@ -124,6 +124,39 @@
       transform: translateY(-1px);
     }
 
+    /* Karten / Details */
+    .card { background: var(--upload-bg, #e8fbf8); border:1px solid var(--upload-border, #b5efe6); border-radius:8px; margin:10px 0; }
+    .card-head { font-weight:700; cursor:pointer; outline:none; }
+    .card > summary { list-style: none; padding:10px 12px; }
+    .card[open] > summary { border-bottom:1px solid var(--upload-border, #b5efe6); }
+    .card-body { padding:10px 12px; }
+
+    /* Listen / Tabelle */
+    .bullet { margin: 8px 0 0 18px; }
+    .table { display: grid; grid-template-columns: 1fr; gap: 0; border:1px solid #ddd; border-radius:8px; overflow:hidden; }
+    .table .tr { display:grid; grid-template-columns: 1.2fr 2fr 0.8fr; }
+    .table .tr.th { background:#f8f8f8; font-weight:700; }
+    .table .tr > div { padding:8px 10px; border-bottom:1px solid #eee; }
+    .table .tr:last-child > div { border-bottom:none; }
+
+    /* Redeanteile (Progress) */
+    .shares { display:flex; flex-direction:column; gap:8px; }
+    .share-row { display:grid; grid-template-columns: 1fr 4fr auto; align-items:center; gap:8px; }
+    .share-bar { background:#f0f0f0; border-radius:6px; height:10px; overflow:hidden; }
+    .share-bar i { display:block; height:100%; background:#4fd1c5; } /* türkis */
+    .share-name { font-weight:600; }
+    .share-pct { font-variant-numeric: tabular-nums; }
+
+    /* Badges */
+    .badge { font-size:12px; padding:2px 6px; border-radius:999px; background:#eee; margin-left:6px; }
+    .badge[data-variant="hoch"]    { background:#ffe2e2; }
+    .badge[data-variant="mittel"]  { background:#fff4cc; }
+    .badge[data-variant="niedrig"] { background:#e5f7d8; }
+
+    /* Kopfzeile + Copy */
+    .meeting-result .done { font-weight:700; margin-bottom:6px; }
+    .copyline { margin-top:8px; text-align:right; }
+
     .loading-container{
       display:flex;align-items:center;justify-content:center;gap:10px;margin-top:10px;min-height:40px
     }

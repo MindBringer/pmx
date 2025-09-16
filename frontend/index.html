@@ -370,7 +370,7 @@
             <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
           </div>
         </div>
-        
+
         <div class="btn-grid cols-2">
           <button type="submit" id="audio-upload-btn">Audio hochladen &amp; transkribieren</button>
         </div>
@@ -397,15 +397,6 @@
         </div>
       </div>
 
-      <div id="audio-upload-result" class="upload-box">
-        <div id="audio-upload-output"></div>
-        <div id="audio-segments" class="timeline"></div>
-        <div class="loading-container" id="audio-upload-spinner" style="display:none">
-          <div class="spinner"></div>
-          <div class="loading-text">Transkribiere<span class="dots"></span></div>
-        </div>
-      </div>
-
       <!-- Live-Status & Spinner (DOCS/AUDIO) -->
       <section id="job-status-docs" class="result-box" style="display:none">
         <div style="font-weight:700;margin-bottom:6px">Live-Status</div>
@@ -420,8 +411,18 @@
       </div>
 
       <!-- Antwortbereich (DOCS/AUDIO) -->
-      <div id="result-docs" class="result-box">
+      <div id="result-docs" class="upload-box">
         <div id="result-output-docs"></div>
+      </div>
+
+      <!-- Antwortbereich (transcribe) -->
+      <div id="audio-upload-result" class="upload-box">
+        <div id="audio-upload-output"></div>
+        <div id="audio-segments" class="timeline"></div>
+        <div class="loading-container" id="audio-upload-spinner" style="display:none">
+          <div class="spinner"></div>
+          <div class="loading-text">Transkribiere<span class="dots"></span></div>
+        </div>
       </div>
 
       <!-- Bekannte Sprecher (im DOCS/AUDIO Tab) -->
