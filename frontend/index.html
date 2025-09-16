@@ -15,8 +15,8 @@
     <!-- Tabs -->
     <div class="tabs">
       <button class="tab active" data-target="tab-prompt">Fragen</button>
-      <button class="tab" data-target="tab-docs">Dateien</button>
-      <button class="tab" data-target="tab-meet" type="button">Besprechungen &amp; Audio</button>
+      <button class="tab" data-target="tab-docs">Dateien &amp; Audio</button>
+      <button class="tab" data-target="tab-set" type="button">Einstellungen</button>
 
     </div>
 <div id="result" class="result-box">
@@ -369,10 +369,14 @@
           <div class="form-group col">
             <label for="audioModel">Modell</label>
             <select id="audioModel">
-              <option value="vLLM" selected>vLLM</option>
-              <option value="ollama">Ollama</option>
+              <option value="vllm">vLLM (lokal)</option>
               <option value="groq">Groq API</option>
+              <option value="mistralapi">Codestral API</option>
+              <option value="openrouter">OpenRouter API</option>
+              <option value="llama3">llama3</option>
+              <option value="mistral">mistral</option>
               <option value="openai">OpenAI API</option>
+              <option value="huggingface">Hugging Face API</option>
               <option value="anthropic">Anthropic API</option>
             </select>
           </div>
@@ -450,8 +454,19 @@
         </div>
       </div>
 
-      <!-- --- Sprecherverwaltung (Enrollment) --- -->
-      <div style="height:1px;background:#eee;margin:18px 0"></div>
+      <div class="upload-box" style="margin-top:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div><b>Bekannte Sprecher</b></div>
+          <button type="button" id="speaker-refresh-btn" class="secondary" style="width:auto">Liste aktualisieren</button>
+        </div>
+        <div id="speaker-list" class="timeline" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+  <!-- Panel: Einstellungen -->
+  <!-- --- Sprecherverwaltung (Enrollment) --- -->
+  <div class="panel" id="tab-set">   
+    <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="speaker-form">
         <div class="form-group">
           <label for="speakerName">Name des Sprechers</label>
@@ -506,52 +521,8 @@
         <div id="speaker-list" class="timeline" style="margin-top:8px"></div>
       </div>
     </div>
-  <!-- Panel: Besprechungen & Audio -->
-  <div class="panel" id="tab-meet">
-    <form id="meeting-form">
-      <div class="form-group">
-        <label for="meetingFile">Zusammenfassung einer Sitzung – Audio auswählen</label>
-        <input type="file" id="meetingFile" accept="audio/*" />
-        <div class="inline-help">Nur abspielbare Audioformate. Wir prüfen die Datei vor dem Upload.</div>
-      </div>
-      <div class="row">
-        <div class="form-group col">
-          <label>Mikrofon</label>
-          <select id="micSelectMeet"></select>
-          <div class="inline-help" id="micStatusMeet">–</div>
-        </div>
-        <div class="form-group col">
-          <label>Aufnahme</label>
-          <div class="btn-grid cols-2">
-            <button type="button" id="micCheckMeet" class="secondary">Hardware prüfen</button>
-            <button type="button" id="micStartMeet">Aufnehmen</button>
-            <button type="button" id="micStopMeet" class="secondary" disabled>Stop</button>
-          </div>
-          <div class="inline-help"><span id="micTimerMeet">00:00</span></div>
-          <div class="meter"><i id="micMeterMeet"></i></div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="form-group col">
-          <label><input type="checkbox" id="meetDiarize" checked/> Sprecher trennen (Diarization)</label>
-        </div>
-        <div class="form-group col">
-          <label><input type="checkbox" id="meetIdentify" checked/> Personen identifizieren</label>
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="meetSpeakerHints">Speaker Hints (optional)</label>
-        <input type="text" id="meetSpeakerHints" placeholder="alice,bob" />
-      </div>
-      <div class="btn-grid cols-2">
-        <button type="submit" id="meeting-upload-btn">Hochladen &amp; zusammenfassen</button>
-      </div>
-    </form>
-  </div>
 
   </div>
-
-  
   
   <script type="module" src="./js/main.js"></script>
 </body>
