@@ -346,62 +346,108 @@ const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
   mStop?.addEventListener('click', stopRecording);
   if (mSel) listMics();
 
-  // Audio Submit
-  audioForm.addEventListener('submit', async (e)=>{
-    e.preventDefault();
+ // Audio Submit (robust, CORS-safe, Timeout, dual UI)
+audioForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
 
-    // Spinner & Live-Status unten im Docs-Tab anzeigen (und gespiegelt)
-    const hideSpinner = showSpinnerDual(300);
-    showJobDual('Audio');
-    setJobLineDual('Prüfe Datei …');
+  // 1) Webhook: relative URL (vermeidet CORS/Redirect-Probleme)
+  const MEETING_WEBHOOK_REL = "/webhook/meetings/summarize";
 
-    try {
-      const file = audioFile?.files?.[0];
-      if (!file) throw new Error("Bitte eine Audio-Datei auswählen oder aufnehmen.");
-      const ok = await isPlayableAudio(file);
-      if (!ok) throw new Error("Die ausgewählte Datei konnte nicht geprüft werden (kein abspielbares Audio).");
+  // 2) Spinner & Live-Status *hart* sichtbar (beide Tabs)
+  //    -> zusätzlich zur showFor-Logik, um Race-Conditions zu vermeiden
+  const s1 = document.getElementById('spinner');
+  const s2 = document.getElementById('spinner-docs');
+  if (s1) s1.style.display = 'block';
+  if (s2) s2.style.display = 'block';
 
-      const fd = new FormData();
-      fd.append('file', file);
-      if (diarEl)  fd.append('diarize_flag', diarEl.checked ? 'true' : 'false');
-      if (identEl) fd.append('identify', identEl.checked ? 'true' : 'false');
-      if (hintsEl && hintsEl.value.trim()) fd.append('speaker_hints', hintsEl.value.trim());
-      if (tagsEl  && tagsEl.value.trim())  fd.append('tags', tagsEl.value.trim());
-      if (sumEl)  fd.append('summarize', sumEl.checked ? 'true' : 'false');
-      if (modelEl && modelEl.value)        fd.append('model', modelEl.value);
+  const hideSpinner = showSpinnerDual(300);
+  showJobDual('Audio');
+  setJobLineDual('Prüfe Datei …');
 
-      setJobLineDual('Sende an Webhook …');
+  // 3) Timeout via AbortController
+  const controller = new AbortController();
+  const TIMEOUT_MS = 90_000; // 90s – je nach Dateigröße ggf. anheben
+  const tId = setTimeout(() => controller.abort(new Error('Zeitüberschreitung beim Upload')), TIMEOUT_MS);
 
-      const resp = await fetch(MEETING_WEBHOOK, { method:'POST', body: fd });
-      const raw  = await resp.text();
-      if (!resp.ok) throw new Error(raw || `Fehler ${resp.status}`);
+  try {
+    const file = audioFile?.files?.[0];
+    if (!file) throw new Error("Bitte eine Audio-Datei auswählen oder aufnehmen.");
 
-      setJobLineDual('Verarbeite Antwort …');
+    // Optional: kurze Playability-Prüfung (nicht-blockierend, aber frühzeitiger Feedback)
+    const ok = await isPlayableAudio(file);
+    if (!ok) appendJobLogDual('⚠️ Warnung: Datei nicht als Audio erkannt – fahre dennoch fort.');
 
-      let data = null; try { data = JSON.parse(raw); } catch {}
+    const fd = new FormData();
+    fd.append('file', file);
+    if (diarEl)  fd.append('diarize_flag', diarEl.checked ? 'true' : 'false');
+    if (identEl) fd.append('identify',    identEl.checked ? 'true' : 'false');
+    if (hintsEl && hintsEl.value.trim())  fd.append('speaker_hints', hintsEl.value.trim());
+    if (tagsEl  && tagsEl.value.trim())   fd.append('tags', tagsEl.value.trim());
+    if (sumEl)  fd.append('summarize',    sumEl.checked ? 'true' : 'false');
+    if (modelEl && modelEl.value)         fd.append('model', modelEl.value);
 
-      setMeetingResult({
-        summary:   data?.summary || data?.result?.summary || data?.answer || data?.text || "",
-        actions:   data?.action_items || data?.result?.action_items || data?.todos || [],
-        decisions: data?.decisions || data?.result?.decisions || [],
-        speakers:  data?.speakers || data?.result?.speakers || [],
-        sources:   data?.sources || data?.documents || [],
-        raw:       data || raw
-      });
+    setJobLineDual('Sende an Webhook …');
 
-      // Sicherstellen: Ausgabe sichtbar in beiden Antwortboxen
-      const ro = document.getElementById('result-output');
-      const html = ro ? ro.innerHTML : '';
-      setDualHTML('result-output', 'result-output-docs', html);
+    // 4) Wichtig: relative URL verwenden (gleiches Origin) + AbortController
+    const resp = await fetch(MEETING_WEBHOOK_REL, {
+      method: 'POST',
+      body: fd,
+      signal: controller.signal,
+      // Wichtig: KEIN 'Content-Type' manuell setzen bei FormData
+      // mode/credentials default halten, damit Same-Origin sauber funktioniert
+    });
 
-    } catch (err){
-      setError(err?.message || String(err));
-    } finally {
-      hideJobDual();
-      hideSpinner();
+    // 5) Antwort sicher lesen (json → text fallback)
+    let raw = await resp.text();
+    if (!resp.ok) {
+      // Wenn der Server einen Fehler-Body als JSON geschickt hat, versuchen wir es anzuzeigen
+      let errMsg = raw;
+      try {
+        const j = JSON.parse(raw);
+        errMsg = j?.error || j?.message || raw;
+      } catch {}
+      throw new Error(errMsg || `HTTP ${resp.status}`);
     }
-  });
-})();
+
+    setJobLineDual('Verarbeite Antwort …');
+
+    let data = null;
+    try { data = JSON.parse(raw); } catch { data = null; }
+
+    // 6) UI rendern – auch wenn nur Text ankommt
+    const summary   = data?.summary || data?.result?.summary || data?.answer || data?.text || (typeof raw === 'string' ? raw : "");
+    const actions   = data?.action_items || data?.result?.action_items || data?.todos || [];
+    const decisions = data?.decisions || data?.result?.decisions || [];
+    const speakers  = data?.speakers || data?.result?.speakers || [];
+    const sources   = data?.sources || data?.documents || [];
+
+    setMeetingResult({
+      summary, actions, decisions, speakers, sources, raw: data || raw
+    });
+
+    // Sicherstellen: Ausgabe sichtbar in beiden Antwortboxen
+    const ro = document.getElementById('result-output');
+    const html = ro ? ro.innerHTML : (summary ? `<div>${summary}</div>` : '');
+    setDualHTML('result-output', 'result-output-docs', html);
+
+    setJobLineDual('Fertig.');
+  } catch (err) {
+    // 7) Fehlermeldung sichtbar machen (beide Tabs)
+    const msg = (err?.name === 'AbortError')
+      ? '⏱️ Upload/Antwort hat zu lange gedauert.'
+      : (err?.message || String(err));
+
+    appendJobLogDual(`❌ ${msg}`);
+    setError(msg);
+  } finally {
+    clearTimeout(tId);
+    hideJobDual();
+    hideSpinner();
+    if (s1) s1.style.display = 'none';
+    if (s2) s2.style.display = 'none';
+  }
+});
+
 
 /* -------------------------------------------
    Speaker-Liste in zwei Tabs laden/refreshen
