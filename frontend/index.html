@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>🧠 AI Prompt Interface</title>
   <link rel="stylesheet" href="styles.css" />
-
-  
 </head>
 <body>
   <div class="container">
@@ -17,11 +15,7 @@
       <button class="tab active" data-target="tab-prompt">Fragen</button>
       <button class="tab" data-target="tab-docs">Dateien &amp; Audio</button>
       <button class="tab" data-target="tab-set" type="button">Einstellungen</button>
-
     </div>
-<div id="result" class="result-box">
-        <div id="result-output"></div>
-
 
     <!-- Panel: Prompt -->
     <div class="panel active" id="tab-prompt">
@@ -133,7 +127,7 @@
               </div>
             </div>
 
-            <!-- Persona Row Template repeated 5x -->
+            <!-- Personas 1–5 -->
             <div class="persona-row">
               <label class="persona-head"><input type="checkbox" id="p1_enabled" /> Persona 1</label>
               <div class="row">
@@ -256,6 +250,7 @@
           </div>
         </div>
 
+        <!-- Senden -->
         <div class="form-group">
           <label>Firmendaten mit einbeziehen?</label>
           <div class="choices" id="rag-choices">
@@ -271,7 +266,7 @@
         <div id="conv-status" class="inline-help" style="margin:8px 0"></div>
       </form>
 
-      <!-- Live-Status für Async-Jobs (SSE) -->
+      <!-- Live-Status & Spinner (PROMPT) -->
       <section id="job-status" class="result-box" style="display:none">
         <div style="font-weight:700;margin-bottom:6px">Live-Status</div>
         <div id="job-title" style="margin-bottom:4px;">—</div>
@@ -279,17 +274,21 @@
         <div id="job-log" class="mono" style="border:1px solid #ddd; padding:8px; max-height:240px; overflow:auto; background:#fafafa; font-size: 12px;"></div>
       </section>
 
-      
-        <div class="loading-container" id="spinner" style="display:none">
-          <div class="spinner"></div>
-          <div class="loading-text">Ich arbeite<span class="dots"></span></div>
-        </div>
+      <div class="loading-container" id="spinner" style="display:none">
+        <div class="spinner"></div>
+        <div class="loading-text">Ich arbeite<span class="dots"></span></div>
+      </div>
+
+      <!-- Antwortbereich (PROMPT) -->
+      <div id="result" class="result-box">
+        <div id="result-output"></div>
       </div>
     </div>
 
-    <!-- Panel: Dateien -->
+    <!-- Panel: Dateien & Audio -->
     <div class="panel" id="tab-docs">
-      <form id="docs-form"></form>
+      <!-- --- Datei-Upload --- -->
+      <form id="docs-form">
         <div class="row">
           <div class="form-group col">
             <label for="file">Datei auswählen</label>
@@ -302,29 +301,29 @@
             <div class="inline-help">(optional, Komma-getrennt)</div>
           </div>
         </div>
-        
+
         <div class="btn-grid cols-2">
           <button type="submit" id="upload-btn">Hochladen</button>
         </div>
-     
-        <div id="upload-result" class="upload-box">
-          <div id="upload-output"></div>
-          <div class="loading-container" id="upload-spinner" style="display:none">
-            <div class="spinner"></div>
-            <div class="loading-text">Lade hoch<span class="dots"></span></div>
-          </div>
-        </div>
       </form>
-      
-      <!-- --- Audio Upload (Transcribe & Diarization & optional Summary) --- -->
+
+      <div id="upload-result" class="upload-box">
+        <div id="upload-output"></div>
+        <div class="loading-container" id="upload-spinner" style="display:none">
+          <div class="spinner"></div>
+          <div class="loading-text">Lade hoch<span class="dots"></span></div>
+        </div>
+      </div>
+
       <div style="height:1px;background:#eee;margin:18px 0"></div>
+
+      <!-- --- Audio Upload (Transcribe & Diarization & optional Summary) --- -->
       <form id="audio-form">
         <div class="form-group">
           <label for="audioFile">Audio auswählen</label>
           <input type="file" id="audioFile" accept="audio/*" />
           <div class="inline-help">Unterstützt: wav, mp3, m4a, ogg, webm, flac</div>
         </div>
-
 
         <div class="row">
           <div class="form-group col">
@@ -337,13 +336,11 @@
           </div>
         </div>
 
-
         <div class="form-group">
           <label for="speakerHints">Speaker Hints (optional)</label>
           <input type="text" id="speakerHints" placeholder="alice,bob" />
           <div class="inline-help">Bevorzugte Kandidaten (Komma-getrennt).</div>
         </div>
-
 
         <div class="form-group">
           <label for="audioTags">Tags</label>
@@ -351,8 +348,7 @@
           <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
         </div>
 
-
-        <!-- NEU: Zusammenfassung + Modellwahl -->
+        <!-- Zusammenfassung + Modellwahl -->
         <div class="row">
           <div class="form-group col">
             <label><input type="checkbox" id="audioSummarize" checked/> Zusammenfassung erstellen</label>
@@ -374,7 +370,7 @@
         </div>
 
         <div class="btn-grid cols-2">
-          <button type="submit" id="audio-upload-btn">Audio verarbeiten</button>
+          <button type="submit" id="audio-upload-btn">Audio hochladen &amp; transkribieren</button>
         </div>
       </form>
 
@@ -387,87 +383,68 @@
         </div>
       </div>
 
-        <!-- Mic controls (Transcribe) -->
-        <div class="row">
-          <div class="form-group col">
-            <label>Mikrofon</label>
-            <select id="micSelectTrans"></select>
-            <div class="inline-help" id="micStatusTrans">–</div>
+      <!-- Mic controls (Transcribe) -->
+      <div class="row">
+        <div class="form-group col">
+          <label>Mikrofon</label>
+          <select id="micSelectTrans"></select>
+          <div class="inline-help" id="micStatusTrans">–</div>
+        </div>
+        <div class="form-group col">
+          <label>Aufnahme</label>
+          <div class="btn-grid cols-2">
+            <button type="button" id="micCheckTrans" class="secondary">Hardware prüfen</button>
+            <button type="button" id="micStartTrans">Aufnehmen</button>
+            <button type="button" id="micStopTrans" class="secondary" disabled>Stop</button>
           </div>
-          <div class="form-group col">
-            <label>Aufnahme</label>
-            <div class="btn-grid cols-2">
-              <button type="button" id="micCheckTrans" class="secondary">Hardware prüfen</button>
-              <button type="button" id="micStartTrans">Aufnehmen</button>
-              <button type="button" id="micStopTrans" class="secondary" disabled>Stop</button>
-            </div>
-            <div class="inline-help">
-              <span id="micTimerTrans">00:00</span>
-            </div>
-            <div class="meter"><i id="micMeterTrans"></i></div>
+          <div class="inline-help">
+            <span id="micTimerTrans">00:00</span>
           </div>
-        </div>
-
-        <div class="row">
-          <div class="form-group col">
-            <label><input type="checkbox" id="doDiar" checked/> Sprecher trennen (Diarization)</label>
-            <div class="inline-help">Segmentiert Sprecher unabhängig von Namen.</div>
-          </div>
-          <div class="form-group col">
-            <label><input type="checkbox" id="doIdentify" checked/> Personen identifizieren</label>
-            <div class="inline-help">Versucht bekannte Personen per Qdrant-Enrollment zuzuordnen.</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="speakerHints">Speaker Hints (optional)</label>
-          <input type="text" id="speakerHints" placeholder="alice,bob" />
-          <div class="inline-help">Bevorzugte Kandidaten (Komma-getrennt).</div>
-        </div>
-
-        <div class="form-group">
-          <label for="audioTags">Tags</label>
-          <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
-          <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
-        </div>
-
-        <div class="btn-grid cols-2">
-          <button type="submit" id="audio-upload-btn">Audio hochladen & transkribieren</button>
-        </div>
-      </form>
-
-      <div id="audio-upload-result" class="upload-box">
-        <div id="audio-upload-output"></div>
-        <div id="audio-segments" class="timeline"></div>
-        <div class="loading-container" id="audio-upload-spinner" style="display:none">
-          <div class="spinner"></div>
-          <div class="loading-text">Transkribiere<span class="dots"></span></div>
+          <div class="meter"><i id="micMeterTrans"></i></div>
         </div>
       </div>
 
+      <!-- Live-Status & Spinner (DOCS/AUDIO) -->
+      <section id="job-status-docs" class="result-box" style="display:none">
+        <div style="font-weight:700;margin-bottom:6px">Live-Status</div>
+        <div id="job-title-docs" style="margin-bottom:4px;">—</div>
+        <div id="job-statusline-docs" style="margin-bottom:8px;">Warte auf Start …</div>
+        <div id="job-log-docs" class="mono" style="border:1px solid #ddd; padding:8px; max-height:240px; overflow:auto; background:#fafafa; font-size: 12px;"></div>
+      </section>
+
+      <div class="loading-container" id="spinner-docs" style="display:none">
+        <div class="spinner"></div>
+        <div class="loading-text">Ich arbeite<span class="dots"></span></div>
+      </div>
+
+      <!-- Antwortbereich (DOCS/AUDIO) -->
+      <div id="result-docs" class="result-box">
+        <div id="result-output-docs"></div>
+      </div>
+
+      <!-- Bekannte Sprecher (im DOCS/AUDIO Tab) -->
       <div class="upload-box" style="margin-top:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           <div><b>Bekannte Sprecher</b></div>
-          <button type="button" id="speaker-refresh-btn" class="secondary" style="width:auto">Liste aktualisieren</button>
+          <button type="button" id="speaker-refresh-btn-docs" class="secondary" style="width:auto">Liste aktualisieren</button>
         </div>
-        <div id="speaker-list" class="timeline" style="margin-top:8px"></div>
+        <div id="speaker-list-docs" class="timeline" style="margin-top:8px"></div>
       </div>
     </div>
 
-  <!-- Panel: Einstellungen -->
-
-  <div class="panel" id="tab-set">   
-        <div class="form-group">
-          <label for="apiKey">API-Key (RAG)</label>
-          <div class="row" style="gap:8px;align-items:center">
-            <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
-            <button type="button" id="toggleKey" class="secondary" style="flex:0 0 auto">anzeigen</button>
-          </div>
-          <div class="inline-help">Wird in <code>localStorage</code> gespeichert.</div>
+    <!-- Panel: Einstellungen -->
+    <div class="panel" id="tab-set">
+      <div class="form-group">
+        <label for="apiKey">API-Key (RAG)</label>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
+          <button type="button" id="toggleKey" class="secondary" style="flex:0 0 auto">anzeigen</button>
         </div>
-    
-    <!-- --- Sprecherverwaltung (Enrollment) --- -->
-    <div style="height:1px;background:#eee;margin:18px 0"></div>
+        <div class="inline-help">Wird in <code>localStorage</code> gespeichert.</div>
+      </div>
+
+      <!-- --- Sprecherverwaltung (Enrollment) --- -->
+      <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="speaker-form">
         <div class="form-group">
           <label for="speakerName">Name des Sprechers</label>
@@ -514,17 +491,17 @@
         </div>
       </div>
 
+      <!-- Bekannte Sprecher (im EINSTELLUNGEN Tab) -->
       <div class="upload-box" style="margin-top:12px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           <div><b>Bekannte Sprecher</b></div>
-          <button type="button" id="speaker-refresh-btn" class="secondary" style="width:auto">Liste aktualisieren</button>
+          <button type="button" id="speaker-refresh-btn-settings" class="secondary" style="width:auto">Liste aktualisieren</button>
         </div>
-        <div id="speaker-list" class="timeline" style="margin-top:8px"></div>
+        <div id="speaker-list-settings" class="timeline" style="margin-top:8px"></div>
       </div>
     </div>
-
   </div>
-  
+
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>

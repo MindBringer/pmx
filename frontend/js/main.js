@@ -1,8 +1,5 @@
 // ==============================
-// File: frontend/main.js
-// Refactor: nutzt zentrale Renderer (ui/renderers.js)
-// Enthält: API-Key-Handling, Fetch-Patch, Prompt-/Meeting-Forms,
-//          Mic-Recording-Helpers, Tab-Guard
+// File: frontend/main.js (updated)
 // ==============================
 
 import { initTabs, activeSubtab } from "./ui/tabs.js";
@@ -22,14 +19,89 @@ import {
   setMeetingResult,
 } from "./ui/renderers.js";
 
-// ---------- Boot ----------
+/* -------------------------------------------
+   Mirror-Helpers: halten beide Tabs synchron
+   ------------------------------------------- */
+function setDualHTML(idA, idB, html = "") {
+  const a = document.getElementById(idA);
+  const b = document.getElementById(idB);
+  if (a) a.innerHTML = html;
+  if (b) b.innerHTML = html;
+}
+function setDualText(idA, idB, text = "") {
+  const a = document.getElementById(idA);
+  const b = document.getElementById(idB);
+  if (a) a.textContent = text;
+  if (b) b.textContent = text;
+}
+function setDualDisplay(idA, idB, show) {
+  const a = document.getElementById(idA);
+  const b = document.getElementById(idB);
+  const val = show ? "block" : "none";
+  if (a) a.style.display = val;
+  if (b) b.style.display = val;
+}
+
+// Spiegel für Spinner (Fragen + Docs)
+function showSpinnerDual(ms = 300) {
+  const s1 = document.getElementById("spinner");
+  const s2 = document.getElementById("spinner-docs");
+  const hide1 = showFor(s1, ms);
+  const hide2 = showFor(s2, ms);
+  return () => { hide1(); hide2(); };
+}
+
+// Spiegel für Live-Status (Titel/Zeile/Log)
+function showJobDual(title = "—") {
+  setDualDisplay("job-status", "job-status-docs", true);
+  setDualText("job-title", "job-title-docs", title);
+}
+function setJobLineDual(line = "") {
+  setDualText("job-statusline", "job-statusline-docs", line);
+}
+function appendJobLogDual(line = "") {
+  const a = document.getElementById("job-log");
+  const b = document.getElementById("job-log-docs");
+  const add = (el) => { if (el) el.textContent += (line.endsWith("\n") ? line : line + "\n"); };
+  add(a); add(b);
+}
+function hideJobDual() {
+  setDualDisplay("job-status", "job-status-docs", false);
+}
+
+/* Optional: kleine Proxy-Hooks, falls Renderers bereits schreiben */
+(function attachRenderMirrors(){
+  // Antwort spiegeln (wenn setFinalAnswer den Standard-Output nutzt)
+  const ro = document.getElementById("result-output");
+  if (ro) {
+    const obs = new MutationObserver(() => {
+      const html = ro.innerHTML;
+      setDualHTML("result-output", "result-output-docs", html);
+    });
+    obs.observe(ro, { childList: true, subtree: true, characterData: true });
+  }
+
+  // Live-Status spiegeln
+  const jt = document.getElementById("job-title");
+  const jl = document.getElementById("job-statusline");
+  const jlog = document.getElementById("job-log");
+  if (jt) new MutationObserver(() => setDualText("job-title","job-title-docs", jt.textContent)).observe(jt, { childList:true, characterData:true, subtree:true });
+  if (jl) new MutationObserver(() => setDualText("job-statusline","job-statusline-docs", jl.textContent)).observe(jl, { childList:true, characterData:true, subtree:true });
+  if (jlog) new MutationObserver(() => setDualText("job-log","job-log-docs", jlog.textContent)).observe(jlog, { childList:true, characterData:true, subtree:true });
+})();
+
+/* -------------------------------------------
+   Boot
+   ------------------------------------------- */
 initTabs();
 renderConvStatus();
-initDocsUpload();
-initAudioUpload();
-initSpeakers();
+initDocsUpload();   // lässt dein bestehendes Upload-Handling weiterlaufen
+initAudioUpload();  // belasse es; unten ergänzen wir expliziten Submit-Handler
+initSpeakers();     // bestehende Logik bleibt; unten ergänzen wir Dual-Render
 
-// ---------- API Key handling (RAG) ----------
+/* -------------------------------------------
+   API Key handling (RAG)
+   ------------------------------------------- */
 const apiKeyInput = document.getElementById('apiKey');
 const toggleKeyBtn = document.getElementById('toggleKey');
 try {
@@ -51,7 +123,9 @@ function getRagApiKey(){
 }
 window.getRagApiKey = getRagApiKey;
 
-// ---------- Fetch wrapper: add x-api-key for same-origin ----------
+/* -------------------------------------------
+   Fetch wrapper: add x-api-key for same-origin
+   ------------------------------------------- */
 (function patchFetchForApiKey(){
   const orig = window.fetch;
   window.fetch = async function(input, init){
@@ -70,18 +144,15 @@ window.getRagApiKey = getRagApiKey;
   };
 })();
 
-// ---------- Prompt / Fragen ----------
+/* -------------------------------------------
+   Prompt / Fragen
+   ------------------------------------------- */
 const promptForm = document.getElementById('prompt-form');
 promptForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  const resultDiv = document.getElementById('result');
-  const resultOut = document.getElementById('result-output');
-  const spinner   = document.getElementById('spinner');
-  const submitBtn = document.getElementById('submit-btn');
-
   const prompt = (document.getElementById('prompt')?.value || '').trim();
-  const system = (document.getElementById('input-sys')?.value || '').trim();
+  const system = (document.getElementById('system')?.value || '').trim(); // ID fix
   const model  = (document.getElementById('model_sys')?.value || '').trim() || (document.getElementById('model_usr')?.value || '').trim();
 
   let ragVal = '';
@@ -92,14 +163,12 @@ promptForm?.addEventListener('submit', async (e) => {
   }
 
   if (!prompt){
-    if (resultOut) resultOut.textContent = "⚠️ Bitte gib einen Prompt ein.";
-    if (resultDiv) resultDiv.className = "error";
+    setDualText('result-output','result-output-docs',"⚠️ Bitte gib einen Prompt ein.");
     return;
   }
 
-  if (resultOut) resultOut.innerHTML = "";
-  if (resultDiv) resultDiv.className = "";
-  const hideSpinner = showFor(spinner, 300);
+  const hideSpinner = showSpinnerDual(300);
+  const submitBtn = document.getElementById('submit-btn');
   if (submitBtn) submitBtn.disabled = true;
 
   try {
@@ -111,14 +180,14 @@ promptForm?.addEventListener('submit', async (e) => {
       if (personas && personas.length){
         payload.personas = personas;
 
-        // optional agent rounds
+        // agent rounds
         const roundsEl = document.getElementById("agent_rounds");
         const roundsVal = Number(roundsEl?.value || 1);
         if (Number.isFinite(roundsVal) && roundsVal >= 1) {
           payload.agent_rounds = Math.max(1, Math.min(10, Math.round(roundsVal)));
         }
 
-        // critic/writer models (optional)
+        // critic/writer (optional)
         const criticProv = document.getElementById("critic_provider")?.value || "";
         const criticModel = (document.getElementById("critic_model")?.value || "").trim();
         if (criticProv || criticModel) payload.critic = { provider: criticProv || undefined, model: criticModel || undefined };
@@ -126,12 +195,17 @@ promptForm?.addEventListener('submit', async (e) => {
         const wModel = (document.getElementById('writer_model')?.value || '').trim();
         if (wProv || wModel) payload.writer = { provider: wProv || undefined, model: wModel || undefined };
 
-        // pass key explicitly as body field as well (helps if backend expects it in JSON)
         const key = getRagApiKey();
         if (key) payload.api_key = key;
 
-        // Hinweis: Live-Zwischenstände erfolgen in features/agents.js via renderers.appendIntermediate()
+        // Live-Status sichtbar auf beiden Tabs
+        showJobDual('Personas');
+        setJobLineDual('Starte Agenten …');
+
         await startAsyncRun('Personas', payload);
+
+        // Abschluss-Status ausblenden
+        hideJobDual();
         return;
       }
     }
@@ -139,7 +213,13 @@ promptForm?.addEventListener('submit', async (e) => {
     payload.model = model;
     const key = getRagApiKey();
     if (key) payload.api_key = key;
+
+    showJobDual('Frage');
+    setJobLineDual('Starte Anfrage …');
+
     await startSyncRun('Frage', payload);
+
+    hideJobDual();
   } catch (err){
     setError(err?.message || String(err));
   } finally {
@@ -148,25 +228,33 @@ promptForm?.addEventListener('submit', async (e) => {
   }
 });
 
-// ---------- Meeting: Besprechungen & Audio ----------
-(function(){
-  const meetingForm = document.getElementById("meeting-form");
-  if (!meetingForm) return;
+/* -------------------------------------------
+   Dateien & Audio – Audio Submit + Mic (Transcribe)
+   ------------------------------------------- */
 
-  // Fixed webhook per your spec
-  const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
+// Fixer Webhook für Meetings/Audio-Zusammenfassung
+const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
 
-  const meetingFile   = document.getElementById("meetingFile");
-  const diarEl        = document.getElementById("meetDiarize");
-  const identEl       = document.getElementById("meetIdentify");
-  const hintsEl       = document.getElementById("meetSpeakerHints");
-  const mStartBtn     = document.getElementById("micStartMeet");
-  const mStopBtn      = document.getElementById("micStopMeet");
-  const mCheckBtn     = document.getElementById("micCheckMeet");
-  const mSel          = document.getElementById("micSelectMeet");
-  const mStatus       = document.getElementById("micStatusMeet");
-  const mMeter        = document.getElementById("micMeterMeet");
-  const mTimer        = document.getElementById("micTimerMeet");
+(function audioSection(){
+  const audioForm     = document.getElementById("audio-form");
+  if (!audioForm) return;
+
+  const audioFile     = document.getElementById("audioFile");
+  const diarEl        = document.getElementById("doDiar");
+  const identEl       = document.getElementById("doIdentify");
+  const hintsEl       = document.getElementById("speakerHints");
+  const tagsEl        = document.getElementById("audioTags");
+  const modelEl       = document.getElementById("audioModel");
+  const sumEl         = document.getElementById("audioSummarize");
+
+  // Mic controls (Transcribe)
+  const mSel   = document.getElementById("micSelectTrans");
+  const mStart = document.getElementById("micStartTrans");
+  const mStop  = document.getElementById("micStopTrans");
+  const mCheck = document.getElementById("micCheckTrans");
+  const mStatus= document.getElementById("micStatusTrans");
+  const mMeter = document.getElementById("micMeterTrans");
+  const mTimer = document.getElementById("micTimerTrans");
 
   async function isPlayableAudio(file, timeoutMs=3000){
     if (!file || !(file instanceof Blob)) return false;
@@ -227,7 +315,7 @@ promptForm?.addEventListener('submit', async (e) => {
     }
   }
   async function startRecording(){
-    if (mStartBtn) mStartBtn.disabled = true; if (mStopBtn) mStopBtn.disabled  = false;
+    if (mStart) mStart.disabled = true; if (mStop) mStop.disabled  = false;
     const deviceId = mSel?.value;
     mic.stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? {deviceId:{exact:deviceId}} : true });
     runMeter(mic.stream);
@@ -242,34 +330,33 @@ promptForm?.addEventListener('submit', async (e) => {
         const dt = new DataTransfer();
         const f = new File([blob], 'aufnahme.webm', { type:'audio/webm' });
         dt.items.add(f);
-        if (meetingFile) meetingFile.files = dt.files;
+        if (audioFile) audioFile.files = dt.files;
         if (mStatus) mStatus.textContent = 'Aufnahme übernommen.';
       } catch {}
       try { mic.stream.getTracks().forEach(t=>t.stop()); } catch {}
-      if (mStartBtn) mStartBtn.disabled = false; if (mStopBtn) mStopBtn.disabled  = true;
+      if (mStart) mStart.disabled = false; if (mStop) mStop.disabled  = true;
     };
     mic.rec.start(1000);
     if (mStatus) mStatus.textContent = 'Aufnahme läuft...';
   }
   function stopRecording(){ try { mic.rec?.stop(); } catch {} }
 
-  mCheckBtn?.addEventListener('click', listMics);
-  mStartBtn?.addEventListener('click', startRecording);
-  mStopBtn?.addEventListener('click', stopRecording);
+  mCheck?.addEventListener('click', listMics);
+  mStart?.addEventListener('click', startRecording);
+  mStop?.addEventListener('click', stopRecording);
   if (mSel) listMics();
 
-  meetingForm.addEventListener('submit', async (e)=>{
+  // Audio Submit
+  audioForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
 
-    const resultDiv = document.getElementById('result');
-    const resultOut = document.getElementById('result-output');
-    const spinner   = document.getElementById('spinner');
-    if (resultOut) resultOut.innerHTML = "";
-    if (resultDiv) resultDiv.className = "";
-    const hideSpinner = showFor(spinner, 300);
+    // Spinner & Live-Status unten im Docs-Tab anzeigen (und gespiegelt)
+    const hideSpinner = showSpinnerDual(300);
+    showJobDual('Audio');
+    setJobLineDual('Prüfe Datei …');
 
     try {
-      const file = meetingFile?.files?.[0];
+      const file = audioFile?.files?.[0];
       if (!file) throw new Error("Bitte eine Audio-Datei auswählen oder aufnehmen.");
       const ok = await isPlayableAudio(file);
       if (!ok) throw new Error("Die ausgewählte Datei konnte nicht geprüft werden (kein abspielbares Audio).");
@@ -279,10 +366,17 @@ promptForm?.addEventListener('submit', async (e) => {
       if (diarEl)  fd.append('diarize_flag', diarEl.checked ? 'true' : 'false');
       if (identEl) fd.append('identify', identEl.checked ? 'true' : 'false');
       if (hintsEl && hintsEl.value.trim()) fd.append('speaker_hints', hintsEl.value.trim());
+      if (tagsEl  && tagsEl.value.trim())  fd.append('tags', tagsEl.value.trim());
+      if (sumEl)  fd.append('summarize', sumEl.checked ? 'true' : 'false');
+      if (modelEl && modelEl.value)        fd.append('model', modelEl.value);
+
+      setJobLineDual('Sende an Webhook …');
 
       const resp = await fetch(MEETING_WEBHOOK, { method:'POST', body: fd });
       const raw  = await resp.text();
       if (!resp.ok) throw new Error(raw || `Fehler ${resp.status}`);
+
+      setJobLineDual('Verarbeite Antwort …');
 
       let data = null; try { data = JSON.parse(raw); } catch {}
 
@@ -294,15 +388,56 @@ promptForm?.addEventListener('submit', async (e) => {
         sources:   data?.sources || data?.documents || [],
         raw:       data || raw
       });
+
+      // Sicherstellen: Ausgabe sichtbar in beiden Antwortboxen
+      const ro = document.getElementById('result-output');
+      const html = ro ? ro.innerHTML : '';
+      setDualHTML('result-output', 'result-output-docs', html);
+
     } catch (err){
       setError(err?.message || String(err));
     } finally {
+      hideJobDual();
       hideSpinner();
     }
   });
 })();
 
-// ---------- Strict Tab Guard (fallback) ----------
+/* -------------------------------------------
+   Speaker-Liste in zwei Tabs laden/refreshen
+   ------------------------------------------- */
+async function loadSpeakersDual(){
+  try{
+    const r = await fetch('/speakers');
+    const t = await r.text();
+    let data = [];
+    try { data = JSON.parse(t); } catch {}
+    const html = (data || []).map(s => `<div class="tag">${(s.name||s.id||'')}</div>`).join('')
+      || '<div class="inline-help">Keine Sprecher gefunden.</div>';
+
+    const targets = [
+      document.getElementById('speaker-list-docs'),
+      document.getElementById('speaker-list-settings')
+    ].filter(Boolean);
+    targets.forEach(t => t.innerHTML = html);
+  } catch (e) {
+    const errHtml = `<div class="inline-help">Fehler beim Laden der Sprecher: ${e?.message||e}</div>`;
+    ['speaker-list-docs','speaker-list-settings'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = errHtml;
+    });
+  }
+}
+document.getElementById('speaker-refresh-btn-docs')?.addEventListener('click', loadSpeakersDual);
+document.getElementById('speaker-refresh-btn-settings')?.addEventListener('click', loadSpeakersDual);
+// initial einmal laden (wenn die Bereiche im DOM sind)
+if (document.getElementById('speaker-list-docs') || document.getElementById('speaker-list-settings')) {
+  loadSpeakersDual();
+}
+
+/* -------------------------------------------
+   Strict Tab Guard (fallback)
+   ------------------------------------------- */
 (function tabGuard(){
   function forceActivate(id){
     const panel = document.getElementById(id);
@@ -324,3 +459,14 @@ promptForm?.addEventListener('submit', async (e) => {
     }, 0);
   }, true);
 })();
+
+/* -------------------------------------------
+   Bonus: öffentliche Helfer, falls gebraucht
+   ------------------------------------------- */
+window.__uiMirror = {
+  showJobDual,
+  setJobLineDual,
+  appendJobLogDual,
+  hideJobDual,
+  showSpinnerDual,
+};
