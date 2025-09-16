@@ -71,23 +71,50 @@ function hideJobDual() {
 
 /* Optional: kleine Proxy-Hooks, falls Renderers bereits schreiben */
 (function attachRenderMirrors(){
-  // Antwort spiegeln (wenn setFinalAnswer den Standard-Output nutzt)
-  const ro = document.getElementById("result-output");
-  if (ro) {
-    const obs = new MutationObserver(() => {
-      const html = ro.innerHTML;
-      setDualHTML("result-output", "result-output-docs", html);
-    });
-    obs.observe(ro, { childList: true, subtree: true, characterData: true });
+  // Hilfsfunktion: nur Ziel aktualisieren, Quelle nie anfassen
+  function mirrorHTML(sourceEl, targetId) {
+    const target = document.getElementById(targetId);
+    if (!sourceEl || !target) return;
+    const html = sourceEl.innerHTML;
+    if (target.innerHTML !== html) target.innerHTML = html;
+  }
+  function mirrorText(sourceEl, targetId) {
+    const target = document.getElementById(targetId);
+    if (!sourceEl || !target) return;
+    const txt = sourceEl.textContent;
+    if (target.textContent !== txt) target.textContent = txt;
   }
 
-  // Live-Status spiegeln
+  // Antwort spiegeln: nur -> docs
+  const ro = document.getElementById("result-output");
+  if (ro) {
+    const obs = new MutationObserver(() => mirrorHTML(ro, "result-output-docs"));
+    obs.observe(ro, { childList: true, subtree: true, characterData: true });
+    // initial sync
+    mirrorHTML(ro, "result-output-docs");
+  }
+
+  // Live-Status spiegeln: nur -> docs
   const jt = document.getElementById("job-title");
+  if (jt) {
+    const obs = new MutationObserver(() => mirrorText(jt, "job-title-docs"));
+    obs.observe(jt, { childList:true, characterData:true, subtree:true });
+    mirrorText(jt, "job-title-docs");
+  }
+
   const jl = document.getElementById("job-statusline");
+  if (jl) {
+    const obs = new MutationObserver(() => mirrorText(jl, "job-statusline-docs"));
+    obs.observe(jl, { childList:true, characterData:true, subtree:true });
+    mirrorText(jl, "job-statusline-docs");
+  }
+
   const jlog = document.getElementById("job-log");
-  if (jt) new MutationObserver(() => setDualText("job-title","job-title-docs", jt.textContent)).observe(jt, { childList:true, characterData:true, subtree:true });
-  if (jl) new MutationObserver(() => setDualText("job-statusline","job-statusline-docs", jl.textContent)).observe(jl, { childList:true, characterData:true, subtree:true });
-  if (jlog) new MutationObserver(() => setDualText("job-log","job-log-docs", jlog.textContent)).observe(jlog, { childList:true, characterData:true, subtree:true });
+  if (jlog) {
+    const obs = new MutationObserver(() => mirrorText(jlog, "job-log-docs"));
+    obs.observe(jlog, { childList:true, characterData:true, subtree:true });
+    mirrorText(jlog, "job-log-docs");
+  }
 })();
 
 /* -------------------------------------------
@@ -347,7 +374,7 @@ const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
   if (mSel) listMics();
 
  // Audio Submit (robust, CORS-safe, Timeout, dual UI)
-audioForm.addEventListener('submit', async (e)=>{
+  audioForm.addEventListener('submit', async (e)=>{
   e.preventDefault();
 
   // 1) Webhook: relative URL (vermeidet CORS/Redirect-Probleme)
