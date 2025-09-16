@@ -447,7 +447,7 @@ audioForm.addEventListener('submit', async (e)=>{
     if (s2) s2.style.display = 'none';
   }
 });
-
+})();
 
 /* -------------------------------------------
    Speaker-Liste in zwei Tabs laden/refreshen
