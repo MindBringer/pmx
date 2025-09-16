@@ -10,7 +10,6 @@ function section(title, innerHTML, {open=false, id}={}) {
   const idAttr = id ? ` id="${id}"` : '';
   return `<details class="card"${openAttr}${idAttr}><summary class="card-head">${esc(title)}</summary><div class="card-body">${innerHTML}</div></details>`;
 }
-// Holt ersten Treffer über mehrere Quellen + mehrere Keys
 function pick(sources, keys) {
   for (const src of sources) {
     if (!src || typeof src !== 'object') continue;
@@ -298,45 +297,70 @@ export function clearResult(){
 // ==============================
 // ui/renderers.js – hübsches Meeting-Rendering
 // ==============================
-
 export function setMeetingResult(payload){
   payload = payload || {};
-  // raw ggf. nach-JSON-parsen
+
+  // raw ggf. parsen
   let rawObj = payload.raw;
-  if (typeof rawObj === 'string') {
-    try { rawObj = JSON.parse(rawObj); } catch { rawObj = null; }
-  }
+  if (typeof rawObj === 'string') { try { rawObj = JSON.parse(rawObj); } catch { rawObj = null; } }
   const resultObj = rawObj && typeof rawObj === 'object' ? (rawObj.result || null) : null;
 
-  // Suchreihenfolge: direktes payload → raw → raw.result
-  const sources = [payload, rawObj, resultObj];
+  // NEU: Wenn payload.summary selbst ein Objekt ist, als Quelle mit aufnehmen
+  const summaryObj = (payload.summary && typeof payload.summary === 'object') ? payload.summary : null;
 
-  // DEBUG
-  console.debug('setMeetingResult payload=', payload);
+  // Suchreihenfolge erweitern
+  const sources = [payload, summaryObj, rawObj, resultObj];
 
-  // Felder deutsch/englisch robust ziehen
-  let summary = pick(sources, ['summary', 'tldr', 'zusammenfassung', 'answer', 'text']);
-  let actions = pick(sources, ['actions', 'aktion', 'aktionen', 'todos', 'action_items']);
-  let decisions = pick(sources, ['decisions', 'entscheidungen']);
-  let offeneFragen = pick(sources, ['offene_fragen', 'open_questions', 'questions']);
-  let risiken = pick(sources, ['risiken', 'risks']);
-  let timeline = pick(sources, ['zeitachse', 'timeline']);
-  let redeanteile = pick(sources, ['redeanteile', 'speaking_shares']);
-  let sourcesList = pick(sources, ['sources', 'documents']);
+  // Deutsch/Englisch robust ziehen
+  let summary       = pick(sources, ['summary','tldr','zusammenfassung','answer','text']);
+  let actions       = pick(sources, ['actions','aktion','aktionen','todos','action_items']);
+  let decisions     = pick(sources, ['decisions','entscheidungen']);
+  let offeneFragen  = pick(sources, ['offene_fragen','open_questions','questions']);
+  let risiken       = pick(sources, ['risiken','risks']);
+  let timeline      = pick(sources, ['zeitachse','timeline']);
+  let redeanteile   = pick(sources, ['redeanteile','speaking_shares']);
+  let sourcesList   = pick(sources, ['sources','documents']);
 
   // Normalisieren
   const toArray = (v) => Array.isArray(v) ? v : (v==null || v==='' ? [] : [v]);
-  const tldrList = Array.isArray(summary) ? summary
-                   : typeof summary === 'string' ? summary.split(/\r?\n|[\u2022•-]\s*/).map(s=>s.trim()).filter(Boolean)
-                   : [];
 
-  actions = toArray(actions);
-  decisions = toArray(decisions);
-  offeneFragen = toArray(offeneFragen);
-  risiken = toArray(risiken);
-  timeline = toArray(timeline);
-  redeanteile = toArray(redeanteile);
-  sourcesList = toArray(sourcesList);
+  // tldr kann als Array kommen (deutsch) ODER summary als String
+  let tldrList = [];
+  if (Array.isArray(summary)) {
+    tldrList = summary.map(String);
+  } else if (summary && typeof summary === 'object' && Array.isArray(summary.tldr)) {
+    tldrList = summary.tldr.map(String);
+  } else if (typeof summary === 'string') {
+    tldrList = summary.split(/\r?\n|[\u2022•-]\s*/).map(s=>s.trim()).filter(Boolean);
+  }
+
+  // wenn Entscheidungen/Aktionen im summary-Objekt liegen
+  if ((!actions || actions.length===0) && summary && typeof summary==='object' && Array.isArray(summary.aktionen)) {
+    actions = summary.aktionen;
+  }
+  if ((!decisions || decisions.length===0) && summary && typeof summary==='object' && Array.isArray(summary.entscheidungen)) {
+    decisions = summary.entscheidungen;
+  }
+  if ((!offeneFragen || offeneFragen.length===0) && summary && typeof summary==='object' && Array.isArray(summary.offene_fragen)) {
+    offeneFragen = summary.offene_fragen;
+  }
+  if ((!risiken || risiken.length===0) && summary && typeof summary==='object' && Array.isArray(summary.risiken)) {
+    risiken = summary.risiken;
+  }
+  if ((!timeline || timeline.length===0) && summary && typeof summary==='object' && Array.isArray(summary.zeitachse)) {
+    timeline = summary.zeitachse;
+  }
+  if ((!redeanteile || redeanteile.length===0) && summary && typeof summary==='object' && Array.isArray(summary.redeanteile)) {
+    redeanteile = summary.redeanteile;
+  }
+
+  actions       = toArray(actions);
+  decisions     = toArray(decisions);
+  offeneFragen  = toArray(offeneFragen);
+  risiken       = toArray(risiken);
+  timeline      = toArray(timeline);
+  redeanteile   = toArray(redeanteile);
+  sourcesList   = toArray(sourcesList);
 
   // Renderer
   const renderList = (arr) => arr.length
@@ -400,10 +424,8 @@ export function setMeetingResult(payload){
 
   const parts = [];
   parts.push(section('Zusammenfassung',
-    tldrList.length ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>${copyBlock(tldrList)}`
-                    : '<div class="inline-help">–</div>',
+    tldrList.length ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>${copyBlock(tldrList)}` : '<div class="inline-help">–</div>',
     {open:true, id:'sec-summary'}));
-
   parts.push(section('Entscheidungen', renderDecisions(decisions), {id:'sec-decisions'}));
   parts.push(section('Aktionen',      renderActions(actions),      {id:'sec-actions'}));
   parts.push(section('Offene Fragen', renderList(offeneFragen),    {id:'sec-questions'}));
@@ -419,6 +441,7 @@ export function setMeetingResult(payload){
   const outDocs = document.getElementById('result-output-docs');
   if (outDocs) outDocs.innerHTML = html;
 }
+
 
 // Optional: kleine Hilfs-API für andere Module
 window.renderers = window.renderers || {
