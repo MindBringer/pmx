@@ -311,6 +311,9 @@ export function setMeetingResult(payload){
   // Suchreihenfolge: direktes payload → raw → raw.result
   const sources = [payload, rawObj, resultObj];
 
+  // DEBUG
+  console.debug('setMeetingResult payload=', payload);
+
   // Felder deutsch/englisch robust ziehen
   let summary = pick(sources, ['summary', 'tldr', 'zusammenfassung', 'answer', 'text']);
   let actions = pick(sources, ['actions', 'aktion', 'aktionen', 'todos', 'action_items']);
