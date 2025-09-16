@@ -289,16 +289,7 @@
 
     <!-- Panel: Dateien -->
     <div class="panel" id="tab-docs">
-      <form id="docs-form">
-        <div class="form-group">
-          <label for="apiKey">API-Key (RAG)</label>
-          <div class="row" style="gap:8px;align-items:center">
-            <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
-            <button type="button" id="toggleKey" class="secondary" style="flex:0 0 auto">anzeigen</button>
-          </div>
-          <div class="inline-help">Wird in <code>localStorage</code> gespeichert.</div>
-        </div>
-
+      <form id="docs-form"></form>
         <div class="row">
           <div class="form-group col">
             <label for="file">Datei auswählen</label>
@@ -311,20 +302,20 @@
             <div class="inline-help">(optional, Komma-getrennt)</div>
           </div>
         </div>
-
+        
         <div class="btn-grid cols-2">
           <button type="submit" id="upload-btn">Hochladen</button>
         </div>
-      </form>
-
-      <div id="upload-result" class="upload-box">
-        <div id="upload-output"></div>
-        <div class="loading-container" id="upload-spinner" style="display:none">
-          <div class="spinner"></div>
-          <div class="loading-text">Lade hoch<span class="dots"></span></div>
+     
+        <div id="upload-result" class="upload-box">
+          <div id="upload-output"></div>
+          <div class="loading-container" id="upload-spinner" style="display:none">
+            <div class="spinner"></div>
+            <div class="loading-text">Lade hoch<span class="dots"></span></div>
+          </div>
         </div>
-      </div>
-
+      </form>
+      
       <!-- --- Audio Upload (Transcribe & Diarization & optional Summary) --- -->
       <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="audio-form">
@@ -464,8 +455,18 @@
     </div>
 
   <!-- Panel: Einstellungen -->
-  <!-- --- Sprecherverwaltung (Enrollment) --- -->
+
   <div class="panel" id="tab-set">   
+        <div class="form-group">
+          <label for="apiKey">API-Key (RAG)</label>
+          <div class="row" style="gap:8px;align-items:center">
+            <input type="password" id="apiKey" placeholder="x-api-key für RAG-Backend (z. B. change-me)" class="col" />
+            <button type="button" id="toggleKey" class="secondary" style="flex:0 0 auto">anzeigen</button>
+          </div>
+          <div class="inline-help">Wird in <code>localStorage</code> gespeichert.</div>
+        </div>
+    
+    <!-- --- Sprecherverwaltung (Enrollment) --- -->
     <div style="height:1px;background:#eee;margin:18px 0"></div>
       <form id="speaker-form">
         <div class="form-group">
