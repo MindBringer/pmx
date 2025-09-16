@@ -4,6 +4,23 @@
 // Backtick-sicher (keine verschachtelten Template-Literals)
 // ==============================
 
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function section(title, innerHTML, {open=false, id}={}) {
+  const openAttr = open ? ' open' : '';
+  const idAttr = id ? ` id="${id}"` : '';
+  return `<details class="card"${openAttr}${idAttr}><summary class="card-head">${esc(title)}</summary><div class="card-body">${innerHTML}</div></details>`;
+}
+// Holt ersten Treffer über mehrere Quellen + mehrere Keys
+function pick(sources, keys) {
+  for (const src of sources) {
+    if (!src || typeof src !== 'object') continue;
+    for (const k of keys) {
+      if (src[k] !== undefined && src[k] !== null) return src[k];
+    }
+  }
+  return undefined;
+}
+
 // Falls utils/format.js kein asText exportiert, fallback nutzen
 import { escapeHtml, asText as _asText } from "../utils/format.js";
 const asText = _asText || function asTextFallback(x){
@@ -282,166 +299,120 @@ export function clearResult(){
 // ui/renderers.js – hübsches Meeting-Rendering
 // ==============================
 
-function esc(s){ return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-function section(title, innerHTML, {open=false, id}={}){
-  const openAttr = open ? ' open' : '';
-  const idAttr = id ? ` id="${id}"` : '';
-  return `
-  <details class="card" ${openAttr}${idAttr}>
-    <summary class="card-head">${esc(title)}</summary>
-    <div class="card-body">${innerHTML}</div>
-  </details>`;
-}
-
 export function setMeetingResult(payload){
-  // payload kann aus main.js kommen (summary/actions/decisions/...) ODER rohes JSON in payload.raw* (deutsche Keys)
-  let {
-    summary,
-    actions,
-    decisions,
-    speakers,
-    sources,
-    raw
-  } = (payload || {});
-
-  // 1) Deutsche Keys aus raw erkennen (falls summary/actions/... leer sind)
-  const d = (raw && typeof raw === 'object') ? raw : {};
-  if (!summary && (Array.isArray(d.tldr) || typeof d.tldr === 'string')) summary = d.tldr;
-  if (!actions && (Array.isArray(d.aktionen))) actions = d.aktionen;
-  if (!decisions && (Array.isArray(d.entscheidungen))) decisions = d.entscheidungen;
-
-  // optionale Felder
-  const offeneFragen = Array.isArray(d.offene_fragen) ? d.offene_fragen : [];
-  const risiken      = Array.isArray(d.risiken) ? d.risiken : [];
-  const timeline     = Array.isArray(d.zeitachse) ? d.zeitachse : [];
-  const redeanteile  = Array.isArray(d.redeanteile) ? d.redeanteile : [];
-
-  // 2) Zusammenfassung normalisieren → Array von Zeilen
-  let tldrList = [];
-  if (Array.isArray(summary)) tldrList = summary.map(s => String(s));
-  else if (typeof summary === 'string' && summary.trim()) {
-    // Split an Aufzählungen/Zeilenumbrüchen
-    tldrList = summary.split(/\r?\n|\u2022|-/).map(s => s.trim()).filter(Boolean);
-    if (tldrList.length === 0) tldrList = [summary.trim()];
+  payload = payload || {};
+  // raw ggf. nach-JSON-parsen
+  let rawObj = payload.raw;
+  if (typeof rawObj === 'string') {
+    try { rawObj = JSON.parse(rawObj); } catch { rawObj = null; }
   }
+  const resultObj = rawObj && typeof rawObj === 'object' ? (rawObj.result || null) : null;
 
-  // 3) HTML-Renderer je Abschnitt
-  const renderList = (arr) => {
-    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
-    return `<ul class="bullet">${arr.map(x => `<li>${esc(typeof x === 'string' ? x : x?.text ?? JSON.stringify(x))}</li>`).join('')}</ul>`;
-  };
+  // Suchreihenfolge: direktes payload → raw → raw.result
+  const sources = [payload, rawObj, resultObj];
 
-  const renderDecisions = (arr) => {
-    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
-    return `<ul class="bullet">${arr.map(d => {
-      const impact = d.impact ? `<span class="badge" data-variant="${esc(d.impact)}">${esc(String(d.impact))}</span>` : '';
-      return `<li>${esc(d.text || '')} ${impact}</li>`;
-    }).join('')}</ul>`;
-  };
+  // Felder deutsch/englisch robust ziehen
+  let summary = pick(sources, ['summary', 'tldr', 'zusammenfassung', 'answer', 'text']);
+  let actions = pick(sources, ['actions', 'aktion', 'aktionen', 'todos', 'action_items']);
+  let decisions = pick(sources, ['decisions', 'entscheidungen']);
+  let offeneFragen = pick(sources, ['offene_fragen', 'open_questions', 'questions']);
+  let risiken = pick(sources, ['risiken', 'risks']);
+  let timeline = pick(sources, ['zeitachse', 'timeline']);
+  let redeanteile = pick(sources, ['redeanteile', 'speaking_shares']);
+  let sourcesList = pick(sources, ['sources', 'documents']);
 
-  const renderActions = (arr) => {
-    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
-    return `
-      <div class="table">
-        <div class="tr th"><div>Owner</div><div>Aufgabe</div><div>Fällig</div></div>
-        ${arr.map(a => `
-          <div class="tr">
-            <div>${esc(a.owner || a.assignee || '')}</div>
-            <div>${esc(a.task  || a.title    || '')}</div>
-            <div>${esc(a.due   || a.due_date || '')}</div>
-          </div>`).join('')}
-      </div>`;
-  };
+  // Normalisieren
+  const toArray = (v) => Array.isArray(v) ? v : (v==null || v==='' ? [] : [v]);
+  const tldrList = Array.isArray(summary) ? summary
+                   : typeof summary === 'string' ? summary.split(/\r?\n|[\u2022•-]\s*/).map(s=>s.trim()).filter(Boolean)
+                   : [];
 
-  const renderTimeline = (arr) => {
-    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
-    return `
-      <div class="table">
-        <div class="tr th"><div>von</div><div>bis</div><div>Topic</div></div>
-        ${arr.map(t => `
-          <div class="tr">
-            <div>${esc(t.from || '')}</div>
-            <div>${esc(t.to   || '')}</div>
-            <div>${esc(t.topic|| '')}</div>
-          </div>`).join('')}
-      </div>`;
-  };
+  actions = toArray(actions);
+  decisions = toArray(decisions);
+  offeneFragen = toArray(offeneFragen);
+  risiken = toArray(risiken);
+  timeline = toArray(timeline);
+  redeanteile = toArray(redeanteile);
+  sourcesList = toArray(sourcesList);
 
-  const renderRedeanteile = (arr) => {
-    if (!arr || arr.length === 0) return '<div class="inline-help">–</div>';
-    return `
-      <div class="shares">
-        ${arr.map(r => {
-          const pct = Number(r.anteil_prozent ?? r.percent ?? 0);
-          const w = Math.max(0, Math.min(100, Math.round(pct)));
-          return `
-            <div class="share-row">
-              <div class="share-name">${esc(r.name || '')}</div>
-              <div class="share-bar"><i style="width:${w}%"></i></div>
-              <div class="share-pct">${w}%</div>
-            </div>`;
-        }).join('')}
-      </div>`;
-  };
+  // Renderer
+  const renderList = (arr) => arr.length
+    ? `<ul class="bullet">${arr.map(x => `<li>${esc(typeof x === 'string' ? x : x?.text ?? JSON.stringify(x))}</li>`).join('')}</ul>`
+    : '<div class="inline-help">–</div>';
 
-  const copyBlock = (textLines) => {
-    const plain = textLines.join('\n');
+  const renderDecisions = (arr) => arr.length
+    ? `<ul class="bullet">${arr.map(d => {
+        const t = (d && typeof d === 'object') ? (d.text ?? d.title ?? d.decision ?? d) : d;
+        const impact = d?.impact ? `<span class="badge" data-variant="${esc(d.impact)}">${esc(String(d.impact))}</span>` : '';
+        return `<li>${esc(String(t))} ${impact}</li>`;
+      }).join('')}</ul>`
+    : '<div class="inline-help">–</div>';
+
+  const renderActions = (arr) => arr.length
+    ? `<div class="table">
+         <div class="tr th"><div>Owner</div><div>Aufgabe</div><div>Fällig</div></div>
+         ${arr.map(a => {
+           const owner = a?.owner ?? a?.assignee ?? '';
+           const task  = a?.task  ?? a?.title    ?? '';
+           const due   = a?.due   ?? a?.due_date ?? '';
+           return `<div class="tr"><div>${esc(owner)}</div><div>${esc(task)}</div><div>${esc(due)}</div></div>`;
+         }).join('')}
+       </div>`
+    : '<div class="inline-help">–</div>';
+
+  const renderTimeline = (arr) => arr.length
+    ? `<div class="table">
+         <div class="tr th"><div>von</div><div>bis</div><div>Topic</div></div>
+         ${arr.map(t => `<div class="tr">
+             <div>${esc(t?.from ?? t?.start ?? '')}</div>
+             <div>${esc(t?.to   ?? t?.end   ?? '')}</div>
+             <div>${esc(t?.topic ?? t?.title ?? '')}</div>
+           </div>`).join('')}
+       </div>`
+    : '<div class="inline-help">–</div>';
+
+  const renderRedeanteile = (arr) => arr.length
+    ? `<div class="shares">
+         ${arr.map(r => {
+           const pct = Number(r?.anteil_prozent ?? r?.percent ?? 0);
+           const w = Math.max(0, Math.min(100, Math.round(pct)));
+           return `<div class="share-row">
+             <div class="share-name">${esc(r?.name || '')}</div>
+             <div class="share-bar"><i style="width:${w}%"></i></div>
+             <div class="share-pct">${w}%</div>
+           </div>`;
+         }).join('')}
+       </div>`
+    : '<div class="inline-help">–</div>';
+
+  const copyBlock = (lines) => {
+    if (!lines.length) return '';
+    const plain = lines.join('\n');
     const id = 'copy-' + Math.random().toString(36).slice(2);
-    // Button + Script (inline, damit ohne extra JS bindet)
-    return `
-      <div class="copyline">
-        <button type="button" class="secondary" data-copy="${id}">kopieren</button>
-      </div>
-      <script>
-        (function(){
-          const btn = document.querySelector('button[data-copy="${id}"]');
-          if (!btn) return;
-          btn.addEventListener('click', async ()=>{
-            try{
-              await navigator.clipboard.writeText(${JSON.stringify(plain)});
-              btn.textContent = 'kopiert ✓';
-              setTimeout(()=>{ btn.textContent = 'kopieren'; }, 1200);
-            }catch(e){ btn.textContent = 'Fehler'; }
-          });
-        })();
-      </script>
-    `;
+    return `<div class="copyline"><button type="button" class="secondary" data-copy="${id}">kopieren</button></div>
+      <script>(function(){ const btn=document.querySelector('button[data-copy="${id}"]'); if(!btn)return;
+        btn.addEventListener('click', async()=>{ try{ await navigator.clipboard.writeText(${JSON.stringify(plain)}); btn.textContent='kopiert ✓'; setTimeout(()=>btn.textContent='kopieren',1200);}catch(e){btn.textContent='Fehler';} });
+      })();</script>`;
   };
 
-  // 4) Karten bauen (Zusammenfassung offen, Rest einklappbar)
   const parts = [];
+  parts.push(section('Zusammenfassung',
+    tldrList.length ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>${copyBlock(tldrList)}`
+                    : '<div class="inline-help">–</div>',
+    {open:true, id:'sec-summary'}));
 
-  parts.push(section('Zusammenfassung', `
-    ${tldrList.length ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>` : '<div class="inline-help">–</div>'}
-    ${tldrList.length ? copyBlock(tldrList) : ''}
-  `, { open:true, id:'sec-summary' }));
+  parts.push(section('Entscheidungen', renderDecisions(decisions), {id:'sec-decisions'}));
+  parts.push(section('Aktionen',      renderActions(actions),      {id:'sec-actions'}));
+  parts.push(section('Offene Fragen', renderList(offeneFragen),    {id:'sec-questions'}));
+  parts.push(section('Risiken',       renderList(risiken),         {id:'sec-risks'}));
+  parts.push(section('Zeitachse',     renderTimeline(timeline),    {id:'sec-timeline'}));
+  parts.push(section('Redeanteile',   renderRedeanteile(redeanteile), {id:'sec-shares'}));
+  if (sourcesList.length) parts.push(section('Quellen', renderList(sourcesList), {id:'sec-sources'}));
 
-  parts.push(section('Entscheidungen', renderDecisions(decisions || []), { open:false, id:'sec-decisions' }));
-  parts.push(section('Aktionen',      renderActions(actions || []),      { open:false, id:'sec-actions' }));
-  parts.push(section('Offene Fragen', renderList(offeneFragen),           { open:false, id:'sec-questions' }));
-  parts.push(section('Risiken',       renderList(risiken),                { open:false, id:'sec-risks' }));
-  parts.push(section('Zeitachse',     renderTimeline(timeline),           { open:false, id:'sec-timeline' }));
-  parts.push(section('Redeanteile',   renderRedeanteile(redeanteile),     { open:false, id:'sec-shares' }));
+  const html = `<div class="result meeting-result"><div class="done">✅ Fertig – Sitzungszusammenfassung:</div>${parts.join('')}</div>`;
 
-  // optional: Quellen (falls vorhanden)
-  if (Array.isArray(sources) && sources.length){
-    parts.push(section('Quellen', renderList(sources), { open:false, id:'sec-sources' }));
-  }
-
-  const html = `
-    <div class="result meeting-result">
-      <div class="done">✅ Fertig – Sitzungszusammenfassung:</div>
-      ${parts.join('\n')}
-    </div>
-  `;
-
-  // in den Standard-Output schreiben
   const out = document.getElementById('result-output');
   if (out) out.innerHTML = html;
-
-  // Falls dein main.js spiegelt, wird docs automatisch aktualisiert.
-  // Wenn nicht, kannst du hier zusätzlich:
   const outDocs = document.getElementById('result-output-docs');
   if (outDocs) outDocs.innerHTML = html;
 }
