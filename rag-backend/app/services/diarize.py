@@ -1,109 +1,171 @@
-# rag-backend/app/services/diarize.py
+# diarize.py — Variante A (Analytics only, keine Cuts), FastAPI endpoint
 import os
-from typing import List, Dict, Tuple, Optional
+import uuid
+import shutil
 import tempfile
 import subprocess
+from typing import List, Tuple, Optional
+
 import numpy as np
-from .vad import detect_speech_segments
-from .spk_embed import audio_to_embedding, identify_embedding
+import soundfile as sf
+import webrtcvad
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import JSONResponse
 
-DIAR_ENGINE = os.getenv("DIAR_ENGINE", "local")
-DIAR_MAX_SPEAKERS = int(os.getenv("DIAR_MAX_SPEAKERS", "0"))  # 0 -> auto
-IDENTIFICATION = os.getenv("IDENTIFICATION", "true").lower() == "true"
+# --------- Konfig ----------
+FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
 
-def _ffmpeg_slice(in_path: str, start: float, end: float) -> str:
-    out_path = tempfile.mktemp(suffix=".wav")
-    dur = max(0.01, end - start)
-    cmd = ["ffmpeg", "-nostdin", "-y", "-i", in_path, "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
-           "-ac", "1", "-ar", "16000", "-vn", out_path]
-    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return out_path
+# --------- FastAPI App (eigene App oder in main.py mounten) ----------
+app = FastAPI(title="audio-api (diarize)", version="A-1.0")
 
-def diarize_local(path: str, hints: Optional[List[str]] = None) -> List[Dict]:
+# --------- Helpers ----------
+def _ffmpeg_wav_mono16k(inp_path: str, out_path: str) -> None:
+    """Konvertiert Audio zuverlässig nach WAV mono/16k, ohne Längen-Cut."""
+    cmd = [
+        FFMPEG_BIN, "-y",
+        "-i", inp_path,
+        "-ac", "1",
+        "-ar", "16000",
+        "-vn",
+        out_path
+    ]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {proc.stderr.decode(errors='ignore') or proc.stdout.decode(errors='ignore')}")
+
+def _audio_duration_ms(wav_path: str) -> int:
+    data, sr = sf.read(wav_path)
+    n = data.shape[0] if isinstance(data, np.ndarray) else len(data)
+    return int(n * 1000 / sr)
+
+def _frames_from_audio(wav_path: str, frame_ms: int = 30) -> Tuple[List[bytes], int]:
+    """Teilt PCM16 (mono,16k) in kleine Frames für VAD; gibt (frames,samplerate) zurück."""
+    data, sr = sf.read(wav_path, dtype="int16")
+    if data.ndim > 1:
+        data = data[:, 0]
+    bytes_per_sample = 2  # int16
+    frame_len = int(sr * (frame_ms / 1000.0))
+    frames = []
+    for i in range(0, len(data) - frame_len + 1, frame_len):
+        chunk = data[i:i + frame_len].tobytes()
+        frames.append(chunk)
+    return frames, sr
+
+def _vad_segments(wav_path: str,
+                  aggressiveness: int = 2,
+                  min_speech_ms: int = 300,
+                  min_silence_ms: int = 500,
+                  frame_ms: int = 30) -> List[Tuple[int, int]]:
     """
-    Tokenfreie, CPU-taugliche Diarization:
-      1) VAD -> Sprachsegmente
-      2) Embedding je Segment (ECAPA)
-      3) Online-Clustering: Zuordnung per Cosine-Threshold zu existierenden Centroids,
-         sonst neuer Sprecher.
-    Liefert Liste [{speaker: "spk1", start, end, conf, name?}]
+    Erzeugt grobe Sprachsegmente (Start/Ende in ms) über die gesamte Datei.
+    Keine harte Obergrenze; robust gegen kurze Pausen.
     """
-    # 1) VAD
-    wav = tempfile.mktemp(suffix=".wav")
-    subprocess.run(["ffmpeg","-nostdin","-y","-i", path,"-ac","1","-ar","16000","-vn",wav],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    segs = detect_speech_segments(wav, aggressiveness=2)
-    if not segs:
-        return []
-    # 2) Embeddings + Online-Clustering
-    centroids: List[np.ndarray] = []
-    counts: List[int] = []
-    out: List[Dict] = []
-    assign: List[int] = []
+    vad = webrtcvad.Vad(aggressiveness)
+    frames, sr = _frames_from_audio(wav_path, frame_ms=frame_ms)
+    hop_ms = frame_ms
 
-    def cosine(a,b): 
-        return float(np.dot(a,b) / (np.linalg.norm(a)*np.linalg.norm(b) + 1e-9))
+    speech_runs: List[Tuple[int, int]] = []
+    in_speech = False
+    seg_start_ms = 0
+    current_len_ms = 0
+    silence_run_ms = 0
 
-    threshold_new = 0.75  # Cosine < 0.75 => neuer Sprecher (konservativ)
-    for (s, e) in segs:
-        clip = _ffmpeg_slice(path, s, e)
-        emb = audio_to_embedding(clip)
-        if len(centroids) == 0:
-            centroids.append(emb.copy())
-            counts.append(1)
-            assign.append(0)
+    for idx, frame in enumerate(frames):
+        ts_ms = idx * hop_ms
+        is_speech = vad.is_speech(frame, sr)
+
+        if is_speech:
+            if not in_speech:
+                in_speech = True
+                seg_start_ms = ts_ms
+                current_len_ms = 0
+                silence_run_ms = 0
+            current_len_ms += hop_ms
         else:
-            sims = [cosine(emb, c) for c in centroids]
-            j = int(np.argmax(sims))
-            if sims[j] < threshold_new:
-                centroids.append(emb.copy())
-                counts.append(1)
-                assign.append(len(centroids)-1)
+            if in_speech:
+                silence_run_ms += hop_ms
+                # wenn genug Stille nach Sprache → Segment beenden
+                if silence_run_ms >= min_silence_ms and current_len_ms >= min_speech_ms:
+                    end_ms = ts_ms - (silence_run_ms - hop_ms)
+                    speech_runs.append((seg_start_ms, end_ms))
+                    in_speech = False
+            # reset current_len, wenn wir lange in Stille sind
+            if not in_speech:
+                current_len_ms = 0
+                silence_run_ms = 0
+
+    # Falls am Ende noch Sprache offen ist:
+    if in_speech:
+        end_ms = len(frames) * hop_ms
+        if end_ms - seg_start_ms >= min_speech_ms:
+            speech_runs.append((seg_start_ms, end_ms))
+
+    # Zusammenführen von nahe beieinander liegenden Segmenten (< 250ms Lücke)
+    merged: List[Tuple[int, int]] = []
+    if speech_runs:
+        cur_s, cur_e = speech_runs[0]
+        for s, e in speech_runs[1:]:
+            if s - cur_e <= 250:
+                cur_e = e
             else:
-                # update centroid
-                k = counts[j]
-                centroids[j] = (centroids[j]*k + emb) / (k+1)
-                counts[j] += 1
-                assign.append(j)
+                merged.append((cur_s, cur_e))
+                cur_s, cur_e = s, e
+        merged.append((cur_s, cur_e))
 
-    # Map to spk labels in occurrence order:
-    remap = {}
-    next_id = 1
-    segments = []
-    for idx, (s, e) in enumerate(segs):
-        ci = assign[idx]
-        if ci not in remap:
-            remap[ci] = f"spk{next_id}"
-            next_id += 1
-        segments.append({"speaker": remap[ci], "start": float(s), "end": float(e), "conf": 0.6})
+    return merged
 
-    # Optional: Identification gegen Enrollments
-    if IDENTIFICATION:
-        names: Dict[str, Tuple[Optional[str], float]] = {}
-        for lab in set([x["speaker"] for x in segments]):
-            # aggregate emb of this speaker (mean of its segments)
-            embs = []
-            for i,(s,e) in enumerate(segs):
-                if remap[assign[i]] == lab:
-                    clip = _ffmpeg_slice(path, s, e)
-                    embs.append(audio_to_embedding(clip))
-            if embs:
-                m = np.mean(np.stack(embs, axis=0), axis=0)
-                name, dist = identify_embedding(m, threshold=0.25, hints=hints)
-                names[lab] = (name, dist)
-        for seg in segments:
-            nm, dist = names.get(seg["speaker"], (None, 1.0))
-            if nm:
-                seg["name"] = nm
-                seg["conf"] = max(0.6, 1.0 - float(dist))  # simple mapping
-    return segments
+# --------- Endpoint ----------
+@app.post("/diarize")
+async def diarize_endpoint(
+    file: UploadFile = File(...),
+    vad_aggr: int = Form(default=2),             # 0..3 (3 = aggressiv)
+    min_speech_ms: int = Form(default=300),
+    min_silence_ms: int = Form(default=500),
+):
+    """
+    Gibt eine VAD-basierte Sprach-/Stille-Timeline zurück (Analytics).
+    WICHTIG: Diese Segmente dienen nur der Anzeige / Analyse,
+             es werden KEINE Audioschnitte erzwungen (keine 24s-Falle).
+    """
+    workdir = tempfile.mkdtemp(prefix="diar_")
+    src_path = os.path.join(workdir, f"src_{uuid.uuid4().hex}")
+    wav_path = os.path.join(workdir, f"conv_{uuid.uuid4().hex}.wav")
+    try:
+        with open(src_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
 
-def diarize(path: str, hints: Optional[List[str]] = None) -> List[Dict]:
-    # Hooks: pyannote / nemo später implementierbar
-    if DIAR_ENGINE == "local":
-        return diarize_local(path, hints=hints)
-    # elif DIAR_ENGINE == "pyannote":
-    #     ...
-    # elif DIAR_ENGINE == "nemo":
-    #     ...
-    return diarize_local(path, hints=hints)
+        _ffmpeg_wav_mono16k(src_path, wav_path)
+        dur_ms = _audio_duration_ms(wav_path)
+
+        timeline = _vad_segments(
+            wav_path,
+            aggressiveness=int(vad_aggr),
+            min_speech_ms=int(min_speech_ms),
+            min_silence_ms=int(min_silence_ms),
+            frame_ms=30
+        )
+
+        out = {
+            "duration_ms": dur_ms,
+            "segments": [{"from": s, "to": e} for s, e in timeline],
+            "debug": {
+                "params": {
+                    "vad_aggr": int(vad_aggr),
+                    "min_speech_ms": int(min_speech_ms),
+                    "min_silence_ms": int(min_silence_ms),
+                },
+                "workdir": os.path.basename(workdir)
+            }
+        }
+        return JSONResponse(out)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        try:
+            shutil.rmtree(workdir, ignore_errors=True)
+        except Exception:
+            pass
