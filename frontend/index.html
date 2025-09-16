@@ -336,18 +336,6 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="speakerHints">Speaker Hints (optional)</label>
-          <input type="text" id="speakerHints" placeholder="alice,bob" />
-          <div class="inline-help">Bevorzugte Kandidaten (Komma-getrennt).</div>
-        </div>
-
-        <div class="form-group">
-          <label for="audioTags">Tags</label>
-          <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
-          <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
-        </div>
-
         <!-- Zusammenfassung + Modellwahl -->
         <div class="row">
           <div class="form-group col">
@@ -369,6 +357,20 @@
           </div>
         </div>
 
+        <div class="row">
+          <div class="form-group col">
+            <label for="speakerHints">Speaker Hints (optional)</label>
+            <input type="text" id="speakerHints" placeholder="alice,bob" />
+            <div class="inline-help">Bevorzugte Kandidaten (Komma-getrennt).</div>
+          </div>
+
+          <div class="form-group col">
+            <label for="audioTags">Tags</label>
+            <input type="text" id="audioTags" placeholder="z. B. meeting,vertrieb,2025-08-14" />
+            <div class="inline-help">(optional, Komma-getrennt; wird an die Transkription gehängt)</div>
+          </div>
+        </div>
+        
         <div class="btn-grid cols-2">
           <button type="submit" id="audio-upload-btn">Audio hochladen &amp; transkribieren</button>
         </div>
