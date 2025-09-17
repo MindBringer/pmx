@@ -123,7 +123,7 @@ function hideJobDual() {
 initTabs();
 renderConvStatus();
 initDocsUpload();   // lässt dein bestehendes Upload-Handling weiterlaufen
-initAudioUpload();  // belasse es; unten ergänzen wir expliziten Submit-Handler
+//initAudioUpload();  // belasse es; unten ergänzen wir expliziten Submit-Handler
 initSpeakers();     // bestehende Logik bleibt; unten ergänzen wir Dual-Render
 
 /* -------------------------------------------
