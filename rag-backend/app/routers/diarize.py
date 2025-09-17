@@ -114,7 +114,7 @@ def _vad_segments(
     return merged
 
 # --------- Endpoint ----------
-@router.post("/diarize")
+@router.post("")
 async def diarize_endpoint(
     file: UploadFile = File(...),
     vad_aggr: int = Form(default=2),        # 0..3 (3 = aggressiv)

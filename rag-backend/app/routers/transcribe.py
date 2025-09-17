@@ -25,7 +25,7 @@ ASR_VAD_FILTER    = os.getenv("ASR_VAD_FILTER", "true").lower() in ("1", "true",
 FFMPEG_BIN        = os.getenv("FFMPEG_BIN", "ffmpeg")
 
 # --------- FastAPI Router ----------
-router = APIRouter(tags=["audio"])
+router = APIRouter(prefix="/transcribe", tags=["audio"])
 
 # Whisper Model warm halten (GPU spart massiv Zeit)
 _whisper_model: Optional[WhisperModel] = None
@@ -75,7 +75,7 @@ class TranscribeOut(BaseModel):
     debug: Optional[dict]  = None
 
 # --------- Endpoint ----------
-@router.post("/transcribe", response_model=TranscribeOut)
+@router.post("", response_model=TranscribeOut)
 async def transcribe_endpoint(
     file: UploadFile = File(...),
     language: Optional[str] = Form(default=None),      # z.B. "de"
