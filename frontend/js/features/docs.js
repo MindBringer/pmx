@@ -1,6 +1,6 @@
 import { showFor } from "../utils/dom.js";
 import { fmtMs, fmtBytes, escapeHtml } from "../utils/format.js";
-import { setFinalAnswer, setMeetingResult, setError } from "../ui/renderers.js";
+import { setFinalAnswer, setAudioMeetingResult, setError } from "../ui/renderers.js";
 
 const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
 const AUDIO_API_BASE = (typeof window !== 'undefined' && window.AUDIO_API_URL) ? window.AUDIO_API_URL : "http://localhost:6080";
@@ -151,7 +151,7 @@ export function initDocsUpload(){
             }).join('') + '</ul>';
           }
 
-          setMeetingResult({
+          setAudioMeetingResult({
             summary:   data?.summary || data?.result?.summary || data?.answer || data?.text || "",
             actions:   data?.action_items || data?.result?.action_items || data?.todos || [],
             decisions: data?.decisions || data?.result?.decisions || [],
