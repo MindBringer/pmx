@@ -515,7 +515,7 @@ window.renderers = window.renderers || {
   appendIntermediate,
   appendSseEvent,
   setFinalAnswer,
-  setMeetingResult,
+  setAudioMeetingResult,
   setError,
   clearResult,
   renderSources,
