@@ -29,7 +29,7 @@ DEVICE                = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() 
 SB_SOURCE             = os.getenv("SB_SOURCE", "speechbrain/spkrec-ecapa-voxceleb")
 
 # ---- FastAPI ----
-router = APIRouter(prefix="/identify", tags=["identify"])
+router = APIRouter(prefix="/identify", tags=["audio"])
 
 # ---- Lazy-Modell (einmal pro Prozess) ----
 _sb_classifier = None

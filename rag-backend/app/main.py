@@ -14,9 +14,9 @@ from .pipelines import (
     convert_bytes_to_documents,
 )
 
-from .transcribe import router as transcribe_router  # Audio: /transcribe + /speakers
-from .diarize import router as diarize_router
-from .routers import identify
+from apps.routers.transcribe import router as transcribe_router
+from apps.routers.diarize import router as diarize_router
+from apps.routers.identify import router as identify_router
 from .jobs import router as jobs_router
 
 # -----------------------------
@@ -27,10 +27,12 @@ SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
 app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 
-# Neue Audio-/Speaker-Routen einhängen (aus transcribe.py)
+# Router sauber registrieren
+# Empfehlung: Prefixe in den Routern selbst setzen (siehe unten),
+# dann hier OHNE zusätzliches prefix includen.
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 app.include_router(diarize_router, prefix="", tags=["audio"])
-app.include_router(identify.router)
+app.include_router(identify_router, prefix="", tags=["audio"])
 # async jobs display
 app.include_router(jobs_router, prefix="/rag")
 

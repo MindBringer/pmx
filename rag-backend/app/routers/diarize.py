@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
 
 # --------- Router ----------
-router = APIRouter(tags=["audio"])
+router = APIRouter(prefix="/diarize", tags=["audio"])
 
 # --------- Helpers ----------
 def _ffmpeg_wav_mono16k(inp_path: str, out_path: str) -> None:

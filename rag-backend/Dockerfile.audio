@@ -2,7 +2,7 @@
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg git build-essential python3-dev \
+    ffmpeg git build-essential python3-dev libsndfile1\
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -30,18 +30,35 @@ PY
 RUN ldconfig
 
 COPY rag-backend/app /app/app
-RUN [ -f /app/app/__init__.py ] || touch /app/app/__init__.py
+RUN [ -f /app/apps/__init__.py ] || touch /app/apps/__init__.py && \
+    [ -f /app/apps/routers/__init__.py ] || touch /app/apps/routers/__init__.py
 
-# <<< HIER: statt printf jetzt sauberer Heredoc >>>
+# <<< Heredoc >>>
 RUN cat > /app/audio_main.py <<'PY'
 from fastapi import FastAPI
+
+# Flexible Importe: erlaubt sowohl app.<file> als auch app.routers.<file>
 try:
     from app.transcribe import router as transcribe_router
 except ModuleNotFoundError:
     from app.routers.transcribe import router as transcribe_router
 
+try:
+    from app.diarize import router as diarize_router
+except ModuleNotFoundError:
+    from app.routers.diarize import router as diarize_router
+
+try:
+    from app.identify import router as identify_router
+except ModuleNotFoundError:
+    from app.routers.identify import router as identify_router
+
 app = FastAPI(title="audio-api")
-app.include_router(transcribe_router, prefix="")
+
+# Router registrieren (kein zusätzliches prefix, falls im APIRouter schon gesetzt)
+app.include_router(transcribe_router)
+app.include_router(diarize_router)
+app.include_router(identify_router)
 
 @app.get("/health")
 def health():
