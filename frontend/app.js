@@ -296,6 +296,7 @@ async function startAsyncRun(job_title, payload){
 
 form?.addEventListener("submit", async function (e) {
   e.preventDefault();
+
   const prompt = document.getElementById("prompt").value.trim();
   const model = document.getElementById("model_sys").value;
   const system = document.getElementById("system").value.trim();
@@ -783,19 +784,22 @@ function bindOnce(el, evt, fn){
 async function handleAudioMeetingSubmit(e){
   e.preventDefault();
 
+  // --- Doppel-Submit-Schutz pro Formular ---
+  const formEl = e.currentTarget;
+  if (formEl && formEl.dataset.submitting === "1") return;
+  if (formEl) formEl.dataset.submitting = "1";
+
   const apiKey = document.getElementById("apiKey")?.value?.trim();
   const hideSpinner = showFor(spinner, 300);
   resultOut.innerHTML = "";
   resultDiv.className = "";
 
   try {
-    // Dateiquelle: bevorzugt #audioFile, sonst #meetingFile
     const audioFileEl   = document.getElementById("audioFile");
     const meetingFileEl = document.getElementById("meetingFile");
     const file = audioFileEl?.files?.[0] || meetingFileEl?.files?.[0];
     if (!file) throw new Error("Bitte eine Audio-Datei auswählen (oder Mikrofon aufnehmen).");
 
-    // Flags: Audio-IDs und Meeting-IDs unterstützen
     const diarCk  = document.getElementById("doDiar")     || document.getElementById("meetDiarize");
     const identCk = document.getElementById("doIdentify") || document.getElementById("meetIdentify");
     const hintsEl = document.getElementById("speakerHints") || document.getElementById("meetSpeakerHints");
@@ -808,8 +812,13 @@ async function handleAudioMeetingSubmit(e){
     if (identCk) fd.append("identify",     identCk.checked ? "true" : "false");
     if (hintsEl && hintsEl.value.trim()) fd.append("speaker_hints", hintsEl.value.trim());
 
+    // eindeutige Request-ID (Client) – hilft beim Loggen & Server-Dedupe
+    const reqId = (window.crypto?.randomUUID?.() || (Date.now() + "-" + Math.random()));
+    fd.append("request_id", String(reqId));
+
     const headers = {};
     if (apiKey) headers["x-api-key"] = apiKey;
+    headers["x-request-id"] = String(reqId);
 
     const hook = getMeetingWebhook();
     const resp = await fetch(hook, { method: "POST", headers, body: fd });
@@ -818,20 +827,17 @@ async function handleAudioMeetingSubmit(e){
 
     let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
 
-    // Falls Backend Flags nicht liefert, lokal ergänzen:
     data.flags = Object.assign({}, data.flags || {}, {
       diarize:  !!(diarCk && diarCk.checked),
       identify: !!(identCk && identCk.checked),
-      summary:  !!(document.getElementById("summary")?.checked) // optionales UI-Flag
+      summary:  !!(document.getElementById("summary")?.checked)
     });
 
-    // Einheitliches Rendering (Meeting+Audio zusammengeführt)
     if (window.renderers?.setAudioMeetingResult) {
       window.renderers.setAudioMeetingResult(data);
     } else if (window.renderers?.setMeetingResult) {
       window.renderers.setMeetingResult(data);
     } else {
-      // letzter Fallback
       const ans = data?.answer || data?.text || data?.transcript || txt;
       resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(String(ans))}</pre>`;
       resultDiv.className = "success";
@@ -840,6 +846,7 @@ async function handleAudioMeetingSubmit(e){
     resultOut.textContent = `❌ Fehler: ${err.message}`;
     resultDiv.className = "error";
   } finally {
+    if (formEl) formEl.dataset.submitting = "0";
     hideSpinner();
   }
 }

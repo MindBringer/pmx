@@ -7,7 +7,6 @@ import { showFor } from "./utils/dom.js";
 import { startSyncRun } from "./features/syncChat.js";
 import { startAsyncRun, collectPersonas } from "./features/agents.js";
 import { initDocsUpload } from "./features/docs.js";
-import { initAudioUpload } from "./features/audio.js";
 import { initSpeakers } from "./features/speakers.js";
 import { renderConvStatus } from "./state/conversation.js";
 import {
@@ -123,7 +122,6 @@ function hideJobDual() {
 initTabs();
 renderConvStatus();
 initDocsUpload();   // lässt dein bestehendes Upload-Handling weiterlaufen
-//initAudioUpload();  // belasse es; unten ergänzen wir expliziten Submit-Handler
 initSpeakers();     // bestehende Logik bleibt; unten ergänzen wir Dual-Render
 
 /* -------------------------------------------
