@@ -16,7 +16,7 @@ import {
   setFinalAnswer,
   setError,
   renderSources,
-  setMeetingResult,
+  setAudioMeetingResult,
 } from "./ui/renderers.js";
 
 /* -------------------------------------------
@@ -448,7 +448,7 @@ const MEETING_WEBHOOK = "https://ai.intern/webhook/meetings/summarize";
     const speakers  = data?.speakers || data?.result?.speakers || [];
     const sources   = data?.sources || data?.documents || [];
 
-    setMeetingResult({
+    setAudioMeetingResult({
       summary, actions, decisions, speakers, sources, raw: data || raw
     });
 
