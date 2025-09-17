@@ -20,6 +20,61 @@ function pick(sources, keys) {
   return undefined;
 }
 
+// ---- Unified getters for audio/meeting payloads ----
+function truthy(v) { return v === true || v === "true" || v === 1 || v === "1"; }
+function toArray(v) { return Array.isArray(v) ? v : (v==null || v==='' ? [] : [v]); }
+
+// Robust: prüft Flag aus payload.flags, payload.options, oder ob passende Datenobjekte existieren
+function hasFlag(payload, name, dataPresence=false) {
+  const f = (payload && (payload.flags || payload.options || {})) || {};
+  if (name in f) return truthy(f[name]);
+  if (dataPresence) return true; // wenn Daten schon vorhanden sind, Flag implizit annehmen
+  return false;
+}
+
+// zieht Transkript-Text
+function getTranscript(payload) {
+  const cands = [
+    payload?.transcript, payload?.text, payload?.answer,
+    payload?.summary?.transcript, payload?.raw?.transcript, payload?.raw?.result?.transcript
+  ];
+  for (const c of cands) if (typeof c === 'string' && c.trim()) return c;
+  return '';
+}
+
+// zieht Segmente (Diarize)
+function getSegments(payload) {
+  const cands = [
+    payload?.segments, payload?.diarize_segments, payload?.summary?.segments,
+    payload?.raw?.segments, payload?.raw?.result?.segments
+  ];
+  for (const c of cands) if (Array.isArray(c) && c.length) return c;
+  return [];
+}
+
+// zieht Redeanteile (Identify)
+function getSpeakingShares(payload) {
+  const cands = [
+    payload?.speaking_shares, payload?.redeanteile, payload?.summary?.redeanteile,
+    payload?.raw?.speaking_shares, payload?.raw?.result?.speaking_shares
+  ];
+  for (const c of cands) if (Array.isArray(c) && c.length) return c;
+  return [];
+}
+
+// zieht Summary-Objekt (bei "alles an")
+function getSummaryObject(payload) {
+  // wenn payload.summary bereits struktur ist, nehmen
+  if (payload && typeof payload.summary === 'object' && !Array.isArray(payload.summary)) {
+    return payload.summary;
+  }
+  // ggf. in raw suchen
+  const resultObj = (payload?.raw && typeof payload.raw === 'object') ? (payload.raw.result || null) : null;
+  if (resultObj && typeof resultObj === 'object' && !Array.isArray(resultObj)) return resultObj;
+  return null;
+}
+
+
 // Falls utils/format.js kein asText exportiert, fallback nutzen
 import { escapeHtml, asText as _asText } from "../utils/format.js";
 const asText = _asText || function asTextFallback(x){
@@ -297,114 +352,48 @@ export function clearResult(){
 // ==============================
 // ui/renderers.js – hübsches Meeting-Rendering
 // ==============================
-export function setMeetingResult(payload){
+// ==============================
+// ui/renderers.js – Unified Audio+Meeting Renderer
+// Regeln:
+// - nur Transcribe (keine Flags aktiv): nur Text, keine aufklappbaren Bereiche
+// - Diarize: Transcript immer, Segmente aufklappbar
+// - Identify: Transcript immer, Segmente + Redezeit je Speaker aufklappbar
+// - Summary (alles an): Summary immer sichtbar, Transcript/Segmente/Redezeiten aufklappbar
+// ==============================
+export function setAudioMeetingResult(payload){
   payload = payload || {};
 
-  // raw ggf. parsen
-  let rawObj = payload.raw;
-  if (typeof rawObj === 'string') { try { rawObj = JSON.parse(rawObj); } catch { rawObj = null; } }
-  const resultObj = rawObj && typeof rawObj === 'object' ? (rawObj.result || null) : null;
+  // Daten extrahieren
+  const transcript = getTranscript(payload);
+  const segments   = getSegments(payload);
+  const shares     = getSpeakingShares(payload);
+  const summaryObj = getSummaryObject(payload);
 
-  // NEU: Wenn payload.summary selbst ein Objekt ist, als Quelle mit aufnehmen
-  const summaryObj = (payload.summary && typeof payload.summary === 'object') ? payload.summary : null;
+  // Flags: explizit aus payload.flags/options oder implizit über vorhandene Daten
+  const hasDiarize  = hasFlag(payload, 'diarize',   segments.length > 0);
+  const hasIdentify = hasFlag(payload, 'identify',  shares.length   > 0);
+  const hasSummary  = hasFlag(payload, 'summary',   !!summaryObj);
 
-  // Suchreihenfolge erweitern
-  const sources = [payload, summaryObj, rawObj, resultObj];
-
-  // Deutsch/Englisch robust ziehen
-  let summary       = pick(sources, ['summary','tldr','zusammenfassung','answer','text']);
-  let actions       = pick(sources, ['actions','aktion','aktionen','todos','action_items']);
-  let decisions     = pick(sources, ['decisions','entscheidungen']);
-  let offeneFragen  = pick(sources, ['offene_fragen','open_questions','questions']);
-  let risiken       = pick(sources, ['risiken','risks']);
-  let timeline      = pick(sources, ['zeitachse','timeline']);
-  let redeanteile   = pick(sources, ['redeanteile','speaking_shares']);
-  let sourcesList   = pick(sources, ['sources','documents']);
-
-  // Normalisieren
-  const toArray = (v) => Array.isArray(v) ? v : (v==null || v==='' ? [] : [v]);
-
-  // tldr kann als Array kommen (deutsch) ODER summary als String
-  let tldrList = [];
-  if (Array.isArray(summary)) {
-    tldrList = summary.map(String);
-  } else if (summary && typeof summary === 'object' && Array.isArray(summary.tldr)) {
-    tldrList = summary.tldr.map(String);
-  } else if (typeof summary === 'string') {
-    tldrList = summary.split(/\r?\n|[\u2022•-]\s*/).map(s=>s.trim()).filter(Boolean);
-  }
-
-  // wenn Entscheidungen/Aktionen im summary-Objekt liegen
-  if ((!actions || actions.length===0) && summary && typeof summary==='object' && Array.isArray(summary.aktionen)) {
-    actions = summary.aktionen;
-  }
-  if ((!decisions || decisions.length===0) && summary && typeof summary==='object' && Array.isArray(summary.entscheidungen)) {
-    decisions = summary.entscheidungen;
-  }
-  if ((!offeneFragen || offeneFragen.length===0) && summary && typeof summary==='object' && Array.isArray(summary.offene_fragen)) {
-    offeneFragen = summary.offene_fragen;
-  }
-  if ((!risiken || risiken.length===0) && summary && typeof summary==='object' && Array.isArray(summary.risiken)) {
-    risiken = summary.risiken;
-  }
-  if ((!timeline || timeline.length===0) && summary && typeof summary==='object' && Array.isArray(summary.zeitachse)) {
-    timeline = summary.zeitachse;
-  }
-  if ((!redeanteile || redeanteile.length===0) && summary && typeof summary==='object' && Array.isArray(summary.redeanteile)) {
-    redeanteile = summary.redeanteile;
-  }
-
-  actions       = toArray(actions);
-  decisions     = toArray(decisions);
-  offeneFragen  = toArray(offeneFragen);
-  risiken       = toArray(risiken);
-  timeline      = toArray(timeline);
-  redeanteile   = toArray(redeanteile);
-  sourcesList   = toArray(sourcesList);
-
-  // Renderer
-  const renderList = (arr) => arr.length
-    ? `<ul class="bullet">${arr.map(x => `<li>${esc(typeof x === 'string' ? x : x?.text ?? JSON.stringify(x))}</li>`).join('')}</ul>`
-    : '<div class="inline-help">–</div>';
-
-  const renderDecisions = (arr) => arr.length
-    ? `<ul class="bullet">${arr.map(d => {
-        const t = (d && typeof d === 'object') ? (d.text ?? d.title ?? d.decision ?? d) : d;
-        const impact = d?.impact ? `<span class="badge" data-variant="${esc(d.impact)}">${esc(String(d.impact))}</span>` : '';
-        return `<li>${esc(String(t))} ${impact}</li>`;
-      }).join('')}</ul>`
-    : '<div class="inline-help">–</div>';
-
-  const renderActions = (arr) => arr.length
+  // Hilfsrenderer
+  const renderSegments = (arr) => arr.length
     ? `<div class="table">
-         <div class="tr th"><div>Owner</div><div>Aufgabe</div><div>Fällig</div></div>
-         ${arr.map(a => {
-           const owner = a?.owner ?? a?.assignee ?? '';
-           const task  = a?.task  ?? a?.title    ?? '';
-           const due   = a?.due   ?? a?.due_date ?? '';
-           return `<div class="tr"><div>${esc(owner)}</div><div>${esc(task)}</div><div>${esc(due)}</div></div>`;
-         }).join('')}
+         <div class="tr th"><div>Start</div><div>Ende</div><div>Speaker</div><div>Text</div></div>
+         ${arr.map(s => `<div class="tr">
+           <div>${esc(s?.start ?? s?.from ?? '')}</div>
+           <div>${esc(s?.end   ?? s?.to   ?? '')}</div>
+           <div>${esc(s?.speaker ?? s?.spk ?? '')}</div>
+           <div>${esc(typeof s?.text === 'string' ? s.text : (s?.utterance ?? ''))}</div>
+         </div>`).join('')}
        </div>`
     : '<div class="inline-help">–</div>';
 
-  const renderTimeline = (arr) => arr.length
-    ? `<div class="table">
-         <div class="tr th"><div>von</div><div>bis</div><div>Topic</div></div>
-         ${arr.map(t => `<div class="tr">
-             <div>${esc(t?.from ?? t?.start ?? '')}</div>
-             <div>${esc(t?.to   ?? t?.end   ?? '')}</div>
-             <div>${esc(t?.topic ?? t?.title ?? '')}</div>
-           </div>`).join('')}
-       </div>`
-    : '<div class="inline-help">–</div>';
-
-  const renderRedeanteile = (arr) => arr.length
+  const renderShares = (arr) => arr.length
     ? `<div class="shares">
          ${arr.map(r => {
            const pct = Number(r?.anteil_prozent ?? r?.percent ?? 0);
            const w = Math.max(0, Math.min(100, Math.round(pct)));
            return `<div class="share-row">
-             <div class="share-name">${esc(r?.name || '')}</div>
+             <div class="share-name">${esc(r?.name || r?.speaker || '')}</div>
              <div class="share-bar"><i style="width:${w}%"></i></div>
              <div class="share-pct">${w}%</div>
            </div>`;
@@ -412,38 +401,112 @@ export function setMeetingResult(payload){
        </div>`
     : '<div class="inline-help">–</div>';
 
-  const copyBlock = (lines) => {
-    if (!lines.length) return '';
-    const plain = lines.join('\n');
-    const id = 'copy-' + Math.random().toString(36).slice(2);
-    return `<div class="copyline"><button type="button" class="secondary" data-copy="${id}">kopieren</button></div>
-      <script>(function(){ const btn=document.querySelector('button[data-copy="${id}"]'); if(!btn)return;
-        btn.addEventListener('click', async()=>{ try{ await navigator.clipboard.writeText(${JSON.stringify(plain)}); btn.textContent='kopiert ✓'; setTimeout(()=>btn.textContent='kopieren',1200);}catch(e){btn.textContent='Fehler';} });
-      })();</script>`;
-  };
+  // Summary-Blöcke (wir nutzen setMeetingResult-Logik partiell)
+  // Wir recyceln Teile aus setMeetingResult: TL;DR, Aktionen, Entscheidungen ...
+  // Dafür bilden wir ein "fake payload", das setMeetingResult verstehen würde:
+  const summaryPayload = summaryObj ? { summary: summaryObj } : {};
 
+  // Ausgabe strukturieren
   const parts = [];
-  parts.push(section('Zusammenfassung',
-    tldrList.length ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>${copyBlock(tldrList)}` : '<div class="inline-help">–</div>',
-    {open:true, id:'sec-summary'}));
-  parts.push(section('Entscheidungen', renderDecisions(decisions), {id:'sec-decisions'}));
-  parts.push(section('Aktionen',      renderActions(actions),      {id:'sec-actions'}));
-  parts.push(section('Offene Fragen', renderList(offeneFragen),    {id:'sec-questions'}));
-  parts.push(section('Risiken',       renderList(risiken),         {id:'sec-risks'}));
-  parts.push(section('Zeitachse',     renderTimeline(timeline),    {id:'sec-timeline'}));
-  parts.push(section('Redeanteile',   renderRedeanteile(redeanteile), {id:'sec-shares'}));
-  if (sourcesList.length) parts.push(section('Quellen', renderList(sourcesList), {id:'sec-sources'}));
+  let headline = 'Ergebnis (Audio/Meeting)';
 
-  const html = `<div class="result meeting-result"><div class="done">✅ Fertig – Sitzungszusammenfassung:</div>${parts.join('')}</div>`;
+  if (!hasDiarize && !hasIdentify && !hasSummary) {
+    // ——— Nur Transcribe ———
+    headline = 'Transkript';
+    parts.push(
+      `<pre class="prewrap mono">${esc(transcript || '[leer]')}</pre>`
+    );
+  } else if (!hasSummary && (hasDiarize || hasIdentify)) {
+    // ——— Diarize / Identify (ohne Summary) ———
+    headline = 'Transkript';
+    // Transcript immer sichtbar
+    parts.push(section('Transcript', `<pre class="prewrap mono">${esc(transcript || '[leer]')}</pre>`, { open: false, id: 'sec-transcript' }));
+    // Segmente aufklappbar (wenn diarize an bzw. vorhanden)
+    if (hasDiarize) {
+      parts.push(section('Segmente', renderSegments(segments), { open: false, id: 'sec-segments' }));
+    }
+    // Redezeiten je Speaker aufklappbar (wenn identify an bzw. vorhanden)
+    if (hasIdentify) {
+      parts.push(section('Redeanteile', renderShares(shares), { open: false, id: 'sec-shares' }));
+    }
+  } else {
+    // ——— Alles an (Summary sichtbar), Rest aufklappbar ———
+    headline = 'Sitzungszusammenfassung';
+    // Summary-Block "schön" rendern, indem wir die vorhandene setMeetingResult-Logik nutzen:
+    // Wir rendern TL;DR/Decisions/Actions/... in einen Fragment-Container und fügen ihn hier ein.
+    // Dafür verwenden wir die Hilfsfunktionen aus setMeetingResult im Kleinen:
+    const sources = [payload, summaryObj];
+    // TL;DR ermitteln, identisch zu setMeetingResult
+    let summary       = pick(sources, ['summary','tldr','zusammenfassung','answer','text']);
+    let decisions     = pick(sources, ['decisions','entscheidungen']);
+    let actions       = pick(sources, ['actions','aktion','aktionen','todos','action_items']);
+    let offeneFragen  = pick(sources, ['offene_fragen','open_questions','questions']);
+    let risiken       = pick(sources, ['risiken','risks']);
+
+    // Normalisieren
+    let tldrList = [];
+    if (Array.isArray(summary)) {
+      tldrList = summary.map(String);
+    } else if (summary && typeof summary === 'object' && Array.isArray(summary.tldr)) {
+      tldrList = summary.tldr.map(String);
+    } else if (typeof summary === 'string') {
+      tldrList = summary.split(/\r?\n|[\u2022•-]\s*/).map(s=>s.trim()).filter(Boolean);
+    }
+    decisions    = toArray(decisions);
+    actions      = toArray(actions);
+    offeneFragen = toArray(offeneFragen);
+    risiken      = toArray(risiken);
+
+    const renderList = (arr) => arr.length
+      ? `<ul class="bullet">${arr.map(x => `<li>${esc(typeof x === 'string' ? x : x?.text ?? JSON.stringify(x))}</li>`).join('')}</ul>`
+      : '<div class="inline-help">–</div>';
+    const renderDecisions = (arr) => arr.length
+      ? `<ul class="bullet">${arr.map(d => {
+          const t = (d && typeof d === 'object') ? (d.text ?? d.title ?? d.decision ?? d) : d;
+          const impact = d?.impact ? `<span class="badge" data-variant="${esc(d.impact)}">${esc(String(d.impact))}</span>` : '';
+          return `<li>${esc(String(t))} ${impact}</li>`;
+        }).join('')}</ul>`
+      : '<div class="inline-help">–</div>';
+    const renderActions = (arr) => arr.length
+      ? `<div class="table">
+           <div class="tr th"><div>Owner</div><div>Aufgabe</div><div>Fällig</div></div>
+           ${arr.map(a => {
+             const owner = a?.owner ?? a?.assignee ?? '';
+             const task  = a?.task  ?? a?.title    ?? '';
+             const due   = a?.due   ?? a?.due_date ?? '';
+             return `<div class="tr"><div>${esc(owner)}</div><div>${esc(task)}</div><div>${esc(due)}</div></div>`;
+           }).join('')}
+         </div>`
+      : '<div class="inline-help">–</div>';
+
+    // Summary oben offen
+    const summaryHtml = tldrList.length
+      ? `<ul class="bullet">${tldrList.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`
+      : '<div class="inline-help">–</div>';
+    parts.push(section('Zusammenfassung', summaryHtml, { open: true, id:'sec-summary' }));
+    parts.push(section('Entscheidungen', renderDecisions(decisions), { id:'sec-decisions' }));
+    parts.push(section('Aktionen',      renderActions(actions),      { id:'sec-actions' }));
+    parts.push(section('Offene Fragen', renderList(offeneFragen),    { id:'sec-questions' }));
+    parts.push(section('Risiken',       renderList(risiken),         { id:'sec-risks' }));
+
+    // Transcript/Segmente/Redezeiten aufklappbar darunter
+    parts.push(section('Transcript', `<pre class="prewrap mono">${esc(transcript || '[leer]')}</pre>`, { open: false, id: 'sec-transcript' }));
+    parts.push(section('Segmente',  renderSegments(segments),        { open: false, id: 'sec-segments' }));
+    parts.push(section('Redeanteile', renderShares(shares),          { open: false, id: 'sec-shares' }));
+  }
+
+  const html = `<div class="result meeting-result"><div class="done">✅ Fertig – ${esc(headline)}:</div>${parts.join('')}</div>`;
 
   const out = document.getElementById('result-output');
   if (out) out.innerHTML = html;
   const outDocs = document.getElementById('result-output-docs');
   if (outDocs) outDocs.innerHTML = html;
+
+  // Job-Statusleiste updaten
+  if (typeof updateJobStatus === 'function') updateJobStatus("Fertig.");
 }
 
-
-// Optional: kleine Hilfs-API für andere Module
+// kleine Hilfs-API für andere Module
 window.renderers = window.renderers || {
   showJob,
   updateJobStatus,
