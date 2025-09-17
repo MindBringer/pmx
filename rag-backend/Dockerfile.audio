@@ -53,12 +53,18 @@ try:
 except ModuleNotFoundError:
     from app.routers.identify import router as identify_router
 
+try:
+    from app.speakers import router as speaker_router
+except ModuleNotFoundError:
+    from app.routers.speakers import router as speaker_router
+
 app = FastAPI(title="audio-api")
 
 # Router registrieren (kein zusätzliches prefix, falls im APIRouter schon gesetzt)
 app.include_router(transcribe_router)
 app.include_router(diarize_router)
 app.include_router(identify_router)
+app.include_router(speaker_router)
 
 @app.get("/health")
 def health():

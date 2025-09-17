@@ -17,6 +17,7 @@ from .pipelines import (
 from apps.routers.transcribe import router as transcribe_router
 from apps.routers.diarize import router as diarize_router
 from apps.routers.identify import router as identify_router
+from apps.routers.speaker import router as speaker_router
 from .jobs import router as jobs_router
 
 # -----------------------------
@@ -33,6 +34,7 @@ app = FastAPI(title="pmx-rag-backend", version="1.0.0")
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 app.include_router(diarize_router, prefix="", tags=["audio"])
 app.include_router(identify_router, prefix="", tags=["audio"])
+app.include_router(speaker_router, prefix="", tags=["audio"])
 # async jobs display
 app.include_router(jobs_router, prefix="/rag")
 
