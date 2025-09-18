@@ -216,7 +216,7 @@ function sseLabel(jobTitle, evt){
 }
 
 async function startAsyncRun(job_title, payload){
-  const headers = { "Content-Type": "application/json" };
+  const headers = { "Content-Type": "application/json", "Accept": "application/json" };
   if (isValidConversationId(conversationId)) {
     payload.conversation_id = conversationId;
     headers["x-conversation-id"] = conversationId;
@@ -236,21 +236,18 @@ async function startAsyncRun(job_title, payload){
     (typeof ack.result === "string" && ack.result.match(/\/rag\/jobs\/([^/]+)/)?.[1]) || "";
 
   if (!res.ok || !jobId) throw new Error(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
-  ack.job_id = jobId;
 
   showJob(job_title || payload?.prompt || "Agentenlauf");
 
   const looksOk = (u) => {
     if (typeof u !== "string" || !u) return false;
     if (u.includes("{{") || u.includes("$json")) return false;
-    try {
-      const url = new URL(u, location.href);
-      return url.origin === location.origin && url.pathname.startsWith("/rag/jobs/");
-    } catch { return false; }
+    try { const url = new URL(u, location.href); return url.origin === location.origin && url.pathname.startsWith("/rag/jobs/"); }
+    catch { return false; }
   };
 
+  // 5) EventSource öffnen
   const eventsUrl = looksOk(ack.events) ? ack.events : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
-
   try { window.__es?.close(); } catch {}
   const src = new EventSource(eventsUrl, { withCredentials: true });
   window.__es = src;
@@ -261,29 +258,47 @@ async function startAsyncRun(job_title, payload){
   src.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
-      jobLine.textContent = sseLabel(job_title, evt);
+      if (jobLine) jobLine.textContent = sseLabel(job_title, evt);
       if (evt.message) logJob(evt.message);
+      // hübsche Zwischenstände (falls Renderer verfügbar)
+      if (window.renderers?.appendSseEvent) {
+        window.renderers.appendSseEvent(job_title, evt);
+      }
     } catch {
       logJob(String(e.data || 'Event ohne JSON'));
     }
   };
 
+  // 6) Ergebnis abholen & robust rendern
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
-  const final = await fetch(resultUrl).then(r=>r.json());
-  if (final?.status === "done"){
-    const answer = final.result?.answer || "";
-    const artifacts = final.result?.artifacts || {};
-    const sources   = final.result?.sources || final.result?.documents || [];
+  const finalRes  = await fetch(resultUrl, { headers: { "Accept": "application/json" } });
+  const finalText = await finalRes.text();
+  let final; try { final = JSON.parse(finalText); } catch { final = { raw: finalText }; }
 
+  // Status robust auswerten
+  const status = String(final?.status || final?.state || '').toLowerCase();
+  const ok = finalRes.ok || ['done','completed','success','ok'].includes(status) || !!final?.result || final?.ok === true;
+
+  // Ergebnis-Objekt flexibel lesen
+  const resultObj  = final?.result && typeof final.result === 'object' ? final.result : final;
+  const answer     = resultObj?.answer || resultObj?.text || resultObj?.output || resultObj?.content || "";
+  const artifacts  = resultObj?.artifacts || {};
+  const sources    = resultObj?.sources || resultObj?.documents || [];
+
+  // Renderer bevorzugen
+  if (window.renderers?.setFinalAnswer){
+    window.renderers.setFinalAnswer({ answer, sources, artifacts });
+    if (resultDiv) resultDiv.className = ok ? "success" : "error";
+  } else {
+    // Fallback-Ausgabe
     let html = `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div>✅ Finale Antwort:</div>
+        <div>${ok ? '✅ Finale Antwort:' : 'ℹ️ Ergebnis'}</div>
         <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
       </div>
       <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
     `;
     html += renderSources(sources);
-
     if (artifacts?.code) {
       html += `<div style="margin-top:12px;font-weight:700">Code</div>
                <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
@@ -296,7 +311,7 @@ async function startAsyncRun(job_title, payload){
           return `<li><a download="${escapeHtml(String(f.name))}" href="data:${mime};base64,${f.base64}">${escapeHtml(String(f.name))}</a></li>`;
         }
         if (f?.url && f?.name){
-          return `<li><a href="${escapeHtml(String(f.name))}" target="_blank" rel="noopener">${escapeHtml(String(f.name))}</a></li>`;
+          return `<li><a href="${escapeHtml(String(f.url))}" target="_blank" rel="noopener">${escapeHtml(String(f.name))}</a></li>`;
         }
         return `<li>${escapeHtml(String(f?.name || 'Datei'))}</li>`;
       }).join('') + `</ul>`;
@@ -304,15 +319,16 @@ async function startAsyncRun(job_title, payload){
 
     resultOut.innerHTML = html;
     const pre = document.getElementById('answer-pre');
-    pre.textContent = String(answer || "[leer]");
+    const textOut = (typeof answer === 'string') ? answer : (()=>{ try { return JSON.stringify(answer, null, 2); } catch { return String(answer); } })();
+    pre.textContent = String(textOut || (final && !answer ? JSON.stringify(final, null, 2) : finalText));
     document.getElementById('copy-answer')?.addEventListener('click', ()=>{
       navigator.clipboard.writeText(pre.textContent||"");
     });
-    resultDiv.className = "success";
-    if (jobLine) jobLine.textContent = "Fertig.";
-  } else {
-    if (jobLine) jobLine.textContent = "Noch in Arbeit …";
+    if (resultDiv) resultDiv.className = ok ? "success" : "error";
   }
+
+  if (jobLine) jobLine.textContent = ok ? "Fertig." : "Abgeschlossen (Status unbekannt)";
+  try { src.close(); } catch {}
 }
 
 form?.addEventListener("submit", async function (e) {
@@ -539,16 +555,93 @@ const speakerSpinner = document.getElementById("speaker-spinner");
 const speakerBtn     = document.getElementById("speaker-enroll-btn");
 const speakerRefresh = document.getElementById("speaker-refresh-btn");
 
+// ---------- Sprecher Enrollment & Listen (Docs + Settings) ----------
+const speakerForm          = document.getElementById("speaker-form");
+const speakerOutBox        = document.getElementById("speaker-result");
+const speakerOut           = document.getElementById("speaker-output");
+const speakerSpinner       = document.getElementById("speaker-spinner");
+const speakerBtn           = document.getElementById("speaker-enroll-btn");
+
+const speakerRefreshDocs      = document.getElementById("speaker-refresh-btn-docs");
+const speakerRefreshSettings  = document.getElementById("speaker-refresh-btn-settings");
+const speakerListDocs         = document.getElementById("speaker-list-docs");
+const speakerListSettings     = document.getElementById("speaker-list-settings");
+
+// Hilfs-Renderer für *eine* Liste
+function renderSpeakerList(listEl, data){
+  if (!listEl) return;
+  if (!Array.isArray(data) || data.length === 0){
+    listEl.innerHTML = `<div class="inline-help">Noch keine Sprecher vorhanden.</div>`;
+    return;
+  }
+  listEl.innerHTML = data.map(sp => {
+    const name = (sp?.name ?? "Ohne Namen");
+    const id   = (sp?.id ?? "");
+    return `<div class="seg" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div>
+        <b>${escapeHtml(String(name))}</b>
+        <div class="inline-help">ID: <span class="mono">${escapeHtml(String(id))}</span></div>
+      </div>
+      <button type="button" data-id="${escapeHtml(String(id))}" class="secondary" style="width:auto">löschen</button>
+    </div>`;
+  }).join("");
+
+  // Delete-Handler für *diese* Liste anbinden
+  listEl.querySelectorAll('button[data-id]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const id = btn.getAttribute('data-id');
+      if (!confirm(`Sprecher wirklich löschen?\n${id}`)) return;
+      try {
+        const res = await fetch(`/rag/speakers/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          headers: apiKey ? { "x-api-key": apiKey } : {}
+        });
+        const txt = await res.text();
+        if (!res.ok) { alert(`Fehler beim Löschen: ${txt||res.status}`); return; }
+        await refreshSpeakers(); // beide Listen neu laden
+      } catch (err) {
+        alert(`Fehler beim Löschen: ${err.message||String(err)}`);
+      }
+    });
+  });
+}
+
+// Lädt vom Backend und rendert *beide* Listen (falls vorhanden)
+async function refreshSpeakers(){
+  const apiKey = document.getElementById("apiKey").value.trim();
+
+  // „lädt…“ in beide Listen schreiben
+  [speakerListDocs, speakerListSettings].forEach(list=>{
+    if (list) list.innerHTML = `<div class="inline-help">lädt…</div>`;
+  });
+
+  try {
+    const res = await fetch("/rag/speakers", { headers: apiKey ? { "x-api-key": apiKey } : {} });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
+    const data = JSON.parse(txt);
+
+    renderSpeakerList(speakerListDocs, data);
+    renderSpeakerList(speakerListSettings, data);
+  } catch (err){
+    const html = `<div class="error">❌ Laden fehlgeschlagen: ${escapeHtml(err.message||String(err))}</div>`;
+    if (speakerListDocs) speakerListDocs.innerHTML = html;
+    if (speakerListSettings) speakerListSettings.innerHTML = html;
+  }
+}
+
+// Enrollment-Form
 if (speakerForm) {
   speakerForm.addEventListener("submit", async function(e){
     e.preventDefault();
     const apiKey = document.getElementById("apiKey").value.trim();
     const nameEl = document.getElementById("speakerName");
     const fileEl = document.getElementById("speakerFile");
-    const name = nameEl.value.trim();
+    const name = (nameEl?.value || "").trim();
 
     if (!name){ speakerOut.textContent = "⚠️ Bitte Namen angeben."; speakerOutBox.className = "error upload-box"; return; }
-    if (!fileEl.files || fileEl.files.length === 0){ speakerOut.textContent = "⚠️ Bitte Audio-Datei wählen (oder Mikrofon aufnehmen)."; speakerOutBox.className = "error upload-box"; return; }
+    if (!fileEl?.files || fileEl.files.length === 0){ speakerOut.textContent = "⚠️ Bitte Audio-Datei wählen (oder Mikrofon aufnehmen)."; speakerOutBox.className = "error upload-box"; return; }
 
     speakerOut.innerHTML = "";
     speakerOutBox.className = "upload-box";
@@ -560,7 +653,7 @@ if (speakerForm) {
       fd.append("name", name);
       fd.append("file", fileEl.files[0]);
 
-      const res = await fetch("/rag/speakers/enroll", { method: "POST", headers: { "x-api-key": apiKey }, body: fd });
+      const res = await fetch("/rag/speakers/enroll", { method: "POST", headers: apiKey ? { "x-api-key": apiKey } : {}, body: fd });
       const txt = await res.text();
       if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
       const data = JSON.parse(txt);
@@ -568,8 +661,11 @@ if (speakerForm) {
       const dim = data?.dim ?? 192;
       speakerOut.innerHTML = `✅ Sprecher <b>${escapeHtml(name)}</b> hinzugefügt <span class="inline-help">(Embedding-Dim: ${dim})</span>`;
       speakerOutBox.className = "success upload-box";
+
+      // Formular zurücksetzen & Listen neu laden
+      if (nameEl) nameEl.value = "";
+      if (fileEl) fileEl.value = "";
       await refreshSpeakers();
-      nameEl.value = ""; document.getElementById("speakerFile").value = "";
     } catch (err){
       speakerOut.textContent = `❌ Enrollment fehlgeschlagen: ${err.message}`;
       speakerOutBox.className = "error upload-box";
@@ -579,54 +675,19 @@ if (speakerForm) {
     }
   });
 
-  speakerRefresh?.addEventListener('click', refreshSpeakers);
-  document.querySelectorAll('.tab[data-target="tab-docs"]').forEach(btn=>{
-    btn.addEventListener('click', ()=> { refreshSpeakers(); });
+  // Refresh-Buttons binden
+  speakerRefreshDocs?.addEventListener('click', refreshSpeakers);
+  speakerRefreshSettings?.addEventListener('click', refreshSpeakers);
+
+  // Beim Tab-Wechsel listen neu laden (Docs & Settings)
+  document.querySelectorAll('.tab[data-target="tab-docs"], .tab[data-target="tab-set"]').forEach(btn=>{
+    btn.addEventListener('click', refreshSpeakers);
   });
+
+  // initial einmal laden
+  refreshSpeakers();
 }
 
-async function refreshSpeakers(){
-  const apiKey = document.getElementById("apiKey").value.trim();
-  const list = document.getElementById("speaker-list");
-  if (!list) return;
-  list.innerHTML = `<div class="inline-help">lädt…</div>`;
-  try {
-    const res = await fetch("/rag/speakers", { headers: apiKey ? { "x-api-key": apiKey } : {} });
-    const txt = await res.text();
-    if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
-    const data = JSON.parse(txt);
-    if (!Array.isArray(data) || data.length === 0){
-      list.innerHTML = `<div class="inline-help">Noch keine Sprecher vorhanden.</div>`;
-      return;
-    }
-    list.innerHTML = data.map(sp => {
-      const name = (sp.name ?? "Ohne Namen");
-      const id   = (sp.id ?? "");
-      return `<div class="seg" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                <div>
-                  <b>${escapeHtml(String(name))}</b>
-                  <div class="inline-help">ID: <span class="mono">${escapeHtml(String(id))}</span></div>
-                </div>
-                <button type="button" data-id="${escapeHtml(String(id))}" class="secondary" style="width:auto">löschen</button>
-              </div>`;
-    }).join("");
-    list.querySelectorAll('button[data-id]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const apiKey = document.getElementById("apiKey").value.trim();
-        const id = btn.getAttribute('data-id');
-        if (!confirm(`Sprecher wirklich löschen?\n${id}`)) return;
-        const res = await fetch(`/rag/speakers/${encodeURIComponent(id)}`, {
-          method: "DELETE", headers: apiKey ? { "x-api-key": apiKey } : {}
-        });
-        const txt = await res.text();
-        if (!res.ok) { alert(`Fehler beim Löschen: ${txt||res.status}`); return; }
-        await refreshSpeakers();
-      });
-    });
-  } catch (err){
-    list.innerHTML = `<div class="error">❌ Laden fehlgeschlagen: ${escapeHtml(err.message||String(err))}</div>`;
-  }
-}
 
 // ---------- Microphone: shared engine ----------
 const mic = { stream: null, rec: null, chunks: [], analyser: null, raf: 0, startTs: 0, target: null };
