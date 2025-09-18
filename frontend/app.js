@@ -39,6 +39,11 @@ toggleKeyBtn?.addEventListener('click', () => {
   toggleKeyBtn.textContent = hidden ? 'verbergen' : 'anzeigen';
 });
 
+// Sichtbare Ausgaben/Spinner im "Dateien & Audio"-Tab
+const docsResBox   = document.getElementById('result-docs');
+const docsOut      = document.getElementById('result-output-docs');
+const docsSpinner  = document.getElementById('spinner-docs');
+
 // Radio pill styling
 const ragChoices = document.getElementById('rag-choices');
 ragChoices?.addEventListener('change', () => {
@@ -781,9 +786,18 @@ try {
   });
 } catch {}
 
+// Reihenfolge: explizit > window-Override > historischer Fallback > ganz alter Fallback
 function getMeetingWebhook(){
-  const v = (meetingWebhookEl?.value || "").trim();
-  return v || "/summarize";
+  const explicit = (document.getElementById('meetingWebhook')?.value || '').trim();
+  if (explicit) return explicit;
+
+  if (typeof window.MEETING_HOOK === 'string' && window.MEETING_HOOK.trim()) {
+    return window.MEETING_HOOK.trim();
+  }
+
+  // viele Setups hingen davor auf /webhook/summarize
+  return '/webhook/summarize'; // <- Hauptfallback
+  // wenn du WIRKLICH /summarize brauchst, ändere die Zeile oben auf '/summarize'
 }
 
 // Einmalige Bindungen – capturing + hard stop gegen Doppel-Listener
@@ -817,31 +831,44 @@ async function handleAudioMeetingSubmit(e){
   if (formEl && formEl.dataset.submitting === "1") return;
   if (formEl) formEl.dataset.submitting = "1";
 
+  // Sichtbare UI-Elemente im DOCS/AUDIO Tab bevorzugen
+  const uiOut     = docsOut || resultOut;
+  const uiBox     = docsResBox || resultDiv;
+  const uiSpinner = docsSpinner || spinner;
+
   const apiKey = document.getElementById("apiKey")?.value?.trim();
-  const hideSpinner = showFor(spinner, 300);
-  resultOut.innerHTML = "";
-  resultDiv.className = "";
+
+  if (uiOut) uiOut.innerHTML = "";
+  if (uiBox) uiBox.className = "upload-box";
+  const hideSpinner = showFor(uiSpinner, 300);
 
   try {
+    // Datei bestimmen (Audio-Tab)
     const audioFileEl   = document.getElementById("audioFile");
-    const meetingFileEl = document.getElementById("meetingFile");
+    const meetingFileEl = document.getElementById("meetingFile"); // falls vorhanden
     const file = audioFileEl?.files?.[0] || meetingFileEl?.files?.[0];
     if (!file) throw new Error("Bitte eine Audio-Datei auswählen (oder Mikrofon aufnehmen).");
 
-    const diarCk  = document.getElementById("doDiar")     || document.getElementById("meetDiarize");
-    const identCk = document.getElementById("doIdentify") || document.getElementById("meetIdentify");
-    const hintsEl = document.getElementById("speakerHints") || document.getElementById("meetSpeakerHints");
-    const tagsStr = (document.getElementById("audioTags")?.value || "").trim();
+    // Flags & Optionen
+    const diarCk     = document.getElementById("doDiar") || document.getElementById("meetDiarize");
+    const identCk    = document.getElementById("doIdentify") || document.getElementById("meetIdentify");
+    const sumCk      = document.getElementById("audioSummarize"); // <— wichtig
+    const hintsEl    = document.getElementById("speakerHints") || document.getElementById("meetSpeakerHints");
+    const tagsStr    = (document.getElementById("audioTags")?.value || "").trim();
+    const audioModel = (document.getElementById("audioModel")?.value || "").trim();
 
+    // Payload
     const fd = new FormData();
     fd.append("file", file);
     if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
     if (diarCk)  fd.append("diarize_flag", diarCk.checked ? "true" : "false");
     if (identCk) fd.append("identify",     identCk.checked ? "true" : "false");
+    if (sumCk)   fd.append("summary",      sumCk.checked ? "true" : "false"); // <— mappt das UI-Flag
     if (hintsEl && hintsEl.value.trim()) fd.append("speaker_hints", hintsEl.value.trim());
+    if (audioModel) fd.append("model", audioModel); // optional fürs Backend
 
-    // eindeutige Request-ID (Client) – hilft beim Loggen & Server-Dedupe
-    const reqId = (window.crypto?.randomUUID?.() || (Date.now() + "-" + Math.random()));
+    // Anfrage
+    const reqId = (window.crypto?.randomUUID?.() || (Date.now()+"-"+Math.random()));
     fd.append("request_id", String(reqId));
 
     const headers = {};
@@ -851,28 +878,39 @@ async function handleAudioMeetingSubmit(e){
     const hook = getMeetingWebhook();
     const resp = await fetch(hook, { method: "POST", headers, body: fd });
     const txt  = await resp.text();
-    if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
+
+    if (!resp.ok) {
+      // 404/500 sauber im sichtbaren Bereich anzeigen
+      if (uiOut) uiOut.textContent = `❌ Fehler ${resp.status}: ${txt || 'Unbekannter Fehler'}`;
+      if (uiBox) uiBox.className = "error upload-box";
+      return;
+    }
 
     let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
 
+    // Flags (UI) in Response spiegeln, damit Renderer weiß, was angezeigt werden soll
     data.flags = Object.assign({}, data.flags || {}, {
       diarize:  !!(diarCk && diarCk.checked),
       identify: !!(identCk && identCk.checked),
-      summary:  !!(document.getElementById("summary")?.checked)
+      summary:  !!(sumCk && sumCk.checked),
     });
 
+    // Rendering – wenn dein Renderer existiert, nutz ihn, sonst Fallback
     if (window.renderers?.setAudioMeetingResult) {
       window.renderers.setAudioMeetingResult(data);
-    } else if (window.renderers?.setMeetingResult) {
-      window.renderers.setMeetingResult(data);
+      if (uiBox) uiBox.className = "success upload-box";
     } else {
-      const ans = data?.answer || data?.text || data?.transcript || txt;
-      resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(String(ans))}</pre>`;
-      resultDiv.className = "success";
+      const ans = data?.summary || data?.answer || data?.text || data?.transcript || txt;
+      if (uiOut) uiOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(String(ans))}</pre>`;
+      if (uiBox) uiBox.className = "success upload-box";
     }
   } catch (err){
-    resultOut.textContent = `❌ Fehler: ${err.message}`;
-    resultDiv.className = "error";
+    if (docsOut || resultOut) {
+      (docsOut || resultOut).textContent = `❌ Fehler: ${err.message}`;
+    }
+    if (docsResBox || resultDiv) {
+      (docsResBox || resultDiv).className = "error upload-box";
+    }
   } finally {
     if (formEl) formEl.dataset.submitting = "0";
     hideSpinner();
