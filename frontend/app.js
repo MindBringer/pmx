@@ -215,6 +215,46 @@ function sseLabel(jobTitle, evt){
   return parts.join(' ');
 }
 
+function isJobResultUrl(s){
+  if (typeof s !== 'string') return false;
+  // erkennt "/rag/jobs/<id>/result" auch als absolute URL
+  try { const u = new URL(s, location.href); return /\/rag\/jobs\/[^/]+\/result$/.test(u.pathname); } catch { return /\/rag\/jobs\/[^/]+\/result$/.test(s); }
+}
+
+// nimmt ein Objekt und zieht eine brauchbare Antwort raus
+function extractFinalAnswer(obj){
+  if (!obj || typeof obj !== 'object') return '';
+
+  // 1) bevorzugt in result-Objekt schauen
+  const root = (obj.result && typeof obj.result === 'object') ? obj.result : obj;
+
+  // 2) Summary-Objekt in brauchbaren Text verwandeln
+  const summaryObj = (typeof root.summary === 'object' && !Array.isArray(root.summary)) ? root.summary : null;
+  if (summaryObj) {
+    // TL;DR bevorzugt
+    if (Array.isArray(summaryObj.tldr) && summaryObj.tldr.length){
+      return summaryObj.tldr.map(String).join('\n');
+    }
+    // generischer Fallback auf stringifizierte Summary
+    try { return JSON.stringify(summaryObj, null, 2); } catch { /* fall through */ }
+  }
+
+  // 3) Reihenfolge möglicher string-Felder
+  const KEYS = [
+    'final', 'final_answer', 'writer_output', 'meeting_summary', 'summary',
+    'answer', 'text', 'output', 'content'
+  ];
+  for (const k of KEYS){
+    const v = root[k];
+    if (typeof v === 'string' && v.trim() && !isJobResultUrl(v)) return v;
+    // wenn summary als String kommt
+    if (k === 'summary' && typeof v === 'string' && v.trim()) return v;
+  }
+
+  // 4) Nichts brauchbares? Notfalls hübsch JSON zurück
+  try { return JSON.stringify(root, null, 2); } catch { return String(root); }
+}
+
 async function startAsyncRun(job_title, payload){
   const headers = { "Content-Type": "application/json", "Accept": "application/json" };
   if (isValidConversationId(conversationId)) {
@@ -246,7 +286,7 @@ async function startAsyncRun(job_title, payload){
     catch { return false; }
   };
 
-  // 2) SSE verbinden (Zwischenstände)
+  // 2) SSE verbinden (nur Live-Status loggen; NICHT in Antwortbereich anhängen)
   const eventsUrl = looksOk(ack.events) ? ack.events : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
   try { window.__es?.close(); } catch {}
   const src = new EventSource(eventsUrl, { withCredentials: true });
@@ -260,7 +300,7 @@ async function startAsyncRun(job_title, payload){
       const evt = JSON.parse(e.data);
       if (jobLine) jobLine.textContent = sseLabel(job_title, evt);
       if (evt.message) logJob(evt.message);
-      if (window.renderers?.appendSseEvent) window.renderers.appendSseEvent(job_title, evt);
+      // WICHTIG: keine appendSseEvent(...) mehr -> keine Duplikate im Antwortfeld
     } catch {
       logJob(String(e.data || 'Event ohne JSON'));
     }
@@ -269,26 +309,23 @@ async function startAsyncRun(job_title, payload){
   // 3) Ergebnis robust abholen (Polling bis "done")
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
 
-  const DONE_STATES = new Set(['done','completed','complete','success','ok','finished']);
-  const hasUsefulResult = (d) => {
+  const DONE = new Set(['done','completed','complete','success','ok','finished']);
+  const hasUseful = (d) => {
     const r = (d && typeof d === 'object') ? (d.result ?? d) : {};
-    const val = r.answer ?? r.text ?? r.output ?? r.content;
-    return typeof val === 'string' ? val.trim().length > 0 : (val != null);
+    const s = extractFinalAnswer(r);
+    return typeof s === 'string' ? !!s.trim() && !isJobResultUrl(s) : s != null;
   };
   const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 
-  let backoff = 800, tries = 0, final = null;
-  const maxWaitMs = 900000; // 15 Minuten
-  const startTs = Date.now();
-
-  while (Date.now() - startTs < maxWaitMs){
-    tries++;
+  let backoff = 800, final = null;
+  const t0 = Date.now(), MAX = 180000; // 3min
+  while (Date.now() - t0 < MAX){
     const r = await fetch(resultUrl, { headers: { "Accept": "application/json" } });
     const t = await r.text();
     let data; try { data = JSON.parse(t); } catch { data = { raw: t }; }
 
     const status = String(data?.status || data?.state || '').toLowerCase();
-    if (DONE_STATES.has(status) || hasUsefulResult(data)) { final = data; break; }
+    if (DONE.has(status) || hasUseful(data)) { final = data; break; }
 
     await sleep(backoff);
     backoff = Math.min(5000, Math.round(backoff * 1.5));
@@ -296,14 +333,10 @@ async function startAsyncRun(job_title, payload){
 
   try { src.close(); } catch {}
 
-  if (!final) {
-    // Timeout/keine brauchbare Antwort – Info ausgeben
+  if (!final){
     const msg = "Kein finales Ergebnis innerhalb des Zeitlimits erhalten.";
-    if (window.renderers?.setFinalAnswer) {
-      window.renderers.setFinalAnswer(msg);
-    } else {
-      resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(msg)}</pre>`;
-    }
+    if (window.renderers?.setFinalAnswer) window.renderers.setFinalAnswer(msg);
+    else resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(msg)}</pre>`;
     if (jobLine) jobLine.textContent = "Abgebrochen (Timeout)";
     if (resultDiv) resultDiv.className = "error";
     return;
@@ -311,7 +344,7 @@ async function startAsyncRun(job_title, payload){
 
   // 4) Rendern
   const resultObj = final?.result && typeof final.result === 'object' ? final.result : final;
-  const answer    = resultObj?.answer || resultObj?.text || resultObj?.output || resultObj?.content || "";
+  const answer    = extractFinalAnswer(resultObj);
   const artifacts = resultObj?.artifacts || {};
   const sources   = resultObj?.sources || resultObj?.documents || [];
 
@@ -334,13 +367,13 @@ async function startAsyncRun(job_title, payload){
     resultOut.innerHTML = html;
     const pre = document.getElementById('answer-pre');
     const textOut = (typeof answer === 'string') ? answer : (()=>{ try { return JSON.stringify(answer, null, 2); } catch { return String(answer); } })();
-    pre.textContent = String(textOut || JSON.stringify(final, null, 2));
+    pre.textContent = String(textOut);
     document.getElementById('copy-answer')?.addEventListener('click', ()=>navigator.clipboard.writeText(pre.textContent||""));
     if (resultDiv) resultDiv.className = "success";
   }
-
   if (jobLine) jobLine.textContent = "Fertig.";
 }
+
 
 form?.addEventListener("submit", async function (e) {
   e.preventDefault();
