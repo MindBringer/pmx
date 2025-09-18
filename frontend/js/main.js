@@ -541,3 +541,4 @@ window.__uiMirror = {
   hideJobDual,
   showSpinnerDual,
 };
+import "../app.js";
