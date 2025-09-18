@@ -1,3 +1,4 @@
+import './js/ui/renderers.js';
 // DEBUG: wer bindet Listener auf submit/click?
 (function(){
   const orig = EventTarget.prototype.addEventListener;
@@ -919,11 +920,12 @@ async function handleAudioMeetingSubmit(e){
     if (window.renderers?.setAudioMeetingResult) {
       window.renderers.setAudioMeetingResult(data);
       if (uiBox) uiBox.className = "success upload-box";
-    } else {
-      const ans = data?.summary || data?.answer || data?.text || data?.transcript || txt;
-      if (uiOut) uiOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(String(ans))}</pre>`;
-      if (uiBox) uiBox.className = "success upload-box";
-    }
+      } else {
+        const ans = data?.summary || data?.answer || data?.text || data?.transcript || txt;
+        const ansStr = (typeof ans === 'string') ? ans : (()=>{ try { return JSON.stringify(ans, null, 2); } catch { return String(ans); } })();
+        if (uiOut) uiOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(ansStr)}</pre>`;
+        if (uiBox) uiBox.className = "success upload-box";
+      }
   } catch (err){
     if (uiOut) uiOut.textContent = `❌ Fehler: ${err.message}`;
     if (uiBox) uiBox.className = "error upload-box";

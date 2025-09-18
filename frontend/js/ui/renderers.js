@@ -349,6 +349,20 @@ export function clearResult(){
   }
 }
 
+function labelify(x){
+  if (x == null) return '';
+  if (typeof x === 'string') return x;
+  if (typeof x === 'object'){
+    return x.name || x.label || x.username || x.speaker || x.id || (()=>{ try { return JSON.stringify(x); } catch { return String(x); } })();
+  }
+  return String(x);
+}
+function textify(x){
+  if (x == null) return '';
+  if (typeof x === 'string') return x;
+  try { return JSON.stringify(x); } catch { return String(x); }
+}
+
 // ==============================
 // ui/renderers.js – hübsches Meeting-Rendering
 // ==============================
@@ -375,31 +389,36 @@ export function setAudioMeetingResult(payload){
   const hasSummary  = hasFlag(payload, 'summary',   !!summaryObj);
 
   // Hilfsrenderer
-  const renderSegments = (arr) => arr.length
-    ? `<div class="table">
-         <div class="tr th"><div>Start</div><div>Ende</div><div>Speaker</div><div>Text</div></div>
-         ${arr.map(s => `<div class="tr">
+const renderSegments = (arr) => arr.length
+  ? `<div class="table">
+       <div class="tr th"><div>Start</div><div>Ende</div><div>Speaker</div><div>Text</div></div>
+       ${arr.map(s => {
+         const who  = labelify(s?.speaker ?? s?.spk ?? s?.name ?? '');
+         const text = textify(typeof s?.text === 'string' ? s.text : (s?.utterance ?? s?.content ?? s?.text ?? ''));
+         return `<div class="tr">
            <div>${esc(s?.start ?? s?.from ?? '')}</div>
            <div>${esc(s?.end   ?? s?.to   ?? '')}</div>
-           <div>${esc(s?.speaker ?? s?.spk ?? '')}</div>
-           <div>${esc(typeof s?.text === 'string' ? s.text : (s?.utterance ?? ''))}</div>
-         </div>`).join('')}
-       </div>`
-    : '<div class="inline-help">–</div>';
+           <div>${esc(who)}</div>
+           <div>${esc(text)}</div>
+         </div>`;
+       }).join('')}
+     </div>`
+  : '<div class="inline-help">–</div>';
 
-  const renderShares = (arr) => arr.length
-    ? `<div class="shares">
-         ${arr.map(r => {
-           const pct = Number(r?.anteil_prozent ?? r?.percent ?? 0);
-           const w = Math.max(0, Math.min(100, Math.round(pct)));
-           return `<div class="share-row">
-             <div class="share-name">${esc(r?.name || r?.speaker || '')}</div>
-             <div class="share-bar"><i style="width:${w}%"></i></div>
-             <div class="share-pct">${w}%</div>
-           </div>`;
-         }).join('')}
-       </div>`
-    : '<div class="inline-help">–</div>';
+const renderShares = (arr) => arr.length
+  ? `<div class="shares">
+       ${arr.map(r => {
+         const pct = Number(r?.anteil_prozent ?? r?.percent ?? 0);
+         const w = Math.max(0, Math.min(100, Math.round(pct)));
+         const who = labelify(r?.name ?? r?.speaker ?? r?.spk ?? r);
+         return `<div class="share-row">
+           <div class="share-name">${esc(who)}</div>
+           <div class="share-bar"><i style="width:${w}%"></i></div>
+           <div class="share-pct">${w}%</div>
+         </div>`;
+       }).join('')}
+     </div>`
+  : '<div class="inline-help">–</div>';
 
   // Summary-Blöcke (wir nutzen setMeetingResult-Logik partiell)
   // Wir recyceln Teile aus setMeetingResult: TL;DR, Aktionen, Entscheidungen ...
