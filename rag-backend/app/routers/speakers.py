@@ -12,13 +12,23 @@ def get_speakers() -> List[Dict]:
 
 @router.post("/enroll")
 async def enroll(name: str = Form(...), file: UploadFile = File(...)) -> Dict:
+    tmp = None
     try:
-        tmp = tempfile.mktemp(suffix=os.path.splitext(file.filename)[-1])
-        with open(tmp, "wb") as f:
+        suffix = os.path.splitext(file.filename or "")[-1] or ".wav"
+        fd, tmp = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        return enroll_speaker(name=name, path=tmp)
+        await file.close()
+        res = enroll_speaker(name=name, path=tmp)
+        return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        try:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
 
 @router.delete("/{speaker_id}")
 def remove(speaker_id: str):
