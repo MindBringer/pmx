@@ -224,18 +224,18 @@ async function startAsyncRun(job_title, payload){
   payload.async = true;
   payload.title = job_title;
 
+  // 1) Start
   const res = await fetch("/webhook/llm", { method: "POST", headers, body: JSON.stringify(payload) });
   const ackText = await res.text();
   let ack = {};
   try { ack = JSON.parse(ackText.trim().replace(/^=\s*/, "")); } catch {}
-  console.debug("[ACK]", res.status, ackText);
+  if (!res.ok) throw new Error(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
 
   const jobId =
     ack.job_id ||
     (typeof ack.events === "string" && ack.events.match(/\/rag\/jobs\/([^/]+)/)?.[1]) ||
     (typeof ack.result === "string" && ack.result.match(/\/rag\/jobs\/([^/]+)/)?.[1]) || "";
-
-  if (!res.ok || !jobId) throw new Error(ack?.message || ack?.error || `Start fehlgeschlagen (${res.status})`);
+  if (!jobId) throw new Error("job_id fehlt im ACK");
 
   showJob(job_title || payload?.prompt || "Agentenlauf");
 
@@ -246,7 +246,7 @@ async function startAsyncRun(job_title, payload){
     catch { return false; }
   };
 
-  // 5) EventSource öffnen
+  // 2) SSE verbinden (Zwischenstände)
   const eventsUrl = looksOk(ack.events) ? ack.events : `/rag/jobs/${encodeURIComponent(jobId)}/events`;
   try { window.__es?.close(); } catch {}
   const src = new EventSource(eventsUrl, { withCredentials: true });
@@ -260,40 +260,68 @@ async function startAsyncRun(job_title, payload){
       const evt = JSON.parse(e.data);
       if (jobLine) jobLine.textContent = sseLabel(job_title, evt);
       if (evt.message) logJob(evt.message);
-      // hübsche Zwischenstände (falls Renderer verfügbar)
-      if (window.renderers?.appendSseEvent) {
-        window.renderers.appendSseEvent(job_title, evt);
-      }
+      if (window.renderers?.appendSseEvent) window.renderers.appendSseEvent(job_title, evt);
     } catch {
       logJob(String(e.data || 'Event ohne JSON'));
     }
   };
 
-  // 6) Ergebnis abholen & robust rendern
+  // 3) Ergebnis robust abholen (Polling bis "done")
   const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
-  const finalRes  = await fetch(resultUrl, { headers: { "Accept": "application/json" } });
-  const finalText = await finalRes.text();
-  let final; try { final = JSON.parse(finalText); } catch { final = { raw: finalText }; }
 
-  // Status robust auswerten
-  const status = String(final?.status || final?.state || '').toLowerCase();
-  const ok = finalRes.ok || ['done','completed','success','ok'].includes(status) || !!final?.result || final?.ok === true;
+  const DONE_STATES = new Set(['done','completed','complete','success','ok','finished']);
+  const hasUsefulResult = (d) => {
+    const r = (d && typeof d === 'object') ? (d.result ?? d) : {};
+    const val = r.answer ?? r.text ?? r.output ?? r.content;
+    return typeof val === 'string' ? val.trim().length > 0 : (val != null);
+  };
+  const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 
-  // Ergebnis-Objekt flexibel lesen
-  const resultObj  = final?.result && typeof final.result === 'object' ? final.result : final;
-  const answer     = resultObj?.answer || resultObj?.text || resultObj?.output || resultObj?.content || "";
-  const artifacts  = resultObj?.artifacts || {};
-  const sources    = resultObj?.sources || resultObj?.documents || [];
+  let backoff = 800, tries = 0, final = null;
+  const maxWaitMs = 900000; // 15 Minuten
+  const startTs = Date.now();
 
-  // Renderer bevorzugen
+  while (Date.now() - startTs < maxWaitMs){
+    tries++;
+    const r = await fetch(resultUrl, { headers: { "Accept": "application/json" } });
+    const t = await r.text();
+    let data; try { data = JSON.parse(t); } catch { data = { raw: t }; }
+
+    const status = String(data?.status || data?.state || '').toLowerCase();
+    if (DONE_STATES.has(status) || hasUsefulResult(data)) { final = data; break; }
+
+    await sleep(backoff);
+    backoff = Math.min(5000, Math.round(backoff * 1.5));
+  }
+
+  try { src.close(); } catch {}
+
+  if (!final) {
+    // Timeout/keine brauchbare Antwort – Info ausgeben
+    const msg = "Kein finales Ergebnis innerhalb des Zeitlimits erhalten.";
+    if (window.renderers?.setFinalAnswer) {
+      window.renderers.setFinalAnswer(msg);
+    } else {
+      resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(msg)}</pre>`;
+    }
+    if (jobLine) jobLine.textContent = "Abgebrochen (Timeout)";
+    if (resultDiv) resultDiv.className = "error";
+    return;
+  }
+
+  // 4) Rendern
+  const resultObj = final?.result && typeof final.result === 'object' ? final.result : final;
+  const answer    = resultObj?.answer || resultObj?.text || resultObj?.output || resultObj?.content || "";
+  const artifacts = resultObj?.artifacts || {};
+  const sources   = resultObj?.sources || resultObj?.documents || [];
+
   if (window.renderers?.setFinalAnswer){
     window.renderers.setFinalAnswer({ answer, sources, artifacts });
-    if (resultDiv) resultDiv.className = ok ? "success" : "error";
+    if (resultDiv) resultDiv.className = "success";
   } else {
-    // Fallback-Ausgabe
     let html = `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div>${ok ? '✅ Finale Antwort:' : 'ℹ️ Ergebnis'}</div>
+        <div>✅ Finale Antwort:</div>
         <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
       </div>
       <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
@@ -303,32 +331,15 @@ async function startAsyncRun(job_title, payload){
       html += `<div style="margin-top:12px;font-weight:700">Code</div>
                <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
     }
-    if (Array.isArray(artifacts?.files) && artifacts.files.length){
-      html += `<div style="margin-top:12px;font-weight:700">Dateien</div><ul>`;
-      html += artifacts.files.map(f=>{
-        if (f?.base64 && f?.name){
-          const mime = f.mime || 'application/octet-stream';
-          return `<li><a download="${escapeHtml(String(f.name))}" href="data:${mime};base64,${f.base64}">${escapeHtml(String(f.name))}</a></li>`;
-        }
-        if (f?.url && f?.name){
-          return `<li><a href="${escapeHtml(String(f.url))}" target="_blank" rel="noopener">${escapeHtml(String(f.name))}</a></li>`;
-        }
-        return `<li>${escapeHtml(String(f?.name || 'Datei'))}</li>`;
-      }).join('') + `</ul>`;
-    }
-
     resultOut.innerHTML = html;
     const pre = document.getElementById('answer-pre');
     const textOut = (typeof answer === 'string') ? answer : (()=>{ try { return JSON.stringify(answer, null, 2); } catch { return String(answer); } })();
-    pre.textContent = String(textOut || (final && !answer ? JSON.stringify(final, null, 2) : finalText));
-    document.getElementById('copy-answer')?.addEventListener('click', ()=>{
-      navigator.clipboard.writeText(pre.textContent||"");
-    });
-    if (resultDiv) resultDiv.className = ok ? "success" : "error";
+    pre.textContent = String(textOut || JSON.stringify(final, null, 2));
+    document.getElementById('copy-answer')?.addEventListener('click', ()=>navigator.clipboard.writeText(pre.textContent||""));
+    if (resultDiv) resultDiv.className = "success";
   }
 
-  if (jobLine) jobLine.textContent = ok ? "Fertig." : "Abgeschlossen (Status unbekannt)";
-  try { src.close(); } catch {}
+  if (jobLine) jobLine.textContent = "Fertig.";
 }
 
 form?.addEventListener("submit", async function (e) {
