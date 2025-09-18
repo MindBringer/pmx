@@ -33,6 +33,22 @@ server {
     return 301 /rag/;
   }
 
+  # --- SPEAKERS API -> rag-backend ---
+  location ^~ /speakers/ {
+    proxy_pass         http://127.0.0.1:8082;   # Pfad unverändert durchreichen
+    proxy_http_version 1.1;
+
+    proxy_set_header   Host               $host;
+    proxy_set_header   X-Real-IP          $remote_addr;
+    proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto  $scheme;
+
+    client_max_body_size 200m;
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+    proxy_connect_timeout 60s;
+  }
+
   # 1) ALLE Job-Routen (/rag/jobs und /rag/jobs/...) — Präfix NICHT strippen
   #    => KEIN trailing slash bei proxy_pass
   location ^~ /rag/jobs {
@@ -80,8 +96,20 @@ server {
     if ($request_method = OPTIONS) { add_header Content-Length 0; return 204; }
   }
 
+  # exakt /rag/speakers  -> /speakers
+  location = /rag/speakers {
+    proxy_pass         http://127.0.0.1:8082/speakers;
+    proxy_http_version 1.1;
+    proxy_set_header   Host               $host;
+    proxy_set_header   X-Real-IP          $remote_addr;
+    proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto  $scheme;
+  }
+
+  # Präfix /rag/speakers/...  -> /speakers/...
   location ^~ /rag/speakers/ {
-    proxy_pass         http://192.168.30.43:6080/speakers/;
+    rewrite ^/rag(/speakers/.*)$ $1 break;   # strippt /rag
+    proxy_pass         http://127.0.0.1:8082;
     proxy_http_version 1.1;
 
     proxy_set_header   Host               $host;
@@ -90,8 +118,8 @@ server {
     proxy_set_header   X-Forwarded-Proto  $scheme;
 
     proxy_read_timeout 600s;
-    proxy_connect_timeout 600s;
     proxy_send_timeout 600s;
+    proxy_connect_timeout 60s;
 
     # CORS optional
     add_header Access-Control-Allow-Origin  *;

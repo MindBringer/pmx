@@ -1,3 +1,18 @@
+// DEBUG: wer bindet Listener auf submit/click?
+(function(){
+  const orig = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function(type, listener, options){
+    if (type === 'submit' || type === 'click') {
+      try {
+        const id = (this.id ? '#'+this.id : this.tagName);
+        const line = (new Error()).stack.split('\n')[2]?.trim() || '';
+        console.log('[bind]', type, 'on', id, 'from', line);
+      } catch {}
+    }
+    return orig.call(this, type, listener, options);
+  };
+})();
+
 if (!window.__APP_BIND_ONCE__) { window.__APP_BIND_ONCE__ = true; }
 
 // Tabs
@@ -771,13 +786,26 @@ function getMeetingWebhook(){
   return v || "/summarize";
 }
 
-// Einmalige Bindungen
+// Einmalige Bindungen – capturing + hard stop gegen Doppel-Listener
 function bindOnce(el, evt, fn){
   if (!el) return;
   const key = `__bound_${evt}`;
   if (el.dataset[key] === "1") return;
   el.dataset[key] = "1";
-  el.addEventListener(evt, fn);
+
+  el.addEventListener(evt, (ev)=>{
+    // Wenn bereits im Submit -> alles andere abbrechen
+    if (el.dataset.submitting === "1") {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      return;
+    }
+    // Unser Handler soll exklusiv laufen
+    ev.preventDefault();
+    ev.stopPropagation();
+    ev.stopImmediatePropagation();
+    fn.call(el, ev);
+  }, { capture: true }); // <— capturing: wir sind als Erste dran
 }
 
 // Gemeinsamer Submit-Handler für Audio- und Meeting-Form
