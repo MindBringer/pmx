@@ -547,14 +547,6 @@ docsForm?.addEventListener("submit", async function (e) {
   }
 });
 
-// ---------- Sprecher Enrollment ----------
-const speakerForm    = document.getElementById("speaker-form");
-const speakerOutBox  = document.getElementById("speaker-result");
-const speakerOut     = document.getElementById("speaker-output");
-const speakerSpinner = document.getElementById("speaker-spinner");
-const speakerBtn     = document.getElementById("speaker-enroll-btn");
-const speakerRefresh = document.getElementById("speaker-refresh-btn");
-
 // ---------- Sprecher Enrollment & Listen (Docs + Settings) ----------
 const speakerForm          = document.getElementById("speaker-form");
 const speakerOutBox        = document.getElementById("speaker-result");
