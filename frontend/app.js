@@ -786,7 +786,7 @@ try {
   });
 } catch {}
 
-// Reihenfolge: explizit > window-Override > historischer Fallback > ganz alter Fallback
+// Reihenfolge: explizit (Inputfeld) > window-Override > Default
 function getMeetingWebhook(){
   const explicit = (document.getElementById('meetingWebhook')?.value || '').trim();
   if (explicit) return explicit;
@@ -795,10 +795,10 @@ function getMeetingWebhook(){
     return window.MEETING_HOOK.trim();
   }
 
-  // viele Setups hingen davor auf /webhook/summarize
-  return '/webhook/summarize'; // <- Hauptfallback
-  // wenn du WIRKLICH /summarize brauchst, ändere die Zeile oben auf '/summarize'
+  // ✅ Standard-Pfad laut deiner Angabe:
+  return '/webhook/meetings/summarize';
 }
+
 
 // Einmalige Bindungen – capturing + hard stop gegen Doppel-Listener
 function bindOnce(el, evt, fn){
@@ -822,7 +822,6 @@ function bindOnce(el, evt, fn){
   }, { capture: true }); // <— capturing: wir sind als Erste dran
 }
 
-// Gemeinsamer Submit-Handler für Audio- und Meeting-Form
 async function handleAudioMeetingSubmit(e){
   e.preventDefault();
 
@@ -832,9 +831,9 @@ async function handleAudioMeetingSubmit(e){
   if (formEl) formEl.dataset.submitting = "1";
 
   // Sichtbare UI-Elemente im DOCS/AUDIO Tab bevorzugen
-  const uiOut     = docsOut || resultOut;
-  const uiBox     = docsResBox || resultDiv;
-  const uiSpinner = docsSpinner || spinner;
+  const uiOut     = (document.getElementById('result-output-docs') || document.getElementById('result-output'));
+  const uiBox     = (document.getElementById('result-docs')        || document.getElementById('result'));
+  const uiSpinner = (document.getElementById('spinner-docs')       || document.getElementById('spinner'));
 
   const apiKey = document.getElementById("apiKey")?.value?.trim();
 
@@ -850,52 +849,73 @@ async function handleAudioMeetingSubmit(e){
     if (!file) throw new Error("Bitte eine Audio-Datei auswählen (oder Mikrofon aufnehmen).");
 
     // Flags & Optionen
-    const diarCk     = document.getElementById("doDiar") || document.getElementById("meetDiarize");
-    const identCk    = document.getElementById("doIdentify") || document.getElementById("meetIdentify");
-    const sumCk      = document.getElementById("audioSummarize"); // <— wichtig
+    const diarEl     = document.getElementById("doDiar") || document.getElementById("meetDiarize");
+    const identEl    = document.getElementById("doIdentify") || document.getElementById("meetIdentify");
+    const sumEl      = document.getElementById("audioSummarize");
     const hintsEl    = document.getElementById("speakerHints") || document.getElementById("meetSpeakerHints");
     const tagsStr    = (document.getElementById("audioTags")?.value || "").trim();
     const audioModel = (document.getElementById("audioModel")?.value || "").trim();
 
-    // Payload
-    const fd = new FormData();
-    fd.append("file", file);
-    if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
-    if (diarCk)  fd.append("diarize_flag", diarCk.checked ? "true" : "false");
-    if (identCk) fd.append("identify",     identCk.checked ? "true" : "false");
-    if (sumCk)   fd.append("summary",      sumCk.checked ? "true" : "false"); // <— mappt das UI-Flag
-    if (hintsEl && hintsEl.value.trim()) fd.append("speaker_hints", hintsEl.value.trim());
-    if (audioModel) fd.append("model", audioModel); // optional fürs Backend
+    const boolStr = (b)=> b ? 'true' : 'false';
+    const diar   = !!(diarEl && diarEl.checked);
+    const ident  = !!(identEl && identEl.checked);
+    const sum    = !!(sumEl && sumEl.checked);
 
-    // Anfrage
-    const reqId = (window.crypto?.randomUUID?.() || (Date.now()+"-"+Math.random()));
+    // Payload (mit Alias-Feldern, damit verschiedene Backends glücklich sind)
+    const fd = new FormData();
+    // Datei + Aliases
+    fd.append('file', file);
+    fd.append('audio', file);
+    fd.append('input', file);
+
+    // Flags (doppelt, verschiedene Namen)
+    fd.append('diarize_flag',      boolStr(diar));
+    fd.append('diarize',           boolStr(diar));
+    fd.append('identify',          boolStr(ident));
+    fd.append('speaker_identify',  boolStr(ident));
+    fd.append('summary',           boolStr(sum));
+    fd.append('summarize',         boolStr(sum));
+
+    // Immer Transkript zurückgeben (passt zu deiner Logik „nur transcribe“)
+    fd.append('transcribe', 'true');
+
+    if (hintsEl && hintsEl.value.trim()) fd.append('speaker_hints', hintsEl.value.trim());
+    if (audioModel) fd.append('model', audioModel);
+    if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
+
+    // Debug/Dedupe
+    const reqId = (crypto?.randomUUID?.() || (Date.now() + "-" + Math.random()));
     fd.append("request_id", String(reqId));
 
-    const headers = {};
-    if (apiKey) headers["x-api-key"] = apiKey;
-    headers["x-request-id"] = String(reqId);
+    const headers = { 'Accept': 'application/json', 'x-request-id': String(reqId) };
+    if (apiKey) headers['x-api-key'] = apiKey;
 
     const hook = getMeetingWebhook();
     const resp = await fetch(hook, { method: "POST", headers, body: fd });
     const txt  = await resp.text();
 
     if (!resp.ok) {
-      // 404/500 sauber im sichtbaren Bereich anzeigen
-      if (uiOut) uiOut.textContent = `❌ Fehler ${resp.status}: ${txt || 'Unbekannter Fehler'}`;
+      // 4xx/5xx sauber anzeigen (auch wenn HTML zurückkommt)
+      if (uiOut) {
+        const safe = escapeHtml(txt);
+        uiOut.innerHTML =
+          `<div class="inline-help">POST ${escapeHtml(hook)} · Request-ID: <code>${escapeHtml(String(reqId))}</code></div>
+           <pre class="prewrap mono">❌ Fehler ${resp.status}\n${safe}</pre>`;
+      }
       if (uiBox) uiBox.className = "error upload-box";
       return;
     }
 
     let data; try { data = JSON.parse(txt); } catch { data = { raw: txt }; }
 
-    // Flags (UI) in Response spiegeln, damit Renderer weiß, was angezeigt werden soll
+    // Flags (UI) in Response spiegeln -> dein Renderer entscheidet, was sichtbar ist
     data.flags = Object.assign({}, data.flags || {}, {
-      diarize:  !!(diarCk && diarCk.checked),
-      identify: !!(identCk && identCk.checked),
-      summary:  !!(sumCk && sumCk.checked),
+      diarize:  diar,
+      identify: ident,
+      summary:  sum,
     });
 
-    // Rendering – wenn dein Renderer existiert, nutz ihn, sonst Fallback
+    // Rendering – schöner Meeting-Renderer, sonst Fallback
     if (window.renderers?.setAudioMeetingResult) {
       window.renderers.setAudioMeetingResult(data);
       if (uiBox) uiBox.className = "success upload-box";
@@ -905,12 +925,8 @@ async function handleAudioMeetingSubmit(e){
       if (uiBox) uiBox.className = "success upload-box";
     }
   } catch (err){
-    if (docsOut || resultOut) {
-      (docsOut || resultOut).textContent = `❌ Fehler: ${err.message}`;
-    }
-    if (docsResBox || resultDiv) {
-      (docsResBox || resultDiv).className = "error upload-box";
-    }
+    if (uiOut) uiOut.textContent = `❌ Fehler: ${err.message}`;
+    if (uiBox) uiBox.className = "error upload-box";
   } finally {
     if (formEl) formEl.dataset.submitting = "0";
     hideSpinner();
