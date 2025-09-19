@@ -71,7 +71,7 @@ services:
     command:
       - --model=${VLLM_MODEL_ALLROUNDER}
       - --gpu-memory-utilization=${VLLM_GPU_UTIL:-0.6}
-      - --max-model-len=1400
+      - --max-model-len=4096
       - --max-num-batched-tokens 2048
       - --trust-remote-code
       - --download-dir=/models
