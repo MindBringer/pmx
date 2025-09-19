@@ -4,10 +4,11 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "meetings/upload",
+        "path": "meetings/summarize",
         "responseMode": "responseNode",
         "options": {
-          "binaryData": true
+          "binaryData": true,
+          "binaryPropertyName": "file"
         }
       },
       "id": "a305709e-1613-4891-8cd9-90139fde959d",
@@ -16,20 +17,20 @@
       "typeVersion": 1,
       "position": [
         0,
-        0
+        -624
       ],
       "webhookId": "meeting-upload"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://192.168.30.42/rag/transcribe",
+        "url": "http://192.168.30.43:6080/transcribe",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "x-api-key",
-              "value": "change-me"
+              "value": "={{ $json.api_key || 'change-me' }}"
             }
           ]
         },
@@ -41,18 +42,6 @@
               "parameterType": "formBinaryData",
               "name": "file",
               "inputDataFieldName": "file"
-            },
-            {
-              "name": "diarize_flag",
-              "value": "true"
-            },
-            {
-              "name": "identify",
-              "value": "true"
-            },
-            {
-              "name": "speaker_hints",
-              "value": "=={{json.speaker_hints}}"
             }
           ]
         },
@@ -69,8 +58,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        448,
-        0
+        672,
+        -560
       ]
     },
     {
@@ -82,61 +71,36 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1568,
-        0
+        4032,
+        -624
       ]
     },
     {
       "parameters": {
-        "jsCode": "const src = $binary.file || $binary.data ||\n  (Object.keys($binary||{}).length ? $binary[Object.keys($binary)[0]] : null);\nif (!src) throw new Error('Kein Binary-Upload gefunden. Erwarte Feld \"file\".');\n\nconst filename = src.fileName || $json.filename || 'meeting.m4a';\nconst mIso = filename.match(/\\d{4}-\\d{2}-\\d{2}/);\nconst mDe  = filename.match(/\\b(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})\\b/);\nlet meeting_date = mIso ? mIso[0]\n  : (mDe ? `${mDe[3]}-${String(mDe[2]).padStart(2,'0')}-${String(mDe[1]).padStart(2,'0')}`\n         : new Date().toISOString().slice(0,10));\n\nconst title = $json.title || `Vertriebssitzung ${meeting_date}`;\nconst meeting_id = ($json.meeting_id || `${meeting_date}-vertrieb`).toLowerCase();\nconst speaker_hints = ($json.speaker_hints || 'Jan (IT), Michael (GF)');\n\nreturn [{\n  json: { meeting_date, meeting_id, title, speaker_hints, filename },\n  binary: { file: src }   // <— WICHTIG: Originalobjekt durchreichen\n}];"
+        "mode": "runOnceForEachItem",
+        "jsCode": "// --- Dateiname -> Datum ---\nconst fn   = item.binary?.file?.fileName || item.json.filename || 'meeting.m4a';\nconst mIso = fn.match(/\\d{4}-\\d{2}-\\d{2}/);\nconst mDe  = fn.match(/\\b(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})\\b/);\nconst d    = mIso ? mIso[0]\n  : (mDe ? `${mDe[3]}-${String(mDe[2]).padStart(2,'0')}-${String(mDe[1]).padStart(2,'0')}`\n         : new Date().toISOString().slice(0,10));\n\n// --- Helper ---\nconst clean = v => String(v ?? '').replace(/\\r?\\n--?$/,'').replace(/\\r?\\n/g,'').trim();\nconst toBool = v => {\n  if (typeof v === 'boolean') return v;\n  const s = clean(v).toLowerCase();\n  return ['1','true','yes','on'].includes(s);\n};\n\n// --- Rohfelder säubern ---\nconst title          = clean(item.json.title);\nconst speaker_hints  = clean(item.json.speaker_hints);\nconst meeting_id_in  = clean(item.json.meeting_id);\nconst language       = clean(item.json.language);\nconst tags           = clean(item.json.tags);\nconst api_key        = clean(item.json.api_key);\n\n// Flags robust lesen (egal ob *_flag oder ohne _flag geschickt wurde)\nconst diarizeB    = toBool(item.json.diarize_flag   ?? item.json.diarize   ?? 'true');\nconst identifyB   = toBool(item.json.identify_flag  ?? item.json.identify  ?? 'true');\nconst summarizeB  = toBool(item.json.summarize_flag ?? item.json.summarize ?? 'true');\n\n// --- Endgültiges JSON (nur fertige Werte einsetzen) ---\nitem.json = {\n  meeting_id:     (meeting_id_in || `${d}-meeting`).toLowerCase(),\n  meeting_date:   d,\n  title:          title || `Sitzung ${d}`,\n\n  // echte Booleans für IF-Nodes\n  diarize_flag:   diarizeB,\n  identify_flag:  identifyB,\n  summarize_flag: summarizeB,\n\n  // optionale String-Spiegel für alte Nodes / Logging\n  diarize:        diarizeB   ? 'true' : 'false',\n  identify:       identifyB  ? 'true' : 'false',\n  summarize:      summarizeB ? 'true' : 'false',\n\n  // passthrough\n  speaker_hints,\n  language,\n  tags,\n  api_key,\n};\n\nreturn item;\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        224,
-        0
+        448,
+        -624
       ],
       "id": "e325b328-dcbb-48f0-94f3-e7e07522b2c4",
       "name": "Prepare Metadata"
     },
     {
       "parameters": {
-        "jsCode": "// Antwort von /rag/transcribe liegt in $json\nconst res = $json;\nconst fallback = res?.identify?.name || null;\n\n// Segmente säubern & Felder normalisieren\nconst segs = (res.segments || []).map(s => ({\n  start_ms: Number(s.start_ms || 0),\n  end_ms: Number(s.end_ms || 0),\n  text: String(s.text || '').trim(),\n  name: s.name || s.speaker || fallback || null\n})).filter(s => s.text);\n\n// Sprecherliste\nconst speakers = Array.from(new Set(segs.map(s => s.name).filter(Boolean)));\n\n// Meta aus \"Prepare Metadata\" holen\nconst meta = $item(0, 'Prepare Metadata').json;\n\nreturn [{\n  json: {\n    meeting: {\n      meeting_id: meta.meeting_id,\n      meeting_date: meta.meeting_date,\n      title: meta.title,\n      speakers\n    },\n    transcribe: {\n      text: String(res.text || '').trim(),\n      segments: segs,\n      identify: res.identify || null\n    },\n    speaker_hints: meta.speaker_hints\n  }\n}];\n"
+        "jsCode": "const data = $json; // kommt aus \"Normalize Segments\"\nconst t = data.transcribe;\n\n// Zeitformat MM:SS\nfunction mmss(ms){ const s=Math.max(0, Math.floor(ms/1000)); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }\n\n// Vollständiges Transkript mit Sprechern & Zeitstempeln für die LLM\nconst lines = (t.segments||[]).map(s => `[${mmss(s.start_ms)}-${mmss(s.end_ms)}] ${(s.name||'Unbekannt')}: ${s.text}`);\nconst transcript = lines.join('\\n');\n\nconst SYSTEM = `Du bist ein präziser Meeting-Analyst. Antworte ausschließlich als gültiges JSON mit genau diesen Schlüsseln:\n{\n  \"tldr\": [\"<max 5 Bulletpoints>\"],\n  \"entscheidungen\": [ { \"text\": \"...\", \"impact\": \"hoch|mittel|niedrig\" } ],\n  \"aktionen\": [ { \"owner\": \"<Name>\", \"task\": \"...\", \"due\": \"<YYYY-MM-DD oder leer>\" } ],\n  \"offene_fragen\": [ \"...\" ],\n  \"risiken\": [ \"...\" ],\n  \"zeitachse\": [ { \"from\": \"MM:SS\", \"to\": \"MM:SS\", \"topic\": \"...\" } ],\n  \"redeanteile\": [ { \"name\": \"<Name>\", \"sekunden\": <int>, \"anteil_prozent\": <float> } ]\n}\nRegeln: Nutze die gelieferten Sprechernamen exakt. Keine Halluzinationen. Keine zusätzlichen Felder.`;\n\nconst PROMPT = `Transkript mit Zeitstempeln und Sprechern:\n\n${transcript}\n\nErzeuge das JSON.`;\n\nconst VLLM_MODEL =\n  (typeof process !== 'undefined' && process.env.VLLM_MODEL_ALLROUNDER)\n    ? process.env.VLLM_MODEL_ALLROUNDER\n    : 'Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4'; // Fallback\n// Wir geben system/prompt PLUS die nötigen Daten für den Merge später zurück\nreturn [{\n  json: {\n    system: SYSTEM,\n    prompt: PROMPT,\n    transcribe: t,\n    meeting: data.meeting,\n\n    // >>> NEU: vLLM aktivieren\n    model: 'vllm',\n    vLLM_model: VLLM_MODEL,\n    // optional:\n    temperature: 0.2,\n    top_p: 0.9,\n    max_tokens: 1200\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        672,
-        0
-      ],
-      "id": "d5f5bbe6-551a-4968-9871-4d65b86248f5",
-      "name": "Normalize Segments"
-    },
-    {
-      "parameters": {
-        "jsCode": "const data = $json; // kommt aus \"Normalize Segments\"\nconst t = data.transcribe;\n\n// Zeitformat MM:SS\nfunction mmss(ms){ const s=Math.max(0, Math.floor(ms/1000)); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }\n\n// Vollständiges Transkript mit Sprechern & Zeitstempeln für die LLM\nconst lines = (t.segments||[]).map(s => `[${mmss(s.start_ms)}-${mmss(s.end_ms)}] ${(s.name||'Unbekannt')}: ${s.text}`);\nconst transcript = lines.join('\\n');\n\nconst SYSTEM = `Du bist ein präziser Meeting-Analyst. Antworte ausschließlich als gültiges JSON mit genau diesen Schlüsseln:\n{\n  \"tldr\": [\"<max 5 Bulletpoints>\"],\n  \"entscheidungen\": [ { \"text\": \"...\", \"impact\": \"hoch|mittel|niedrig\" } ],\n  \"aktionen\": [ { \"owner\": \"<Name>\", \"task\": \"...\", \"due\": \"<YYYY-MM-DD oder leer>\" } ],\n  \"offene_fragen\": [ \"...\" ],\n  \"risiken\": [ \"...\" ],\n  \"zeitachse\": [ { \"from\": \"MM:SS\", \"to\": \"MM:SS\", \"topic\": \"...\" } ],\n  \"redeanteile\": [ { \"name\": \"<Name>\", \"sekunden\": <int>, \"anteil_prozent\": <float> } ]\n}\nRegeln: Nutze die gelieferten Sprechernamen exakt. Keine Halluzinationen. Keine zusätzlichen Felder.`;\n\nconst PROMPT = `Transkript mit Zeitstempeln und Sprechern:\n\n${transcript}\n\nErzeuge das JSON.`;\n\n// Wir geben system/prompt PLUS die nötigen Daten für den Merge später zurück\nreturn [{\n  json: {\n    system: SYSTEM,\n    prompt: PROMPT,\n    transcribe: t,\n    meeting: data.meeting\n  }\n}];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        896,
-        0
+        3120,
+        -896
       ],
       "id": "f4e37e72-df00-48db-a30c-b830dcc0a067",
       "name": "Build Summary Prompt"
-    },
-    {
-      "parameters": {
-        "jsCode": "// 1) LLM-Response (dieser Node-Eingang)\nconst res = $json;\nlet summary;\n\ntry {\n  const rawText = (res.response ?? res.answer ?? '').toString()\n    .trim()\n    .replace(/^```(?:json)?/i,'')\n    .replace(/```$/,'')\n    .trim();\n\n  summary = JSON.parse(rawText);\n} catch (e) {\n  summary = { tldr: [], entscheidungen: [], aktionen: [], offene_fragen: [], risiken: [], zeitachse: [], redeanteile: [] };\n}\n\n// 2) Hole Transkript & Meeting-Meta aus \"Build Summary Prompt\"\nconst build = $item(0, 'Build Summary Prompt').json;\nconst transcribe = build.transcribe;\nconst meeting = build.meeting || {};\n\n// 3) Fallback: Redeanteile lokal berechnen, falls LLM nichts geliefert hat\nif (!Array.isArray(summary.redeanteile) || !summary.redeanteile.length) {\n  const agg = {};\n  for (const s of (transcribe.segments || [])) {\n    const n = s.name || 'Unbekannt';\n    agg[n] = (agg[n] || 0) + Math.max(0, (s.end_ms - s.start_ms));\n  }\n  const total = Object.values(agg).reduce((a,b)=>a+b,0) || 1;\n  summary.redeanteile = Object.entries(agg)\n    .sort((a,b)=>b[1]-a[1])\n    .map(([name,ms]) => ({ name, sekunden: Math.floor(ms/1000), anteil_prozent: Math.round((ms*100/total)*10)/10 }));\n}\n\n// 4) Finale Antwort (passt zu deiner Frontend-Logik)\nreturn [{\n  json: {\n    status: 'ok',\n    meeting,\n    transcribe,\n    summary\n  }\n}];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1344,
-        0
-      ],
-      "id": "2af58267-ca04-49cf-8d1a-aac6a7caff83",
-      "name": "Merge Output"
     },
     {
       "parameters": {
@@ -161,35 +125,402 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1120,
-        0
+        3344,
+        -896
       ],
       "id": "ecb51738-7141-4174-b9b3-5d7fda7a0f68",
       "name": "Call 'RAG Router V3'"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Purify Audio: extrahiere Datei UND Form-Felder aus einem multipart/form-data Body\n\n// Quelle bestimmen\nconst src =\n  (item.binary?.file?.mimeType === 'multipart/form-data') ? 'file' :\n  (item.binary?.data?.mimeType === 'multipart/form-data') ? 'data' :\n  null;\n\nif (!src) {\n  // Schon „sauber“? Dann nur zurückgeben.\n  return item;\n}\n\n// rohen multipart-Body holen\nconst mp = await this.helpers.getBinaryDataBuffer(0, src);\nconst s  = mp.toString('binary');\n\n// Boundary aus Header (falls vorhanden) oder aus Body\nconst ctHdr = (item.headers?.['content-type'] || item.json?.headers?.['content-type'] || '').toString();\nlet m = ctHdr.match(/boundary=([^\\s;]+)/i) || s.match(/^--([^\\r\\n]+)/);\nlet boundary = m ? (m[1].startsWith('--') ? m[1].slice(2) : m[1]) : null;\nif (!boundary) throw new Error('multipart boundary nicht gefunden');\n\nconst delim = `--${boundary}`;\nconst parts = s.split(delim).slice(1, -1); // ohne Präambel und Abschluss\n\nconst fields = {};\nfor (const p of parts) {\n  const idx = p.indexOf('\\r\\n\\r\\n');\n  if (idx < 0) continue;\n  const header = p.slice(0, idx);\n  let body    = p.slice(idx + 4);\n  // Body endet i.d.R. mit \"\\r\\n\"\n  if (body.endsWith('\\r\\n')) body = body.slice(0, -2);\n\n  const name = (header.match(/name=\"([^\"]+)\"/i) || [,''])[1];\n  const fn   = (header.match(/filename=\"([^\"]+)\"/i) || [,''])[1];\n  const ctp  = (header.match(/Content-Type:\\s*([^\\r\\n]+)/i) || [,'application/octet-stream'])[1].trim();\n\n  if (fn) {\n    // Datei-Part\n    const fileBuf = Buffer.from(body, 'binary');\n    item.binary = item.binary || {};\n    item.binary.file = {\n      data:     fileBuf.toString('base64'),\n      fileName: fn,\n      mimeType: ctp,\n    };\n  } else if (name) {\n    // normales Feld\n    fields[name] = body;\n  }\n}\n\n// Form-Felder in json mergen\nitem.json = { ...(item.json || {}), ...fields };\n\n// alten multipart-Blob entsorgen (nur falls es 'data' war)\nif (src === 'data') delete item.binary.data;\n\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -624
+      ],
+      "id": "bfc363a3-c589-4792-b37d-3c1b2202de06",
+      "name": "Purify Audio"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        960,
+        -624
+      ],
+      "id": "1afbc2bf-922a-408b-b856-c0653088cd7b",
+      "name": "Combine Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Output (nach Combine Data)\n// $json enthält Metadaten + die Transcribe-Response flach in einem Objekt\n\nconst meeting = {\n  meeting_id:  $json.meeting_id,\n  meeting_date:$json.meeting_date,\n  title:       $json.title,\n};\n\nconst text = String($json.text || '').trim();\n\nconst segsRaw = Array.isArray($json.segments) ? $json.segments : [];\nconst segs = segsRaw.map(s => ({\n  start_ms: Number(s.start_ms || 0),\n  end_ms:   Number(s.end_ms   || 0),\n  text:     String(s.text || '').trim(),\n  name:     s.name || s.speaker || ($json.identify?.name || null),\n})).filter(s => s.text);\n\nconst speakers = [...new Set(segs.map(s => s.name).filter(Boolean))];\n\nreturn [{\n  json: {\n    meeting,\n    speaker_hints: $json.speaker_hints || '',\n    flags: {\n      diarize_flag: $json.diarize_flag,\n      identify:     $json.identify_flag,   // BOOL-Flag separat von identify-Objekt\n    },\n    transcribe: {\n      text,\n      segments: segs,\n      identify: $json.identify || null,    // Objekt aus der API\n    },\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        -896
+      ],
+      "id": "70eae9d8-bd80-48e8-a281-9575b200b874",
+      "name": "Build Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Postprocess: LLM-Antwort + Build-Output zusammenführen + Normalisierung\n\nconst flat = $json;\n\n// 1) LLM-JSON sicher parsen\nlet summary;\ntry {\n  const raw = (flat.response ?? flat.answer ?? '').toString().trim()\n    .replace(/^```(?:json)?/i, '').replace(/```$/,'').trim();\n  summary = raw ? JSON.parse(raw) : {};\n} catch {\n  summary = { tldr: (flat.answer ?? flat.response ?? '').toString() };\n}\n\n// 2) meeting/transcribe + Fallbacks einsammeln (Merge-Node ODER Build Output ODER top-level)\nlet meeting    = flat.meeting    || {};\nlet transcribe = flat.transcribe || {};\n\nlet bo = {};\ntry { bo = $item(0, 'Build Output')?.json || {}; } catch {}\n\nif (!meeting.meeting_id) {\n  meeting = bo.meeting || meeting || {};\n}\n\n// ---- Normalisierung Transcript/Segmente aus allen möglichen Quellen ----\nfunction safeParseMaybeJson(v) {\n  if (typeof v !== 'string') return v;\n  const s = v.trim();\n  if (!(s.startsWith('{') || s.startsWith('['))) return v;\n  try { return JSON.parse(s); } catch { return v; }\n}\n\nconst txCandidates = [\n  transcribe?.text,\n  flat?.text,                  // häufig top-level\n  bo?.transcribe?.text,\n];\nconst segCandidates = [\n  transcribe?.segments,\n  flat?.segments,              // häufig top-level\n  bo?.transcribe?.segments,\n];\n\n// ggf. JSON-Strings in echte Arrays/Objekte wandeln\nlet tx  = txCandidates.find(v => v != null && v !== '') ?? '';\ntx = typeof tx === 'string' ? tx : String(tx ?? '');\n\nlet segs = segCandidates.find(v => v != null) ?? [];\nsegs = safeParseMaybeJson(segs);\nif (typeof segs === 'string') {\n  // manchmal kommt ein JSON-Array als String\n  try { segs = JSON.parse(segs); } catch { segs = []; }\n}\nif (!Array.isArray(segs)) segs = [];\n\n// transcribe-Objekt vervollständigen\ntranscribe = {\n  ...(bo.transcribe || {}),\n  ...(transcribe || {}),\n  text: tx,\n  segments: segs,\n};\n\n// 3) Redeanteile berechnen, wenn LLM nichts geliefert hat\nif (!Array.isArray(summary.redeanteile) || !summary.redeanteile.length) {\n  const agg = {};\n  for (const s of transcribe.segments || []) {\n    if (!s) continue;\n    const name = s.name ?? s.speaker ?? s.speaker_name ?? '';\n    if (!name) continue;\n    const start = (s.start_ms ?? (typeof s.start==='number' ? s.start*1000 : 0)) || 0;\n    const end   = (s.end_ms   ?? (typeof s.end==='number'   ? s.end*1000   : 0)) || 0;\n    const dur = Math.max(0, end - start);\n    agg[name] = (agg[name] || 0) + dur;\n  }\n  const tot = Object.values(agg).reduce((a,b)=>a+b,0) || 1;\n  summary.redeanteile = Object.entries(agg).map(([name,ms]) => ({\n    name,\n    sekunden: Math.round(ms/1000),\n    anteil_prozent: +(ms*100/tot).toFixed(1),\n  }));\n}\n\n// 4) Finale Rückgabe: transcript + segments auch top-level ausgeben\nreturn [{\n  json: {\n    meeting,\n    transcribe,\n    summary,\n    transcript: transcribe.text ?? '',\n    segments: transcribe.segments ?? [],\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        -624
+      ],
+      "id": "2af58267-ca04-49cf-8d1a-aac6a7caff83",
+      "name": "Postprocess"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7820cb7a-b803-4f64-b582-6dfe5b4c795c",
+              "leftValue": "={{ $json.diarize_flag }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1136,
+        -720
+      ],
+      "id": "e18e282f-d86e-4034-8613-7d229e0909ec",
+      "name": "Do Diarize?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.43:6080/diarize",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "sample_rate",
+              "value": "16000"
+            },
+            {
+              "name": "frame_ms",
+              "value": "30"
+            },
+            {
+              "name": "vad_aggr",
+              "value": "2"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        -896
+      ],
+      "id": "28d347ea-952e-4fe0-bcaf-82763e95ea48",
+      "name": "Diarize (/diarize)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2a3843b4-9551-4492-8e87-755af7a3ce9b",
+              "name": "diarize",
+              "value": "={ \"segments\": [] }",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1328,
+        -720
+      ],
+      "id": "fe529319-acff-4bd8-890d-434ff38f6902",
+      "name": "Set Empty Diarize"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1568,
+        -624
+      ],
+      "id": "fd991ea9-7e1d-4661-8c84-f52b74a7f9ce",
+      "name": "Merge Diarize"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7820cb7a-b803-4f64-b582-6dfe5b4c795c",
+              "leftValue": "={{ $json.identify_flag }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        -720
+      ],
+      "id": "1a9295c4-c35a-4cf7-9203-0d7fd348942f",
+      "name": "Do Identify?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inputs:\n//  - Input 0: Upload/Webhook (mit Binary)\n//  - Additional Input \"Merge Diarize\": JSON mit segments\n\nconst src = $input.first();            // Binary-Quelle\nconst bin = src.binary || {};\nconst binKeys = Object.keys(bin);\nif (binKeys.length === 0) {\n  throw new Error('Kein Binary in Input 0 gefunden.');\n}\nconst firstKey = binKeys[0];\nconst outBinary = { ...bin };\nif (firstKey !== 'file') outBinary.file = bin[firstKey];  // Spiegeln auf \"file\"\n\n// Segmente vom \"Merge Diarize\"\nconst dia = $item(0, 'Merge Diarize')?.json ?? {};\nconst diaSegs = Array.isArray(dia.segments) ? dia.segments : [];\n\n// Normalisieren\nconst norm = (v) => Math.round(Number(v ?? 0));\nconst segments = (diaSegs.length ? diaSegs : ($json.segments ?? []))\n  .map(s => ({\n    start_ms: norm(s.start_ms ?? s.from ?? s.start),\n    end_ms:   norm(s.end_ms   ?? s.to   ?? s.end),\n  }))\n  .filter(s => s.end_ms > s.start_ms);\n\n// Hints robust bauen (Array + CSV)\nconst hintsRaw = $json.speaker_hints ?? $json.hints ?? '';\nconst hintsArr = String(hintsRaw)\n  .split(',')\n  .map(s => s.trim())\n  .filter(Boolean);\nconst hintsCsv = hintsArr.join(',');\n\nreturn [{\n  json: {\n    // Für Server, der JSON im multipart erwartet:\n    segments,                                    // echtes Array\n    // Für Server, der Strings erwartet:\n    segments_json: JSON.stringify({ segments }), // Kompatibilität\n    hints: hintsArr,                             // Array\n    hints_csv: hintsCsv,                         // String-Variante\n    threshold: Number($json.threshold ?? 0.82),\n    top_k: Number($json.top_k ?? 3),\n    api_key: $json.api_key || 'change-me'\n  },\n  binary: outBinary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        -896
+      ],
+      "id": "3a92bef8-898b-4438-a662-c365bb199834",
+      "name": "Build Identify Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.43:6080/identify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "segments",
+              "value": "={{$json.segments_json}}"
+            },
+            {
+              "name": "hints",
+              "value": "={{$json.hints_csv}}"
+            },
+            {
+              "name": "threshold",
+              "value": "={{$json.threshold}}"
+            },
+            {
+              "name": "top_k",
+              "value": "={{$json.top_k}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        -896
+      ],
+      "id": "9b3e5ae0-1611-4d55-ac00-164e3cfabfbf",
+      "name": "Identify (/identify)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "781f3033-7b0f-4052-ab1b-4f7729e87580",
+              "name": "identify",
+              "value": "={ \"overall\": null, \"segments\": [], \"topk_overall\": [] }",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        -704
+      ],
+      "id": "171701b4-174f-40d4-95b4-c31df2f0d0f6",
+      "name": "Set Empty Identify"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2464,
+        -624
+      ],
+      "id": "19b7ce05-03a5-4e62-8464-b58933aae06b",
+      "name": "Merge Identify"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7820cb7a-b803-4f64-b582-6dfe5b4c795c",
+              "leftValue": "={{ $json.summarize_flag }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        -704
+      ],
+      "id": "dec01d01-93d6-4fa0-9578-60fe48de3f3d",
+      "name": "Do Summarize?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9b935083-37d0-4092-9d6b-09d7e5619441",
+              "name": "summary",
+              "value": "={\n  \"tldr\": [],\n  \"entscheidungen\": [],\n  \"aktionen\": [],\n  \"offene_fragen\": [],\n  \"risiken\": [],\n  \"zeitachse\": [],\n  \"redeanteile\": []\n}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3344,
+        -688
+      ],
+      "id": "cb13bcd4-0c42-42d4-af56-802d761b1de0",
+      "name": "Set Empty Summarize"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3584,
+        -624
+      ],
+      "id": "cd4cdf1c-2bfa-4ed2-a972-1c11661f8292",
+      "name": "Merge Summary"
     }
   ],
-  "pinData": {
-    "Prepare Metadata": [
-      {
-        "json": {
-          "name": "First item",
-          "code": 1
-        }
-      },
-      {
-        "json": {
-          "name": "Second item",
-          "code": 2
-        }
-      }
-    ]
-  },
+  "pinData": {},
   "connections": {
     "Webhook Start": {
       "main": [
         [
           {
-            "node": "Prepare Metadata",
+            "node": "Purify Audio",
             "type": "main",
             "index": 0
           }
@@ -203,6 +534,11 @@
             "node": "Transcribe (/rag/transcribe)",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -211,20 +547,9 @@
       "main": [
         [
           {
-            "node": "Normalize Segments",
+            "node": "Combine Data",
             "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalize Segments": {
-      "main": [
-        [
-          {
-            "node": "Build Summary Prompt",
-            "type": "main",
-            "index": 0
+            "index": 1
           }
         ]
       ]
@@ -240,7 +565,56 @@
         ]
       ]
     },
-    "Merge Output": {
+    "Call 'RAG Router V3'": {
+      "main": [
+        [
+          {
+            "node": "Merge Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Purify Audio": {
+      "main": [
+        [
+          {
+            "node": "Prepare Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Do Diarize?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Diarize",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Build Output": {
+      "main": [
+        [
+          {
+            "node": "Build Summary Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postprocess": {
       "main": [
         [
           {
@@ -251,11 +625,163 @@
         ]
       ]
     },
-    "Call 'RAG Router V3'": {
+    "Do Diarize?": {
       "main": [
         [
           {
-            "node": "Merge Output",
+            "node": "Diarize (/diarize)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Empty Diarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diarize (/diarize)": {
+      "main": [
+        [
+          {
+            "node": "Merge Diarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Empty Diarize": {
+      "main": [
+        [
+          {
+            "node": "Merge Diarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Diarize": {
+      "main": [
+        [
+          {
+            "node": "Do Identify?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Identify",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Do Identify?": {
+      "main": [
+        [
+          {
+            "node": "Build Identify Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Empty Identify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Identify Payload": {
+      "main": [
+        [
+          {
+            "node": "Identify (/identify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify (/identify)": {
+      "main": [
+        [
+          {
+            "node": "Merge Identify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Empty Identify": {
+      "main": [
+        [
+          {
+            "node": "Merge Identify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Identify": {
+      "main": [
+        [
+          {
+            "node": "Do Summarize?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Summary",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Do Summarize?": {
+      "main": [
+        [
+          {
+            "node": "Build Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Empty Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Empty Summarize": {
+      "main": [
+        [
+          {
+            "node": "Merge Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Summary": {
+      "main": [
+        [
+          {
+            "node": "Postprocess",
             "type": "main",
             "index": 0
           }
@@ -267,7 +793,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "527c6cae-4152-442b-941b-9c33d574ab78",
+  "versionId": "0476fc4e-3eed-4f55-9e6b-3bb1f46ca225",
   "meta": {
     "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
