@@ -45,6 +45,11 @@ services:
       - SPEAKER_COLLECTION=speakers
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:6080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
     networks: [ai-net]
 
@@ -70,6 +75,9 @@ services:
     volumes:
       - vllm-models:/models
       - vllm-cache:/root/.cache/huggingface
+    depends_on:
+      audio-api:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/models"]
       interval: 30s

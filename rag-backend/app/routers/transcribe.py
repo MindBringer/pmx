@@ -1,6 +1,7 @@
 # rag-backend/app/transcribe.py
 # transcribe.py — Variante A (robust, keine Hard-Cuts), FastAPI Router
 
+import logging
 import os
 import uuid
 import shutil
@@ -26,6 +27,16 @@ FFMPEG_BIN        = os.getenv("FFMPEG_BIN", "ffmpeg")
 
 # --------- FastAPI Router ----------
 router = APIRouter(prefix="/transcribe", tags=["audio"])
+
+logger = logging.getLogger(__name__)
+
+@router.on_event("startup")
+def preload_model() -> None:
+    """Ensure the Whisper model is loaded when the application starts."""
+    try:
+        get_model()
+    except Exception:  # pragma: no cover - logging of unexpected errors
+        logger.exception("Failed to preload Whisper model during startup")
 
 # Whisper Model warm halten (GPU spart massiv Zeit)
 _whisper_model: Optional[WhisperModel] = None
