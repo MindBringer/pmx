@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libsndfile1 \
     ffmpeg \
+    curl \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
