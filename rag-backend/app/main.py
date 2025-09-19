@@ -17,7 +17,7 @@ from .pipelines import (
 from app.routers.transcribe import router as transcribe_router
 from app.routers.diarize import router as diarize_router
 from app.routers.identify import router as identify_router
-from app.routers.speaker import router as speaker_router
+from app.routers.speakers import router as speaker_router
 from .jobs import router as jobs_router
 
 # -----------------------------
