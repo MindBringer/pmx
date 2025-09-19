@@ -375,7 +375,7 @@
               "inputDataFieldName": "file"
             },
             {
-              "name": "segments",
+              "name": "segments_json",
               "value": "={{$json.segments_json}}"
             },
             {
@@ -793,7 +793,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "0476fc4e-3eed-4f55-9e6b-3bb1f46ca225",
+  "versionId": "ea9813bb-5c32-4382-8cfe-2ae9076cd9b0",
   "meta": {
     "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
   },
