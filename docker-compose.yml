@@ -70,7 +70,7 @@ services:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}     # export HF_TOKEN=... (oder in .env)
     command:
       - --model=${VLLM_MODEL_ALLROUNDER}
-      - --gpu-memory-utilization=${VLLM_GPU_UTIL}
+      - --gpu-memory-utilization=${VLLM_GPU_UTIL:-0.5}
       - --max-model-len=2048
       - --trust-remote-code
       - --download-dir=/models
