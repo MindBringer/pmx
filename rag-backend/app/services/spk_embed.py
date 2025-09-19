@@ -9,7 +9,7 @@ from speechbrain.pretrained import EncoderClassifier
 # Eigener Schalter für das Speaker-Modul (überschreibt ggf. DEVICE):
 SPEAKER_DEVICE = os.getenv("SPEAKER_DEVICE", os.getenv("DEVICE", "cpu")).lower()
 SPEAKER_STORE = os.getenv("SPEAKER_STORE", "file").lower()      # "file" | "qdrant"
-SPEAKER_DIR = os.getenv("SPEAKER_DIR", "/data/speakers")        # nur für file-Store
+SPEAKER_DIR = os.getenv("SPEAKER_DIR", "/app/storage/speakers")        # nur für file-Store
 SPEAKER_COLLECTION = os.getenv("SPEAKER_COLLECTION", "pmx_speakers")
 SPEAKER_VEC_SIZE = int(os.getenv("SPEAKER_VEC_SIZE", "192"))    # ecapa-voxceleb ≈ 192
 SPEAKER_JSON = os.path.join(SPEAKER_DIR, "index.json")
