@@ -47,6 +47,8 @@ services:
       - SPEAKER_STORE=/app/storage/speakers
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - rag_storage:/app/storage
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:6080/health || curl -fsS http://localhost:6080/openapi.json >/dev/null"]
       interval: 10s
