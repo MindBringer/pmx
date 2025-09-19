@@ -20,7 +20,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 
 # ---- Konfig aus ENV ----
 FFMPEG_BIN            = os.getenv("FFMPEG_BIN", "ffmpeg")
-SPEAKER_STORE         = os.getenv("SPEAKER_STORE", "/data/speakers")  # Verzeichnis der enrollten Sprecher
+SPEAKER_STORE         = os.getenv("SPEAKER_STORE", "/app/storage/speakers")  # Verzeichnis der enrollten Sprecher
 SPEAKER_SIM_THRESHOLD = float(os.getenv("SPEAKER_SIM_THRESHOLD", "0.82"))  # Cosine-Similarity-Threshold (0..1)
 TOP_K_DEFAULT         = int(os.getenv("SPEAKER_TOP_K", "3"))
 DEVICE                = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")

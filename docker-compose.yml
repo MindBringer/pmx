@@ -44,6 +44,7 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - SPEAKER_COLLECTION=speakers
       - SPEAKER_DIR=/app/storage/speakers
+      - SPEAKER_STORE=/app/storage/speakers
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     healthcheck:
@@ -144,6 +145,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://192.168.30.43:11434}
       QDRANT_URL:      ${QDRANT_URL_SVC:-http://qdrant:6333}
       SPEAKER_DIR: /app/storage/speakers
+      SPEAKER_STORE: /app/storage/speakers
     ports: ["8082:8082"]
     # --- BASE: Named Volumes (robust, skriptunabhängig) ---
     volumes:
