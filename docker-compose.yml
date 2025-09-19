@@ -37,16 +37,19 @@ services:
     deploy: {}   # (kein Swarm nötig)
     gpus: all
     environment:
-      - DEVICE=cuda
+      #- DEVICE=cuda
+      - DEVICE=cpu
       - ASR_MODEL=small
-      - ASR_COMPUTE_TYPE=float16
+      #- ASR_COMPUTE_TYPE=float16
+      - ASR_COMPUTE_TYPE=int8
       - QDRANT_URL=${QDRANT_URL_AI:-http://192.168.30.42:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - SPEAKER_COLLECTION=speakers
       - SPEAKER_DIR=/app/storage/speakers
       - SPEAKER_STORE=/app/storage/speakers
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      #- NVIDIA_VISIBLE_DEVICES=all
+      #- NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - SPEAKER_DEVICE=cpu
     volumes:
       - rag_storage:/app/storage
     healthcheck:
