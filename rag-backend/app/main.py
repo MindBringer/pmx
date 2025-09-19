@@ -14,10 +14,10 @@ from .pipelines import (
     convert_bytes_to_documents,
 )
 
-from apps.routers.transcribe import router as transcribe_router
-from apps.routers.diarize import router as diarize_router
-from apps.routers.identify import router as identify_router
-from apps.routers.speaker import router as speaker_router
+from app.routers.transcribe import router as transcribe_router
+from app.routers.diarize import router as diarize_router
+from app.routers.identify import router as identify_router
+from app.routers.speaker import router as speaker_router
 from .jobs import router as jobs_router
 
 # -----------------------------
