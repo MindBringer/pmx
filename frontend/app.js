@@ -977,6 +977,12 @@ async function handleAudioMeetingSubmit(e){
     // Immer Transkript zurückgeben (passt zu deiner Logik „nur transcribe“)
     fd.append('transcribe', 'true');
 
+    const doSummary  = document.getElementById("audioSummarize");
+    const audioModel = document.getElementById("audioModel");
+
+    if (doSummary)  fd.append("summary", doSummary.checked ? "true" : "false");
+    if (audioModel) fd.append("model", audioModel.value || "");
+
     if (hintsEl && hintsEl.value.trim()) fd.append('speaker_hints', hintsEl.value.trim());
     if (audioModel) fd.append('model', audioModel);
     if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
