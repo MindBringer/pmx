@@ -72,8 +72,7 @@ services:
       - --model=${VLLM_MODEL_ALLROUNDER}
       - --gpu-memory-utilization=${VLLM_GPU_UTIL:-0.9}
       - --max-model-len=1536
-      - --kv-cache-dtype fp8
-      - --max-num-seqs 1
+      - --max-num-batched-tokens 2048
       - --trust-remote-code
       - --download-dir=/models
     volumes:
