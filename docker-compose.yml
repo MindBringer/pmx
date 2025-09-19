@@ -38,7 +38,7 @@ services:
     gpus: all
     environment:
       - DEVICE=cuda
-      - ASR_MODEL=medium
+      - ASR_MODEL=small
       - ASR_COMPUTE_TYPE=float16
       - QDRANT_URL=${QDRANT_URL_AI:-http://192.168.30.42:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
@@ -70,7 +70,7 @@ services:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}     # export HF_TOKEN=... (oder in .env)
     command:
       - --model=${VLLM_MODEL_ALLROUNDER}
-      - --gpu-memory-utilization=${VLLM_GPU_UTIL:-0.5}
+      - --gpu-memory-utilization=${VLLM_GPU_UTIL:-0.9}
       - --max-model-len=2048
       - --trust-remote-code
       - --download-dir=/models
