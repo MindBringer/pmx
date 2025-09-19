@@ -68,10 +68,11 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}     # export HF_TOKEN=... (oder in .env)
+      - PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
     command:
       - --model=${VLLM_MODEL_ALLROUNDER}
-      - --gpu-memory-utilization=${VLLM_GPU_UTIL:-0.9}
-      - --max-model-len=1536
+      - --gpu-memory-utilization=${VLLM_GPU_UTIL:0.6}
+      - --max-model-len=1400
       - --max-num-batched-tokens 2048
       - --trust-remote-code
       - --download-dir=/models
