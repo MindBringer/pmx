@@ -20,6 +20,14 @@ function pick(sources, keys) {
   return undefined;
 }
 
+function msToClock(ms){
+  if (ms == null || ms === '') return '';
+  const s  = Math.round(Number(ms) / 1000);
+  const m  = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return `${m}:${ss}`;
+}
+
 // ---- Unified getters for audio/meeting payloads ----
 function truthy(v) { return v === true || v === "true" || v === 1 || v === "1"; }
 function toArray(v) { return Array.isArray(v) ? v : (v==null || v==='' ? [] : [v]); }
@@ -385,7 +393,9 @@ export function setAudioMeetingResult(payload){
 
   // Flags: explizit aus payload.flags/options oder implizit über vorhandene Daten
   const hasDiarize  = hasFlag(payload, 'diarize',   segments.length > 0);
-  const hasIdentify = hasFlag(payload, 'identify',  shares.length   > 0);
+  const hasIdentify =
+    hasFlag(payload, 'identify', shares.length > 0 ||
+      segments.some(s => (s && (s.best || (Array.isArray(s.topk) && s.topk.length)))));
   const hasSummary  = hasFlag(payload, 'summary',   !!summaryObj);
 
   // Hilfsrenderer
@@ -393,18 +403,34 @@ const renderSegments = (arr) => arr.length
   ? `<div class="table">
        <div class="tr th"><div>Start</div><div>Ende</div><div>Speaker</div><div>Text</div></div>
        ${arr.map(s => {
-         const who  = labelify(s?.speaker ?? s?.spk ?? s?.name ?? '');
-         const text = textify(typeof s?.text === 'string' ? s.text : (s?.utterance ?? s?.content ?? s?.text ?? ''));
+         // Zeiten: akzeptiere start|from|start_ms etc.
+         const st = s?.start ?? s?.from ?? s?.start_ms ?? '';
+         const en = s?.end   ?? s?.to   ?? s?.end_ms   ?? '';
+
+         // Speaker: nimm explizit speaker/spk/name, sonst Identify: best.name oder topk[0].name
+         const who =
+           (s?.speaker ?? s?.spk ?? s?.name ??
+            (s?.best && (s.best.name || s.best.id)) ??
+            (Array.isArray(s?.topk) && s.topk[0] && (s.topk[0].name || s.topk[0].id)) ||
+            '');
+
+         // Text: klassisch oder Alternativen
+         const rawText = (typeof s?.text === 'string' ? s.text : (s?.utterance ?? s?.content ?? s?.transcript ?? ''));
+         const text = textify(rawText);
+
+         // schöne Zeitanzeige, aber ms unverändert falls schon Sekunden/Werte
+         const showStart = /_ms$/.test('start_ms') || String(st).match(/^\d+$/) ? msToClock(st) : st;
+         const showEnd   = /_ms$/.test('end_ms')   || String(en).match(/^\d+$/) ? msToClock(en) : en;
+
          return `<div class="tr">
-           <div>${esc(s?.start ?? s?.from ?? '')}</div>
-           <div>${esc(s?.end   ?? s?.to   ?? '')}</div>
-           <div>${esc(who)}</div>
+           <div>${esc(showStart)}</div>
+           <div>${esc(showEnd)}</div>
+           <div>${esc(labelify(who))}</div>
            <div>${esc(text)}</div>
          </div>`;
        }).join('')}
      </div>`
   : '<div class="inline-help">–</div>';
-
 const renderShares = (arr) => arr.length
   ? `<div class="shares">
        ${arr.map(r => {
