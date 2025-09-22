@@ -286,12 +286,22 @@ def identify_embedding_full(
             qfilter = None
             if hints:
                 qfilter = Filter(should=[FieldCondition(key="name", match=MatchAny(any=list(hints)))])
-            res = _qdrant.search(
-                collection_name=SPEAKER_COLLECTION,
-                query_vector=emb.tolist(),
-                limit=max(1, int(top_k)),
-                query_filter=qfilter,
-            )
+                res = _qdrant.search(
+                    collection_name=SPEAKER_COLLECTION,
+                    query_vector=emb.tolist(),
+                    limit=max(1, int(top_k)),
+                    query_filter=qfilter,
+                )
+
+                # ⬇️ Fallback: wenn mit Hints nichts gefunden wurde, nochmal ohne Filter suchen
+                if not res and qfilter is not None:
+                    res = _qdrant.search(
+                        collection_name=SPEAKER_COLLECTION,
+                        query_vector=emb.tolist(),
+                        limit=max(1, int(top_k)),
+                        query_filter=None,
+                    )
+
             for hit in res:
                 sid = str(hit.id)
                 nm = (hit.payload or {}).get("name") or _qdrant_name_by_id(sid)
