@@ -253,44 +253,95 @@ def load_embedding(spk_id: str) -> Optional[np.ndarray]:
     if not os.path.exists(npy): return None
     return np.load(npy)
 
-def identify_embedding(emb: np.ndarray, threshold: float = 0.25, hints: Optional[List[str]] = None) -> Tuple[Optional[str], float]:
+# --- NEU: Hilfsfunktion für Namensauflösung in Qdrant ---
+def _qdrant_name_by_id(spk_id: str) -> str:
+    qc = _get_qdrant()
+    if not qc:
+        return spk_id
+    try:
+        recs = qc.retrieve(collection_name=SPEAKER_COLLECTION, ids=[spk_id], with_payload=True)
+        if recs and recs[0].payload and recs[0].payload.get("name"):
+            return recs[0].payload["name"]
+    except Exception:
+        pass
+    return spk_id
+
+# --- NEU: Vollständige Identify-Variante mit Namen + TopK ---
+def identify_embedding_full(
+    emb: np.ndarray,
+    top_k: int = 3,
+    sim_threshold: float = 0.70,
+    hints: Optional[List[str]] = None,
+) -> Dict[str, object]:
     """
-    Return (speaker_name, distance) if match below threshold else (None, best_distance)
-    distance = 1 - cosine_similarity
+    Gibt {'best': {'id','name','similarity'}|None, 'topk': [..]} zurück.
+    similarity ist COSINE-Similarität in [0,1].
     """
-    # Qdrant-Suche
+    out = {"best": None, "topk": []}
+
+    # Qdrant-Variante
     if SPEAKER_STORE == "qdrant" and _get_qdrant():
         try:
             from qdrant_client.http.models import Filter, FieldCondition, MatchAny
             qfilter = None
             if hints:
                 qfilter = Filter(should=[FieldCondition(key="name", match=MatchAny(any=list(hints)))])
-            res = _qdrant.search(collection_name=SPEAKER_COLLECTION, query_vector=emb.tolist(), limit=1, query_filter=qfilter)
-            if res:
-                hit = res[0]
-                dist = float(1.0 - hit.score)  # COSINE -> similarity
-                name = (hit.payload or {}).get("name", "Unbekannt")
-                if dist <= threshold:
-                    return (name, dist)
-                return (None, dist)
+            res = _qdrant.search(
+                collection_name=SPEAKER_COLLECTION,
+                query_vector=emb.tolist(),
+                limit=max(1, int(top_k)),
+                query_filter=qfilter,
+            )
+            for hit in res:
+                sid = str(hit.id)
+                nm = (hit.payload or {}).get("name") or _qdrant_name_by_id(sid)
+                out["topk"].append({
+                    "id": sid,
+                    "name": nm,
+                    "similarity": float(hit.score),  # COSINE similarity
+                })
+            if out["topk"] and out["topk"][0]["similarity"] >= float(sim_threshold):
+                out["best"] = out["topk"][0]
+            return out
         except Exception as e:
             print(f"[spk] identify (qdrant) error: {e}")
 
-    # Fallback: brute-force File
+    # File-Store Fallback
     from numpy.linalg import norm
-    items = list_speakers()
+    items = list_speakers()  # [{'id','name'}, ...] aus JSON-Index
     if hints:
         items = [x for x in items if x.get("name") in hints or x.get("id") in hints]
-    if not items:
-        return (None, 1.0)
-    best_name, best_dist = None, 1.0
+    scored = []
     for it in items:
         ref = load_embedding(it["id"])
-        if ref is None: continue
+        if ref is None:
+            continue
         sim = float(np.dot(emb, ref) / (norm(emb) * norm(ref) + 1e-9))
-        dist = 1.0 - sim
-        if dist < best_dist:
-            best_dist, best_name = dist, it["name"]
-    if best_dist <= threshold:
-        return (best_name, best_dist)
-    return (None, best_dist)
+        scored.append({"id": it["id"], "name": it.get("name") or it["id"], "similarity": sim})
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    out["topk"] = scored[:max(1, int(top_k))]
+    if out["topk"] and out["topk"][0]["similarity"] >= float(sim_threshold):
+        out["best"] = out["topk"][0]
+    return out
+
+def identify_embedding(
+    emb: np.ndarray,
+    threshold: float = 0.25,
+    hints: Optional[List[str]] = None
+) -> Tuple[Optional[str], float]:
+    """
+    Rückgabe bleibt kompatibel:
+    (name|None, distance) mit distance = 1 - similarity.
+    threshold ist weiterhin eine DISTANZ-Schwelle (z. B. 0.25 ≙ sim>=0.75).
+    """
+    # distance-threshold -> similarity-threshold
+    sim_threshold = 1.0 - float(threshold)
+    res = identify_embedding_full(emb, top_k=3, sim_threshold=sim_threshold, hints=hints)
+    best = res.get("best")
+    if best:
+        return (best.get("name") or None, float(1.0 - best.get("similarity", 0.0)))
+    # kein Treffer: gib beste Distanz zurück, damit Aufrufer debuggen kann
+    topk = res.get("topk") or []
+    if topk:
+        return (None, float(1.0 - topk[0]["similarity"]))
+    return (None, 1.0)

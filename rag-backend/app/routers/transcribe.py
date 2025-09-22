@@ -123,6 +123,8 @@ async def transcribe_endpoint(
             wav_path,
             language=language or None,
             vad_filter=use_vad,
+            no_speech_threshold=0.8,
+            log_prob_threshold=-1.0,
             chunk_length=chunk_len if chunk_len > 0 else None,
             beam_size=ASR_BEAM_SIZE,
             temperature=0.0,
