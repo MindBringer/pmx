@@ -978,7 +978,6 @@ async function handleAudioMeetingSubmit(e){
     fd.append('transcribe', 'true');
 
     const doSummary  = document.getElementById("audioSummarize");
-    const audioModel = document.getElementById("audioModel");
 
     if (doSummary)  fd.append("summary", doSummary.checked ? "true" : "false");
 
