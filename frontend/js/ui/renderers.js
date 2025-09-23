@@ -394,43 +394,45 @@ export function setAudioMeetingResult(payload){
   // Flags: explizit aus payload.flags/options oder implizit über vorhandene Daten
   const hasDiarize  = hasFlag(payload, 'diarize',   segments.length > 0);
   const hasIdentify =
-    hasFlag(payload, 'identify', shares.length > 0 ||
-      segments.some(s => (s && (s.best || (Array.isArray(s.topk) && s.topk.length)))));
-  const hasSummary  = hasFlag(payload, 'summary',   !!summaryObj);
+    hasFlag(payload, 'identify',
+      shares.length > 0 ||
+      segments.some(s => s && (s.best || (Array.isArray(s.topk) && s.topk.length)))
+    );
 
   // Hilfsrenderer
-const renderSegments = (arr) => arr.length
-  ? `<div class="table">
-       <div class="tr th"><div>Start</div><div>Ende</div><div>Speaker</div><div>Text</div></div>
-       ${arr.map(s => {
-         // Zeiten: akzeptiere start|from|start_ms etc.
-         const st = s?.start ?? s?.from ?? s?.start_ms ?? '';
-         const en = s?.end   ?? s?.to   ?? s?.end_ms   ?? '';
+  const renderSegments = (arr) => arr.length
+    ? `<div class="table">
+        <div class="tr th"><div>Start</div><div>Ende</div><div>Speaker</div><div>Text</div></div>
+        ${arr.map(s => {
+          // Zeiten: akzeptiere start|from|start_ms etc.
+          const st = s?.start ?? s?.from ?? s?.start_ms ?? '';
+          const en = s?.end   ?? s?.to   ?? s?.end_ms   ?? '';
 
-         // Speaker: nimm explizit speaker/spk/name, sonst Identify: best.name oder topk[0].name
-         const who =
-           (s?.speaker ?? s?.spk ?? s?.name ??
-            (s?.best && (s.best.name || s.best.id)) ??
-            (Array.isArray(s?.topk) && s.topk[0] && (s.topk[0].name || s.topk[0].id)) ||
-            '');
+          // Speaker: explizite Felder, sonst Identify: best.name oder topk[0].name
+          const whoCandidate =
+            (s?.speaker ?? s?.spk ?? s?.name) ??
+            (s?.best ? (s.best.name ?? s.best.id) : undefined) ??
+            ((Array.isArray(s?.topk) && s.topk[0]) ? (s.topk[0].name ?? s.topk[0].id) : undefined) ??
+            '';
 
-         // Text: klassisch oder Alternativen
-         const rawText = (typeof s?.text === 'string' ? s.text : (s?.utterance ?? s?.content ?? s?.transcript ?? ''));
-         const text = textify(rawText);
+          // Text: klassisch oder Alternativen
+          const rawText = (typeof s?.text === 'string' ? s.text : (s?.utterance ?? s?.content ?? s?.transcript ?? ''));
+          const text = textify(rawText);
 
-         // schöne Zeitanzeige, aber ms unverändert falls schon Sekunden/Werte
-         const showStart = /_ms$/.test('start_ms') || String(st).match(/^\d+$/) ? msToClock(st) : st;
-         const showEnd   = /_ms$/.test('end_ms')   || String(en).match(/^\d+$/) ? msToClock(en) : en;
+          // ms oder schon formatiert? → wenn numerisch, als ms behandeln
+          const nSt = Number(st), nEn = Number(en);
+          const showStart = Number.isFinite(nSt) ? msToClock(nSt) : st;
+          const showEnd   = Number.isFinite(nEn) ? msToClock(nEn) : en;
 
-         return `<div class="tr">
-           <div>${esc(showStart)}</div>
-           <div>${esc(showEnd)}</div>
-           <div>${esc(labelify(who))}</div>
-           <div>${esc(text)}</div>
-         </div>`;
-       }).join('')}
-     </div>`
-  : '<div class="inline-help">–</div>';
+          return `<div class="tr">
+            <div>${esc(showStart)}</div>
+            <div>${esc(showEnd)}</div>
+            <div>${esc(labelify(whoCandidate))}</div>
+            <div>${esc(text)}</div>
+          </div>`;
+        }).join('')}
+      </div>`
+    : '<div class="inline-help">–</div>';
 const renderShares = (arr) => arr.length
   ? `<div class="shares">
        ${arr.map(r => {
