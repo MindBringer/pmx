@@ -398,6 +398,7 @@ export function setAudioMeetingResult(payload){
       shares.length > 0 ||
       segments.some(s => s && (s.best || (Array.isArray(s.topk) && s.topk.length)))
     );
+  const hasSummary  = hasFlag(payload, 'summary',   !!summaryObj);
 
   // Hilfsrenderer
   const renderSegments = (arr) => arr.length
