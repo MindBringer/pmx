@@ -279,7 +279,6 @@ class QdrantSpeakerDB(BaseStore):
                 collection_name=self.collection,
                 query_vector=q_emb.tolist(),
                 limit=max(1, int(top_k)),
-                # Query-Filter ggf. in identify_endpoint gesetzt (Hints)
             )
             out: List[Dict] = []
             for hit in res:
@@ -405,6 +404,65 @@ def identify_health():
         }
     except Exception as e:
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
+
+# =========================
+# Redeanteile Utilities (NEU)
+# =========================
+def _normalize_percents(items: List[Dict], key: str = "percent", target: float = 100.0) -> List[Dict]:
+    """Skaliert Prozentwerte so, dass die Summe exakt 'target' ergibt."""
+    s = sum(float(x.get(key, 0.0)) for x in items)
+    if s <= 0:
+        return items
+    scale = target / s
+    for x in items:
+        x[key] = float(x.get(key, 0.0)) * scale
+    total = sum(x[key] for x in items)
+    if abs(total - target) > 1e-6:
+        diff = target - total
+        items.sort(key=lambda z: z[key], reverse=True)
+        items[0][key] += diff
+    return items
+
+def _calc_speaking_shares(seg_results: List[Dict], file_duration_ms: Optional[int] = None) -> List[Dict]:
+    """
+    Erwartet seg_results: [{start_ms, end_ms, best|None, ...}, ...]
+    Gibt Liste [{name, ms, percent}] zurück, auf 100% normiert.
+    """
+    buckets: Dict[str, int] = {}
+    total_ms = 0
+    unknown_ms = 0
+
+    for s in seg_results or []:
+        try:
+            st = int(s.get("start_ms", 0))
+            en = int(s.get("end_ms", 0))
+        except Exception:
+            st, en = 0, 0
+        dur = max(0, en - st)
+        total_ms += dur
+
+        best = s.get("best") or {}
+        name = (best.get("name") or "").strip() if isinstance(best, dict) else ""
+        if not name:
+            unknown_ms += dur
+            name = None
+
+        key = name if (name and isinstance(name, str)) else "Unbekannt"
+        buckets[key] = buckets.get(key, 0) + dur
+
+    if total_ms <= 0 and file_duration_ms:
+        total_ms = int(file_duration_ms)
+
+    shares: List[Dict] = []
+    for name, ms in buckets.items():
+        pct = 0.0 if total_ms <= 0 else (ms / float(total_ms)) * 100.0
+        shares.append({"name": name, "ms": int(ms), "percent": pct})
+
+    shares.sort(key=lambda x: x["ms"], reverse=True)
+    _normalize_percents(shares, key="percent", target=100.0)
+    for x in shares:
+        x["percent"] = round(x["percent"], 1)
+    return shares
 
 # =========================
 # Endpoint
@@ -536,32 +594,14 @@ async def identify_endpoint(
             st = int(seg.get("start_ms", 0))
             en = int(seg.get("end_ms", 0))
             dur = max(0, en - st)
-            who = _seg_speaker_name(seg)
+            who = _seg_speaker_name(seg) or "Unbekannt"
             seg_out = dict(seg)
-            if who is not None:
-                seg_out["speaker"] = who
+            seg_out["speaker"] = who
             seg_out["duration_ms"] = dur
             enriched_segments.append(seg_out)
 
-        dur_by_speaker: Dict[str, int] = {}
-        total_ms = 0
-        for s in enriched_segments:
-            ms = int(s.get("duration_ms", 0))
-            if ms <= 0:
-                continue
-            total_ms += ms
-            who = s.get("speaker") or "unbekannt"
-            dur_by_speaker[who] = dur_by_speaker.get(who, 0) + ms
-
-        speaking_shares: List[Dict] = []
-        if total_ms > 0:
-            for who, ms in dur_by_speaker.items():
-                speaking_shares.append({
-                    "name": who,
-                    "percent": (ms / total_ms) * 100.0,
-                    "ms": ms,
-                })
-            speaking_shares.sort(key=lambda x: x["percent"], reverse=True)
+        # Redeanteile exakt auf 100% normiert berechnen
+        speaking_shares = _calc_speaking_shares(enriched_segments, file_duration_ms=dur_ms)
 
         out = {
             "file_duration_ms": dur_ms,
