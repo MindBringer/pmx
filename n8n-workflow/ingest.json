@@ -1,0 +1,264 @@
+{
+  "name": "Ingest → Map-Reduce → Qdrant",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ingest",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "Flow gestartet. Ergebnis wird am Ende zurückgegeben."
+        }
+      },
+      "id": "WebhookStart",
+      "name": "Webhook Start (POST /webhook/ingest)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 320]
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Init & Defaults: erzeugt doc_id (falls fehlt), normalisiert Tags, setzt MIME & Kind */\nfunction uuid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){ const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8); return v.toString(16);}); }\nconst inp = $json;\nconst kind = String(inp.kind || (inp.segments ? 'audio' : 'document') || 'text').toLowerCase();\nconst lang = String(inp.language || '').toLowerCase() || 'de';\nconst tags = Array.isArray(inp.tags) ? inp.tags : (String(inp.tags||'').trim()? String(inp.tags).split(',').map(s=>s.trim()).filter(Boolean): []);\nreturn [{ json: {\n  kind,\n  language: lang,\n  title: inp.title || 'Untitled',\n  project: inp.project || 'pmx',\n  tags,\n  doc_id: inp.doc_id || uuid(),\n  file_id: inp.file_id || '',\n  source_url: inp.source_url || '',\n  mime: inp.mime || (kind==='audio'?'audio/unknown': 'text/plain'),\n  duration_ms: inp.duration_ms || null,\n  text: inp.text || '',\n  segments: Array.isArray(inp.segments)? inp.segments: [],\n  matches: Array.isArray(inp.matches)? inp.matches: []\n}}];"
+      },
+      "id": "Init",
+      "name": "Function • Init",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [540, 320]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "operation": "equal",
+              "value1": "={{$json.kind}}",
+              "value2": "audio"
+            },
+            {
+              "operation": "equal",
+              "value1": "={{$json.kind}}",
+              "value2": "document"
+            }
+          ]
+        }
+      },
+      "id": "SwitchKind",
+      "name": "Switch • kind",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [760, 320]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Chunker (Transcript + Speakers)\nconst CHARS_PER_CHUNK = 12000;\nconst OVERLAP = 1500;\nfunction normalizeStr(s){return String(s??'').replace(/\\r\\n/g,'\\n').trim();}\nfunction speakersForRange(matches, fromMs, toMs){ const names=new Set(); const minOverlap=500; for(const m of (matches||[])){ const a1=Number(m.from_ms||m.start_ms||0); const a2=Number(m.to_ms||m.end_ms||0); const inter=Math.min(a2,toMs)-Math.max(a1,fromMs); if(inter>=minOverlap){ if(m.name) names.add(String(m.name)); else if(m.spk_id) names.add(String(m.spk_id)); } } return Array.from(names); }\nfunction concatSegments(segments, fromIdx, uptoLen){ let txt=''; let endIdx=fromIdx; let startMs=segments[fromIdx]?.start_ms??0; let endMs=startMs; while(endIdx<segments.length && txt.length<uptoLen){ const s=segments[endIdx]; const piece=(txt?' ':'')+(s.text||'').trim(); txt+=piece; endMs=s.end_ms??endMs; endIdx++; } return { txt: txt.trim(), endIdx, startMs, endMs }; }\nconst input=$json; const segments=Array.isArray(input.segments)? input.segments:[]; const idMatches=Array.isArray(input.matches)? input.matches:[]; const meta={ title: input.title||'', project: input.project||'', tags: Array.isArray(input.tags)? input.tags:[], language: input.language||'', doc_id: input.doc_id||'', file_id: input.file_id||'', mime: input.mime||'audio/wav', source_url: input.source_url||'', duration_ms: input.duration_ms||null };\nconst out=[]; let i=0; while(i<segments.length){ const {txt,endIdx,startMs,endMs}=concatSegments(segments,i,CHARS_PER_CHUNK); if(!txt) break; let backChars=OVERLAP; let j=endIdx-1; while(j>i && backChars>0){ const slen=((segments[j].text||'').length+1); backChars-=slen; j--; } const nextI=Math.max(i+1, j+1); const speakerList=speakersForRange(idMatches,startMs,endMs); out.push({ json: { ...meta, chunk_idx: out.length, text: txt, start_ms: startMs, end_ms: endMs, speakers: speakerList, type:'chunk' } }); i=nextI; }\nreturn out;"
+      },
+      "id": "ChunkerAudio",
+      "name": "Function • Chunker (Transcript+Speakers)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Chunker (Docs/Text)\nconst CHARS_PER_CHUNK = 12000;\nconst OVERLAP = 1500;\nfunction normalizeStr(s){return String(s??'').replace(/\\r\\n/g,'\\n').trim();}\nfunction buildChunks(text){ const paras=normalizeStr(text).split(/\\n{2,}/); const chunks=[]; let buf=''; let startIdx=0; for(let i=0;i<paras.length;i++){ const p=paras[i].trim(); if(!p) continue; if(p.length>CHARS_PER_CHUNK){ let s=0; while(s<p.length){ const e=Math.min(s+CHARS_PER_CHUNK, p.length); const piece=p.slice(s,e); if(buf.length){ chunks.push({text:buf,char_from:startIdx,char_to:startIdx+buf.length}); const ov=buf.slice(-OVERLAP); buf=ov+piece; startIdx=startIdx+buf.length-piece.length; } else { buf=piece; startIdx=0; } if(buf.length>=CHARS_PER_CHUNK){ chunks.push({text:buf,char_from:startIdx,char_to:startIdx+buf.length}); buf=buf.slice(-OVERLAP); startIdx=Math.max(0, startIdx+(CHARS_PER_CHUNK-OVERLAP)); } s=e; } continue; }\n const add=(buf?'\\n\\n':'')+p; if((buf+add).length>=CHARS_PER_CHUNK){ chunks.push({text:buf,char_from:startIdx,char_to:startIdx+buf.length}); const ov=buf.slice(-OVERLAP); buf=ov+p; startIdx=Math.max(0, startIdx+(CHARS_PER_CHUNK-OVERLAP)); } else { buf+=add; } }\n if(buf.trim().length){ chunks.push({text:buf,char_from:startIdx,char_to:startIdx+buf.length}); }\n return chunks.map((c,i)=>({chunk_idx:i, ...c})); }\nconst input=$json; const text=normalizeStr(input.text||''); const meta={ title: input.title||'', project: input.project||'', tags: Array.isArray(input.tags)? input.tags:[], language: input.language||'', doc_id: input.doc_id||'', file_id: input.file_id||'', mime: input.mime||'text/plain', source_url: input.source_url||'' };\nreturn buildChunks(text).map(c=>({ json: { ...meta, ...c, type:'chunk' } }));"
+      },
+      "id": "ChunkerDocs",
+      "name": "Function • Chunker (Docs/Text)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1000, 440]
+    },
+    {
+      "parameters": {
+        "batchSize": 6
+      },
+      "id": "SplitBatches",
+      "name": "Split in Batches (Map)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [1220, 320]
+    },
+    {
+      "parameters": {
+        "workflowId": "LLM-Map via RAG Router",
+        "options": {}
+      },
+      "id": "ExecMap",
+      "name": "Execute Workflow • LLM-Map",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1440, 320]
+    },
+    {
+      "parameters": {
+        "functionCode": "// robustes Parsen der Map-Antwort (Bullets)\nconst base = $json;\nconst chunkIdx = base.chunk_idx ?? 0;\nconst txt = String(base.text ?? base.output ?? '').trim();\nconst lines = txt.split(/\\r?\\n/).map(l=>l.trim()).filter(l=>/^[-•]\\s+/.test(l)).map(l=>l.replace(/^[-•]\\s+/, '').trim()).filter(Boolean);\nreturn [{ json: { chunk_idx: chunkIdx, map_summary: lines, title: base.title, project: base.project, tags: base.tags } }];"
+      },
+      "id": "ParseMap",
+      "name": "Function • Parse Map Bullets",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1660, 320]
+    },
+    {
+      "parameters": {
+        "functionCode": "// sammelt alle Map-Summaries auf einen Item\nconst all = items.map(it=>it.json);\nconst sorted = all.sort((a,b)=> (a.chunk_idx??0)-(b.chunk_idx??0));\nconst joined = sorted.map(x=> (Array.isArray(x.map_summary)? x.map_summary:[]).map(s=>`- ${s}`).join('\\n'));\nconst meta = $input.first().json;\nreturn [{ json: { title: meta.title||'', project: meta.project||'', tags: Array.isArray(meta.tags)? meta.tags:[], map_summaries: joined } }];"
+      },
+      "id": "CollectReduce",
+      "name": "Function • Collect Map Summaries",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1880, 320]
+    },
+    {
+      "parameters": {
+        "workflowId": "LLM-Reduce via RAG Router",
+        "options": {}
+      },
+      "id": "ExecReduce",
+      "name": "Execute Workflow • LLM-Reduce",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [2100, 320]
+    },
+    {
+      "parameters": {
+        "functionCode": "// TL;DR + Titel → Source-Embedding-Text vorbereiten\nconst base = $items(\"Init\", 0, 1)[0].json;\nconst reduce = $json.final_summary || String($json.text||'');\nconst tldrMatch = String(reduce).match(/(?<=TL;DR\\s*:).*/i);\nconst tldr = tldrMatch ? tldrMatch[0].trim() : String(reduce).slice(0, 500);\nreturn [{ json: { source_embed_text: `${base.title} — ${tldr}`, title: base.title, project: base.project, tags: base.tags, language: base.language, doc_id: base.doc_id, file_id: base.file_id, source_url: base.source_url, mime: base.mime, duration_ms: base.duration_ms, has_speakers: (base.kind==='audio') } }];"
+      },
+      "id": "BuildSourceEmbedText",
+      "name": "Function • Build Source Embed Text",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2320, 180]
+    },
+    {
+      "parameters": {
+        "url": "http://rag-backend:8082/embed",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={ { \"texts\": [ $json.source_embed_text ] } }"
+      },
+      "id": "EmbedSource",
+      "name": "HTTP • /embed (Source)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2540, 180]
+    },
+    {
+      "parameters": {
+        "functionCode": "// build Qdrant source point\nconst base = $items(\"Init\", 0, 1)[0].json;\nconst vec = ($json.vectors && $json.vectors[0]) || ($json.data && $json.data[0]);\nreturn [{ json: {\n  points: [{\n    id: `doc_${base.doc_id}#source`,\n    vector: vec,\n    payload: {\n      type: 'source', doc_id: base.doc_id, title: base.title, project: base.project, tags: base.tags,\n      language: base.language, source_url: base.source_url, mime: base.mime,\n      duration_ms: base.duration_ms, raw_text_len: (String($items(\"Init\",0,1)[0].json.text||'').length||null), has_speakers: (base.kind==='audio')\n    }\n  }]\n}}];"
+      },
+      "id": "BuildSourcePoint",
+      "name": "Function • Build Qdrant Point (Source)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2760, 180]
+    },
+    {
+      "parameters": {
+        "url": "http://rag-backend:8082/qdrant/upsert",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={{$json}}"
+      },
+      "id": "UpsertSource",
+      "name": "HTTP • /qdrant/upsert (Source)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2980, 180]
+    },
+    {
+      "parameters": {
+        "functionCode": "// bereite Batch-Embeddings für Chunks vor (Texts + Meta)\nconst CHUNK_START = $items(\"ChunkerAudio\").length ? $items(\"ChunkerAudio\") : $items(\"ChunkerDocs\");\nconst chunks = CHUNK_START.map(it=>it.json);\nconst BATCH_SIZE = 16;\nconst batches = [];\nfor (let i=0;i<chunks.length;i+=BATCH_SIZE){ const part = chunks.slice(i,i+BATCH_SIZE); batches.push({ texts: part.map(p=>p.text), meta: part }); }\nreturn batches.map(b=>({ json: b }));"
+      },
+      "id": "PrepareEmbedBatches",
+      "name": "Function • Prepare Embed Batches (Chunks)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2320, 460]
+    },
+    {
+      "parameters": {
+        "url": "http://rag-backend:8082/embed",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={{ {\"texts\": $json.texts } }}"
+      },
+      "id": "EmbedChunks",
+      "name": "HTTP • /embed (Chunks)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2540, 460]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build Qdrant points for chunks\nconst vectors = $json.vectors || $json.data || [];\nconst metaArr = $json.meta || [];\nif (vectors.length !== metaArr.length) throw new Error(`vectors (${vectors.length}) != meta (${metaArr.length})`);\nconst points = [];\nfor (let i=0;i<vectors.length;i++){\n  const m = metaArr[i];\n  const payload = {\n    type: 'chunk', doc_id: m.doc_id, chunk_idx: m.chunk_idx,\n    title: m.title||'', project: m.project||'', tags: Array.isArray(m.tags)? m.tags: [],\n    language: m.language||'', source_url: m.source_url||'', mime: m.mime||'', text: m.text||''\n  };\n  if (m.start_ms!=null) payload.start_ms = m.start_ms;\n  if (m.end_ms!=null) payload.end_ms = m.end_ms;\n  if (Array.isArray(m.speakers)) payload.speakers = m.speakers;\n  if (m.page_from!=null) payload.page_from = m.page_from;\n  if (m.page_to!=null) payload.page_to = m.page_to;\n  if (m.sheet) payload.sheet = m.sheet;\n  if (m.row_range) payload.row_range = m.row_range;\n  points.push({ id: `doc_${m.doc_id}#ch_${m.chunk_idx}`, vector: vectors[i], payload });\n}\nreturn [{ json: { points } }];"
+      },
+      "id": "BuildChunkPoints",
+      "name": "Function • Build Qdrant Points (Chunks)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2760, 460]
+    },
+    {
+      "parameters": {
+        "url": "http://rag-backend:8082/qdrant/upsert",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={{$json}}"
+      },
+      "id": "UpsertChunks",
+      "name": "HTTP • /qdrant/upsert (Chunks)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2980, 460]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{ {\"ok\": true, \"doc_id\": $items(\"Init\",0,1)[0].json.doc_id, \"source_upsert\": $items(\"UpsertSource\",0,1)[0].json, \"chunks_upsert\": $items(\"UpsertChunks\",0,1)[0].json, \"final_summary\": $items(\"ExecReduce\",0,1)[0].json.final_summary } }}",
+        "responseCode": 200
+      },
+      "id": "Respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3200, 320]
+    }
+  ],
+  "connections": {
+    "Webhook Start (POST /webhook/ingest)": { "main": [[{ "node": "Function • Init", "type": "main", "index": 0 }]] },
+    "Function • Init": { "main": [[{ "node": "Switch • kind", "type": "main", "index": 0 }]] },
+    "Switch • kind": {
+      "main": [
+        [{ "node": "Function • Chunker (Transcript+Speakers)", "type": "main", "index": 0 }],
+        [{ "node": "Function • Chunker (Docs/Text)", "type": "main", "index": 0 }],
+        [{ "node": "Function • Chunker (Docs/Text)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Function • Chunker (Transcript+Speakers)": { "main": [[{ "node": "Split in Batches (Map)", "type": "main", "index": 0 }]] },
+    "Function • Chunker (Docs/Text)": { "main": [[{ "node": "Split in Batches (Map)", "type": "main", "index": 0 }]] },
+    "Split in Batches (Map)": { "main": [[{ "node": "Execute Workflow • LLM-Map", "type": "main", "index": 0 }]] },
+    "Execute Workflow • LLM-Map": { "main": [[{ "node": "Function • Parse Map Bullets", "type": "main", "index": 0 }]] },
+    "Function • Parse Map Bullets": { "main": [[{ "node": "Function • Collect Map Summaries", "type": "main", "index": 0 }]] },
+    "Function • Collect Map Summaries": { "main": [[{ "node": "Execute Workflow • LLM-Reduce", "type": "main", "index": 0 }]] },
+    "Execute Workflow • LLM-Reduce": {
+      "main": [
+        [{ "node": "Function • Build Source Embed Text", "type": "main", "index": 0 }],
+        [{ "node": "Function • Prepare Embed Batches (Chunks)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Function • Build Source Embed Text": { "main": [[{ "node": "HTTP • /embed (Source)", "type": "main", "index": 0 }]] },
+    "HTTP • /embed (Source)": { "main": [[{ "node": "Function • Build Qdrant Point (Source)", "type": "main", "index": 0 }]] },
+    "Function • Build Qdrant Point (Source)": { "main": [[{ "node": "HTTP • /qdrant/upsert (Source)", "type": "main", "index": 0 }]] },
+    "HTTP • /qdrant/upsert (Source)": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Function • Prepare Embed Batches (Chunks)": { "main": [[{ "node": "HTTP • /embed (Chunks)", "type": "main", "index": 0 }]] },
+    "HTTP • /embed (Chunks)": { "main": [[{ "node": "Function • Build Qdrant Points (Chunks)", "type": "main", "index": 0 }]] },
+    "Function • Build Qdrant Points (Chunks)": { "main": [[{ "node": "HTTP • /qdrant/upsert (Chunks)", "type": "main", "index": 0 }]] },
+    "HTTP • /qdrant/upsert (Chunks)": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  }
+}

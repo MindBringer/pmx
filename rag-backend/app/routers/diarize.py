@@ -1,26 +1,53 @@
-# app/diarize.py — Variante A (Analytics only, keine Cuts), FastAPI Router
+# app/diarize.py
+# FastAPI Router: Diarization (Sync + Async + Jobs + Env)
+# - Einheitliche Ausgabe: segments[{start_ms, end_ms, spk}]
+# - Backend: pyannote (optional), sauber gekapselt
+# - Async-Jobs mit file_url + optionalem callback_url
+# - Speech-Ratios (Redeanteile) werden mitgeliefert
+
 import os
+import io
 import uuid
+import json
+import math
 import shutil
 import tempfile
+import logging
 import subprocess
-from typing import List, Tuple
+from typing import Optional, List, Dict, Any, Tuple
 
 import numpy as np
 import soundfile as sf
-import webrtcvad
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, AnyHttpUrl
 
-# --------- Konfig ----------
-FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
-
-# --------- Router ----------
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/diarize", tags=["audio"])
 
-# --------- Helpers ----------
+# ----------------- ENV / Defaults -----------------
+FFMPEG_BIN              = os.getenv("FFMPEG_BIN", "ffmpeg")
+
+# Backend-Auswahl: "pyannote" | "none"
+DIAR_BACKEND            = os.getenv("DIAR_BACKEND", "pyannote").lower()
+
+# Für pyannote:
+DIAR_MODEL              = os.getenv("DIAR_MODEL", "pyannote/speaker-diarization-3.1")
+DIAR_AUTH_TOKEN         = os.getenv("DIAR_AUTH_TOKEN", "").strip()  # HF-Token benötigt
+# Optional: feste Sprecherzahl (sonst auto)
+DIAR_MAX_SPEAKERS_ENV   = os.getenv("DIAR_MAX_SPEAKERS", "")
+DIAR_MAX_SPEAKERS       = int(DIAR_MAX_SPEAKERS_ENV) if DIAR_MAX_SPEAKERS_ENV.isdigit() else None
+
+# Feintuning
+DIAR_COLLAR_SEC         = float(os.getenv("DIAR_COLLAR_SEC", "0.05"))     # Zusammenführen nahe Grenzen
+DIAR_MIN_SPEECH_SEC     = float(os.getenv("DIAR_MIN_SPEECH_SEC", "0.2"))  # kurze Schnipsel verwerfen/mergen
+
+# Jobs
+JOBS_DIR                = os.getenv("JOBS_DIR", "/data/jobs")
+os.makedirs(JOBS_DIR, exist_ok=True)
+
+# ----------------- Helpers -----------------
 def _ffmpeg_wav_mono16k(inp_path: str, out_path: str) -> None:
-    """Konvertiert Audio zuverlässig nach WAV mono/16k, ohne Längen-Cut."""
     cmd = [FFMPEG_BIN, "-y", "-i", inp_path, "-ac", "1", "-ar", "16000", "-vn", out_path]
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
@@ -33,141 +60,258 @@ def _audio_duration_ms(wav_path: str) -> int:
     n = data.shape[0] if isinstance(data, np.ndarray) else len(data)
     return int(n * 1000 / sr)
 
-def _frames_from_audio(wav_path: str, frame_ms: int = 30) -> Tuple[List[bytes], int]:
-    """
-    Teilt PCM16 (mono, 16k) in kleine Frames für VAD; gibt (frames, samplerate) zurück.
-    frame_ms muss 10, 20 oder 30 sein für webrtcvad.
-    """
-    if frame_ms not in (10, 20, 30):
-        frame_ms = 30
-    data, sr = sf.read(wav_path, dtype="int16", always_2d=False)
-    if data.ndim > 1:
-        data = data[:, 0]
-    samples_per_frame = int(sr * (frame_ms / 1000.0))
-    frames: List[bytes] = []
-    for i in range(0, len(data) - samples_per_frame + 1, samples_per_frame):
-        chunk = data[i : i + samples_per_frame].tobytes()
-        frames.append(chunk)
-    return frames, sr
+def _job_path(jid: str) -> str:
+    return os.path.join(JOBS_DIR, f"{jid}.diar.json")
 
-def _vad_segments(
-    wav_path: str,
-    aggressiveness: int = 2,
-    min_speech_ms: int = 300,
-    min_silence_ms: int = 500,
-    frame_ms: int = 30,
-) -> List[Tuple[int, int]]:
-    """
-    Erzeugt grobe Sprachsegmente (Start/Ende in ms) über die gesamte Datei.
-    Keine harte Obergrenze; robust gegen kurze Pausen.
-    """
-    vad = webrtcvad.Vad(int(aggressiveness))
-    frames, sr = _frames_from_audio(wav_path, frame_ms=frame_ms)
-    hop_ms = frame_ms
+def _job_save(j: Dict[str, Any]) -> None:
+    with open(_job_path(j["id"]), "w", encoding="utf-8") as f:
+        json.dump(j, f, ensure_ascii=False)
 
-    segs: List[Tuple[int, int]] = []
-    in_speech = False
-    seg_start_ms = 0
-    current_len_ms = 0
-    silence_run_ms = 0
+def _job_load(jid: str) -> Dict[str, Any]:
+    p = _job_path(jid)
+    if not os.path.exists(p):
+        raise HTTPException(404, "job not found")
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-    for idx, frame in enumerate(frames):
-        ts_ms = idx * hop_ms
-        is_speech = vad.is_speech(frame, sr)
+def _download_to_tmp(url: str) -> str:
+    import requests
+    tmpdir = tempfile.mkdtemp(prefix="diar_")
+    dst = os.path.join(tmpdir, "input.bin")
+    with requests.get(url, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(dst, "wb") as f:
+            for chunk in r.iter_content(1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+    return dst
 
-        if is_speech:
-            if not in_speech:
-                in_speech = True
-                seg_start_ms = ts_ms
-                current_len_ms = 0
-                silence_run_ms = 0
-            current_len_ms += hop_ms
+# ----------------- Pyannote Pipeline (lazy) -----------------
+_pyannote = None
+
+def _load_pyannote():
+    global _pyannote
+    if _pyannote is not None:
+        return _pyannote
+    if DIAR_BACKEND != "pyannote":
+        raise HTTPException(503, detail="Diarization backend is disabled (DIAR_BACKEND != 'pyannote').")
+    try:
+        from pyannote.audio import Pipeline
+    except Exception as e:
+        raise HTTPException(503, detail=f"pyannote.audio not available: {e}")
+    if not DIAR_AUTH_TOKEN:
+        raise HTTPException(503, detail="DIAR_AUTH_TOKEN missing for pyannote backend.")
+    _pyannote = Pipeline.from_pretrained(DIAR_MODEL, use_auth_token=DIAR_AUTH_TOKEN)
+    logger.info("Loaded pyannote pipeline model=%s", DIAR_MODEL)
+    return _pyannote
+
+# ----------------- Core diarization -----------------
+def _merge_close_segments(segments: List[Dict[str, Any]], collar_s: float) -> List[Dict[str, Any]]:
+    """Fasst benachbarte Segmente gleicher Sprecher zusammen, wenn sie nahe beieinander liegen."""
+    if not segments:
+        return []
+    out = [segments[0]]
+    for seg in segments[1:]:
+        last = out[-1]
+        if seg["spk"] == last["spk"] and (seg["start_ms"] - last["end_ms"]) <= int(collar_s * 1000):
+            last["end_ms"] = max(last["end_ms"], seg["end_ms"])
         else:
-            if in_speech:
-                silence_run_ms += hop_ms
-                if silence_run_ms >= min_silence_ms and current_len_ms >= min_speech_ms:
-                    end_ms = ts_ms - (silence_run_ms - hop_ms)
-                    segs.append((seg_start_ms, end_ms))
-                    in_speech = False
-            if not in_speech:
-                current_len_ms = 0
-                silence_run_ms = 0
+            out.append(seg)
+    return out
 
-    # offenes Segment am Ende schließen
-    if in_speech:
-        end_ms = len(frames) * hop_ms
-        if end_ms - seg_start_ms >= min_speech_ms:
-            segs.append((seg_start_ms, end_ms))
+def _drop_tiny_segments(segments: List[Dict[str, Any]], min_len_s: float) -> List[Dict[str, Any]]:
+    if min_len_s <= 0:
+        return segments
+    min_ms = int(min_len_s * 1000)
+    return [s for s in segments if (s["end_ms"] - s["start_ms"]) >= min_ms]
 
-    # nahe Segmente mergen (≤ 250 ms Lücke)
-    merged: List[Tuple[int, int]] = []
-    if segs:
-        cur_s, cur_e = segs[0]
-        for s, e in segs[1:]:
-            if s - cur_e <= 250:
-                cur_e = e
-            else:
-                merged.append((cur_s, cur_e))
-                cur_s, cur_e = s, e
-        merged.append((cur_s, cur_e))
+def _speech_ratios(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Summiert Redezeit pro Sprecher."""
+    agg: Dict[str, int] = {}
+    for s in segments:
+        dur = max(0, s["end_ms"] - s["start_ms"])
+        agg[s["spk"]] = agg.get(s["spk"], 0) + dur
+    total = sum(agg.values()) or 1
+    out = []
+    for spk, ms in sorted(agg.items(), key=lambda kv: -kv[1]):
+        out.append({"name": spk, "sekunden": int(ms / 1000), "anteil_prozent": round(100.0 * ms / total, 2)})
+    return out
 
-    return merged
+def _run_diarization_pyannote(wav_path: str, max_speakers: Optional[int]) -> List[Dict[str, Any]]:
+    pipeline = _load_pyannote()
+    diar = pipeline(wav_path, num_speakers=max_speakers) if max_speakers else pipeline(wav_path)
+    # Ergebnis in {start_ms,end_ms,spk} transformieren
+    segments: List[Dict[str, Any]] = []
+    # pyannote liefert speaker labels z.B. SPEAKER_00, SPEAKER_01 ...
+    speaker_map: Dict[str, str] = {}
 
-# --------- Endpoint ----------
-@router.post("")
+    for turn, _, speaker in diar.itertracks(yield_label=True):
+        spk_label = speaker_map.setdefault(speaker, f"S{len(speaker_map)+1}")
+        start_ms = int(1000 * float(turn.start))
+        end_ms = int(1000 * float(turn.end))
+        if end_ms <= start_ms:
+            continue
+        segments.append({"start_ms": start_ms, "end_ms": end_ms, "spk": spk_label})
+
+    # sortieren & Aufräumen
+    segments.sort(key=lambda s: (s["start_ms"], s["end_ms"]))
+    segments = _merge_close_segments(segments, DIAR_COLLAR_SEC)
+    segments = _drop_tiny_segments(segments, DIAR_MIN_SPEECH_SEC)
+    return segments
+
+# ----------------- Models -----------------
+class DiarizeOut(BaseModel):
+    segments: List[dict]
+    info: dict
+    speech_ratios: Optional[List[dict]] = None
+    debug: Optional[dict] = None
+
+class DiarizeAsyncIn(BaseModel):
+    file_url: AnyHttpUrl
+    max_speakers: Optional[int] = None
+    callback_url: Optional[AnyHttpUrl] = None
+    meta: Optional[dict] = None
+
+# ----------------- SYNC -----------------
+@router.post("", response_model=DiarizeOut)
 async def diarize_endpoint(
     file: UploadFile = File(...),
-    vad_aggr: int = Form(default=2),        # 0..3 (3 = aggressiv)
-    min_speech_ms: int = Form(default=300),
-    min_silence_ms: int = Form(default=500),
+    max_speakers: Optional[int] = Form(default=None),
 ):
     """
-    Gibt eine VAD-basierte Sprach-/Stille-Timeline zurück (Analytics).
-    WICHTIG: Diese Segmente dienen nur der Anzeige/Analyse,
-             es werden KEINE Audioschnitte erzwungen (keine 24s-Falle).
+    Diarization synchron aus Datei-Upload.
     """
+    if DIAR_BACKEND != "pyannote":
+        raise HTTPException(503, detail="Diarization backend disabled or unsupported.")
     workdir = tempfile.mkdtemp(prefix="diar_")
     src_path = os.path.join(workdir, f"src_{uuid.uuid4().hex}")
     wav_path = os.path.join(workdir, f"conv_{uuid.uuid4().hex}.wav")
-
     try:
-        # Datei speichern
+        # persist upload
         with open(src_path, "wb") as f:
             while True:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
                 f.write(chunk)
-
-        # nach WAV mono/16k konvertieren
         _ffmpeg_wav_mono16k(src_path, wav_path)
         dur_ms = _audio_duration_ms(wav_path)
 
-        # VAD
-        timeline = _vad_segments(
-            wav_path,
-            aggressiveness=int(vad_aggr),
-            min_speech_ms=int(min_speech_ms),
-            min_silence_ms=int(min_silence_ms),
-            frame_ms=30,
-        )
+        segments = _run_diarization_pyannote(wav_path, max_speakers or DIAR_MAX_SPEAKERS)
+        ratios = _speech_ratios(segments)
 
         out = {
-            "duration_ms": dur_ms,
-            "segments": [{"start_ms": s, "end_ms": e} for s, e in timeline],
-            "debug": {
-                "params": {
-                    "vad_aggr": int(vad_aggr),
-                    "min_speech_ms": int(min_speech_ms),
-                    "min_silence_ms": int(min_silence_ms),
-                }
+            "segments": segments,
+            "info": {
+                "backend": "pyannote",
+                "model": DIAR_MODEL,
+                "duration_ms": dur_ms,
+                "max_speakers": max_speakers or DIAR_MAX_SPEAKERS,
+                "collar_s": DIAR_COLLAR_SEC,
+                "min_speech_s": DIAR_MIN_SPEECH_SEC,
             },
+            "speech_ratios": ratios,
+            "debug": {"workdir": os.path.basename(workdir), "input_filename": file.filename},
         }
         return JSONResponse(out)
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("diarize failed")
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         try:
             shutil.rmtree(workdir, ignore_errors=True)
         except Exception:
             pass
+
+# ----------------- ASYNC + JOBS -----------------
+@router.post("/async")
+def diarize_async(body: DiarizeAsyncIn, bg: BackgroundTasks):
+    if DIAR_BACKEND != "pyannote":
+        raise HTTPException(503, detail="Diarization backend disabled or unsupported.")
+    jid = uuid.uuid4().hex
+    job = {
+        "id": jid,
+        "status": "queued",
+        "created_at": int(__import__("time").time()),
+        "updated_at": int(__import__("time").time()),
+        "request": body.dict(),
+        "result": None,
+        "error": None,
+    }
+    _job_save(job)
+    bg.add_task(_do_diarize_job, jid)
+    return {"job_id": jid, "status": "queued"}
+
+@router.get("/jobs/{job_id}")
+def diarize_job_status(job_id: str):
+    return _job_load(job_id)
+
+def _post_callback(url: str, payload: dict) -> None:
+    try:
+        import requests
+        requests.post(str(url), json=payload, timeout=15)
+    except Exception:
+        logger.warning("callback post failed", exc_info=True)
+
+def _do_diarize_job(job_id: str) -> None:
+    try:
+        j = _job_load(job_id)
+        req = j.get("request") or {}
+        src = _download_to_tmp(req["file_url"])
+        workdir = tempfile.mkdtemp(prefix="diar_")
+        wav_path = os.path.join(workdir, f"conv_{uuid.uuid4().hex}.wav")
+
+        _ffmpeg_wav_mono16k(src, wav_path)
+        dur_ms = _audio_duration_ms(wav_path)
+
+        segments = _run_diarization_pyannote(wav_path, req.get("max_speakers") or DIAR_MAX_SPEAKERS)
+        ratios = _speech_ratios(segments)
+
+        result = {
+            "segments": segments,
+            "info": {
+                "backend": "pyannote",
+                "model": DIAR_MODEL,
+                "duration_ms": dur_ms,
+                "max_speakers": req.get("max_speakers") or DIAR_MAX_SPEAKERS,
+                "collar_s": DIAR_COLLAR_SEC,
+                "min_speech_s": DIAR_MIN_SPEECH_SEC,
+            },
+            "speech_ratios": ratios,
+            "debug": {"source_url": req.get("file_url"), "workdir": os.path.basename(workdir)},
+            "meta": req.get("meta") or {},
+        }
+
+        j.update({"status": "done", "result": result, "updated_at": int(__import__("time").time())})
+        _job_save(j)
+
+        if req.get("callback_url"):
+            _post_callback(req["callback_url"], {"job_id": j["id"], "status": "done", "result": result})
+
+        try:
+            shutil.rmtree(os.path.dirname(src), ignore_errors=True)
+            shutil.rmtree(workdir, ignore_errors=True)
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.exception("diarize job failed")
+        try:
+            j = _job_load(job_id)
+            j.update({"status": "error", "error": str(e), "updated_at": int(__import__("time").time())})
+            _job_save(j)
+            req = j.get("request") or {}
+            if req.get("callback_url"):
+                _post_callback(req["callback_url"], {"job_id": j["id"], "status": "error", "error": str(e)})
+        except Exception:
+            pass
+
+# ----------------- ENV Debug -----------------
+@router.get("/env")
+def show_env():
+    keys = [ "DIAR_BACKEND", "DIAR_MODEL", "DIAR_MAX_SPEAKERS", "DIAR_COLLAR_SEC", "DIAR_MIN_SPEECH_SEC", "FFMPEG_BIN" ]
+    out = { k: os.getenv(k) for k in keys }
+    out["DIAR_AUTH_TOKEN_set"] = bool(DIAR_AUTH_TOKEN)
+    return out

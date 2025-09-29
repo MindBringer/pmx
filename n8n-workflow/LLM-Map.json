@@ -1,0 +1,44 @@
+{
+  "name": "LLM-Map via RAG Router",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "Start",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [240, 240]
+    },
+    {
+      "parameters": {
+        "url": "https://ai.intern/rag/router",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 180000
+        },
+        "bodyParametersJson": "={\n  \"mode\": \"chat\",\n  \"target\": \"auto\",\n  \"system\": \"Du bist ein präziser Notulist.\",\n  \"prompt\": \"Fasse den Abschnitt in maximal 10 Stichpunkten zusammen. Fokus: Ziele, Entscheidungen, Zahlen, Aufgaben, Risiken. Schreibe DEUTSCH.\\nAbschnitt:\\n```\" + $json.text + \"```\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 400\n}"
+      },
+      "id": "HTTPMap",
+      "name": "HTTP → RAG Router (Map)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [460, 240]
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Normalisiere Router-Antwort → { text } */\nconst router = $json || {};\nlet text = '';\nif (router.text) text = String(router.text);\nelse if (router.output) text = String(router.output);\nelse if (router.choices && router.choices[0] && router.choices[0].message && router.choices[0].message.content) text = String(router.choices[0].message.content);\nreturn [{ json: { chunk_idx: $items(0, 0, 1)[0].json.chunk_idx ?? 0, title: $items(0, 0, 1)[0].json.title, project: $items(0, 0, 1)[0].json.project, tags: $items(0, 0, 1)[0].json.tags, text } }];"
+      },
+      "id": "Normalize",
+      "name": "Function • Normalize Router Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 240]
+    }
+  ],
+  "connections": {
+    "Start": { "main": [[{ "node": "HTTP → RAG Router (Map)", "type": "main", "index": 0 }]] },
+    "HTTP → RAG Router (Map)": { "main": [[{ "node": "Function • Normalize Router Output", "type": "main", "index": 0 }]] }
+  }
+}

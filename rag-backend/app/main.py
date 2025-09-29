@@ -18,6 +18,9 @@ from app.routers.transcribe import router as transcribe_router
 from app.routers.diarize import router as diarize_router
 from app.routers.identify import router as identify_router
 from app.routers.speakers import router as speaker_router
+from app.embed import router as embed_router
+from app.qdrant_api import router as qdrant_router
+from app.parse_document import router as parse_router
 from .jobs import router as jobs_router
 
 # -----------------------------
@@ -35,6 +38,9 @@ app.include_router(transcribe_router, prefix="", tags=["audio"])
 app.include_router(diarize_router, prefix="", tags=["audio"])
 app.include_router(identify_router, prefix="", tags=["audio"])
 app.include_router(speaker_router, prefix="", tags=["audio"])
+app.include_router(embed_router)
+app.include_router(qdrant_router)
+app.include_router(parse_router)
 # async jobs display
 app.include_router(jobs_router, prefix="/rag")
 
