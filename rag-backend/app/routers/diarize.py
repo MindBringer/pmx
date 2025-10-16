@@ -114,10 +114,13 @@ def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
 
     # utils kann Dict oder Tuple sein → beide Varianten behandeln
     if isinstance(utils, dict):
-        read_audio = utils["read_audio"]
-        get_speech_timestamps = utils["get_speech_timestamps"]
-    elif isinstance(utils, (list, tuple)) and len(utils) >= 2:
-        read_audio, get_speech_timestamps = utils[0], utils[1]
+        read_audio = utils.get("read_audio")
+        get_speech_timestamps = utils.get("get_speech_timestamps")
+    elif isinstance(utils, (list, tuple)):
+        # Sicherstellen, dass richtige Indizes gewählt werden
+        read_audio = utils[0]
+        # neuere Version: get_speech_timestamps an Index 2
+        get_speech_timestamps = utils[2] if len(utils) > 2 else utils[1]
     else:
         raise RuntimeError(f"Unexpected Silero utils type: {type(utils)}")
 
@@ -144,6 +147,7 @@ def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
             continue
         segments.append({"start_ms": start_ms, "end_ms": end_ms, "spk": "SPEECH"})
     return segments
+
 
 # ----------------- Pyannote Backend (optional) -----------------
 _pyannote = None
