@@ -229,8 +229,6 @@ def _run_diarization_pyannote(wav_path: str, max_speakers: Optional[int]) -> Lis
             continue
         segments.append({"start_ms": start_ms, "end_ms": end_ms, "spk": spk_label})
     segments.sort(key=lambda s: (s["start_ms"], s["end_ms"]))
-    # Merge/Min speech identisch zu VAD-Logik
-    segments = _probs_to_segments(np.ones(1), hop_samples=16000, sr=16000) or segments  # no-op: nur style-konsistenz
     return segments
 
 # ----------------- Models -----------------
