@@ -546,7 +546,27 @@ docsForm?.addEventListener("submit", async function (e) {
     for (const f of fileEl.files) fd.append("files", f);
     if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
 
-    const resp = await fetch("/rag/index", { method: "POST", headers: { "x-api-key": apiKey }, body: fd });
+    const resp = await fetch("/parse/async", {
+      method: "POST",
+      headers: { "x-api-key": apiKey },
+      body: fd,
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(`Fehler beim Parsen: ${res.status} ${msg}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        console.log("✅ Parse-Job gestartet:", data);
+        // Optional: hier Jobstatus abfragen oder Benutzer informieren
+      })
+      .catch((err) => {
+        console.error("❌ Upload/Parse-Fehler:", err);
+        alert("Fehler beim Hochladen oder Verarbeiten der Datei.");
+      });
+      
     const txt = await resp.text();
     if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
 
