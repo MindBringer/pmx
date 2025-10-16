@@ -85,17 +85,16 @@ def _download_to_tmp(url: str) -> str:
                     f.write(chunk)
     return dst
 
-
-# ----------------- Silero-VAD Backend -----------------
 # ----------------- Silero-VAD Backend -----------------
 _silero_model = None
 _silero_utils = None
 
 def _load_silero():
-    """Lädt Modell + Utils aus torch.hub"""
+    """Lädt Modell + Utils aus torch.hub (robust gegen Strukturänderungen)"""
     global _silero_model, _silero_utils
     if _silero_model is not None:
         return _silero_model, _silero_utils
+
     import torch
     model, utils = torch.hub.load(
         repo_or_dir="snakers4/silero-vad",
@@ -103,31 +102,38 @@ def _load_silero():
         trust_repo=True,
     )
     model.eval()
-    logger.info("Loaded Silero-VAD via torch.hub")
     _silero_model, _silero_utils = model, utils
+    logger.info("Loaded Silero-VAD via torch.hub")
     return model, utils
 
 
 def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
-    """Führt schnelle VAD-Segmentierung mit Silero-VAD aus."""
+    """Führt schnelle VAD-Segmentierung mit Silero-VAD aus (robust für alle Versionen)."""
     model, utils = _load_silero()
 
-    # utils kann Dict oder Tuple sein → beide Varianten behandeln
+    # utils kann Dict oder Tuple sein
+    read_audio = None
+    get_speech_timestamps = None
+
     if isinstance(utils, dict):
         read_audio = utils.get("read_audio")
         get_speech_timestamps = utils.get("get_speech_timestamps")
     elif isinstance(utils, (list, tuple)):
-        # Sicherstellen, dass richtige Indizes gewählt werden
-        read_audio = utils[0]
-        # neuere Version: get_speech_timestamps an Index 2
-        get_speech_timestamps = utils[2] if len(utils) > 2 else utils[1]
-    else:
-        raise RuntimeError(f"Unexpected Silero utils type: {type(utils)}")
+        # wir iterieren über alle Elemente und suchen nach passenden Funktionsnamen
+        for f in utils:
+            if hasattr(f, "__name__"):
+                if f.__name__ == "read_audio":
+                    read_audio = f
+                elif f.__name__ == "get_speech_timestamps":
+                    get_speech_timestamps = f
 
-    # 1) Audio lesen (16 kHz mono)
+    if not (read_audio and get_speech_timestamps):
+        raise RuntimeError(f"Silero utils parsing failed, found={utils}")
+
+    # Audio laden (16kHz mono)
     wav = read_audio(wav_path, sampling_rate=16000)
 
-    # 2) Sprachsegmente berechnen
+    # Segmente berechnen
     ts_list = get_speech_timestamps(
         wav,
         model,
@@ -138,7 +144,7 @@ def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
         speech_pad_ms=int(DIAR_COLLAR_SEC * 1000),
     )
 
-    # 3) In vereinheitlichtes Format umwandeln
+    # Einheitliches Format
     segments: List[Dict[str, Any]] = []
     for ts in ts_list:
         start_ms = int(ts["start"] * 1000 / 16000)
@@ -147,7 +153,6 @@ def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
             continue
         segments.append({"start_ms": start_ms, "end_ms": end_ms, "spk": "SPEECH"})
     return segments
-
 
 # ----------------- Pyannote Backend (optional) -----------------
 _pyannote = None
