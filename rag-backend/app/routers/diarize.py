@@ -87,9 +87,9 @@ def _download_to_tmp(url: str) -> str:
 
 
 # ----------------- Silero-VAD Backend -----------------
+# ----------------- Silero-VAD Backend -----------------
 _silero_model = None
 _silero_utils = None
-
 
 def _load_silero():
     """Lädt Modell + Utils aus torch.hub"""
@@ -111,8 +111,15 @@ def _load_silero():
 def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
     """Führt schnelle VAD-Segmentierung mit Silero-VAD aus."""
     model, utils = _load_silero()
-    read_audio = utils["read_audio"]
-    get_speech_timestamps = utils["get_speech_timestamps"]
+
+    # utils kann Dict oder Tuple sein → beide Varianten behandeln
+    if isinstance(utils, dict):
+        read_audio = utils["read_audio"]
+        get_speech_timestamps = utils["get_speech_timestamps"]
+    elif isinstance(utils, (list, tuple)) and len(utils) >= 2:
+        read_audio, get_speech_timestamps = utils[0], utils[1]
+    else:
+        raise RuntimeError(f"Unexpected Silero utils type: {type(utils)}")
 
     # 1) Audio lesen (16 kHz mono)
     wav = read_audio(wav_path, sampling_rate=16000)
@@ -137,7 +144,6 @@ def _run_diarization_vad(wav_path: str) -> List[Dict[str, Any]]:
             continue
         segments.append({"start_ms": start_ms, "end_ms": end_ms, "spk": "SPEECH"})
     return segments
-
 
 # ----------------- Pyannote Backend (optional) -----------------
 _pyannote = None
