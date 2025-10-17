@@ -962,11 +962,16 @@ async function handleAudioMeetingSubmit(e){
   const hideSpinner = showFor(uiSpinner, 300);
 
   try {
-    // Datei bestimmen (Audio-Tab)
+    // Datei bestimmen: Audio, Meeting oder Dokument
     const audioFileEl   = document.getElementById("audioFile");
-    const meetingFileEl = document.getElementById("meetingFile"); // falls vorhanden
-    const file = audioFileEl?.files?.[0] || meetingFileEl?.files?.[0];
-    if (!file) throw new Error("Bitte eine Audio-Datei auswählen (oder Mikrofon aufnehmen).");
+    const meetingFileEl = document.getElementById("meetingFile");
+    const docsFileEl    = document.getElementById("file");
+    const file =
+      audioFileEl?.files?.[0] ||
+      meetingFileEl?.files?.[0] ||
+      docsFileEl?.files?.[0]; // prüfe auch Dokument-Dateien
+
+    if (!file) throw new Error("Bitte eine Datei auswählen (Audio, Aufnahme oder Dokument).");
 
     // Flags & Optionen
     const diarEl     = document.getElementById("doDiar") || document.getElementById("meetDiarize");
