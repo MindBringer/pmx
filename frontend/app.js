@@ -307,40 +307,61 @@ async function startAsyncRun(job_title, payload){
   };
 
   // 3) Ergebnis robust abholen (Polling bis "done")
-  const resultUrl = looksOk(ack.result) ? ack.result : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
+  const resultUrl = looksOk(ack.result)
+    ? ack.result
+    : `/rag/jobs/${encodeURIComponent(jobId)}/result`;
 
-  const DONE = new Set(['done','completed','complete','success','ok','finished']);
+  const DONE = new Set(['done', 'completed', 'complete', 'success', 'ok', 'finished']);
   const hasUseful = (d) => {
     const r = (d && typeof d === 'object') ? (d.result ?? d) : {};
     const s = extractFinalAnswer(r);
     return typeof s === 'string' ? !!s.trim() && !isJobResultUrl(s) : s != null;
   };
-  const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 
-  let backoff = 800, final = null;
-  const t0 = Date.now(), MAX = 180000; // 3min
-  while (Date.now() - t0 < MAX){
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let backoff = 1000;
+  let final = null;
+  const t0 = Date.now();
+  const MAX = 300000; // 5 min Timeout
+
+  while (Date.now() - t0 < MAX) {
     const r = await fetch(resultUrl, { headers: { "Accept": "application/json" } });
     const t = await r.text();
-    let data; try { data = JSON.parse(t); } catch { data = { raw: t }; }
+    let data;
+    try { data = JSON.parse(t); } catch { data = { raw: t }; }
 
     const status = String(data?.status || data?.state || '').toLowerCase();
-    if (DONE.has(status) || hasUseful(data)) { final = data; break; }
+
+    // 🔹 Warten bis Backend explizit "done" meldet oder eine echte Antwort liefert
+    if (DONE.has(status) && hasUseful(data)) {
+      final = data;
+      break;
+    }
+
+    // 🔹 Optional Zwischenstatus loggen
+    if (jobLine) jobLine.textContent = `Status: ${status || '…'} (${Math.floor((Date.now()-t0)/1000)} s)`;
+    if (status === 'failed' || status === 'error') {
+      final = { result: { answer: `❌ Job fehlgeschlagen (${status})` } };
+      break;
+    }
 
     await sleep(backoff);
-    backoff = Math.min(5000, Math.round(backoff * 1.5));
+    backoff = Math.min(8000, Math.round(backoff * 1.3));
   }
 
   try { src.close(); } catch {}
 
-  if (!final){
-    const msg = "Kein finales Ergebnis innerhalb des Zeitlimits erhalten.";
-    if (window.renderers?.setFinalAnswer) window.renderers.setFinalAnswer(msg);
-    else resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(msg)}</pre>`;
+  if (!final) {
+    const msg = "⚠️ Kein finales Ergebnis innerhalb des Zeitlimits erhalten.";
+    if (window.renderers?.setFinalAnswer)
+      window.renderers.setFinalAnswer(msg);
+    else
+      resultOut.innerHTML = `<pre class="prewrap mono">${escapeHtml(msg)}</pre>`;
     if (jobLine) jobLine.textContent = "Abgebrochen (Timeout)";
     if (resultDiv) resultDiv.className = "error";
     return;
   }
+
 
   // 4) Rendern
   const resultObj = final?.result && typeof final.result === 'object' ? final.result : final;
@@ -546,7 +567,7 @@ docsForm?.addEventListener("submit", async function (e) {
     for (const f of fileEl.files) fd.append("files", f);
     if (tagsStr) tagsStr.split(",").map(t=>t.trim()).filter(Boolean).forEach(t => fd.append("tags", t));
 
-    const resp = await fetch("/parse/async", {
+    const resp = await fetch("/rag/parse/async", {
       method: "POST",
       headers: { "x-api-key": apiKey },
       body: fd,
@@ -566,7 +587,7 @@ docsForm?.addEventListener("submit", async function (e) {
         console.error("❌ Upload/Parse-Fehler:", err);
         alert("Fehler beim Hochladen oder Verarbeiten der Datei.");
       });
-      
+
     const txt = await resp.text();
     if (!resp.ok) throw new Error(txt || `Fehler ${resp.status}`);
 
