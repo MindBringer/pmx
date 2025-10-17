@@ -369,28 +369,9 @@ async function startAsyncRun(job_title, payload){
   const artifacts = resultObj?.artifacts || {};
   const sources   = resultObj?.sources || resultObj?.documents || [];
 
-  if (window.renderers?.setFinalAnswer){
+  if (window.renderers?.setFinalAnswer) {
     window.renderers.setFinalAnswer({ answer, sources, artifacts });
-    if (resultDiv) resultDiv.className = "success";
-  } else {
-    let html = `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div>✅ Finale Antwort:</div>
-        <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
-      </div>
-      <pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>
-    `;
-    html += renderSources(sources);
-    if (artifacts?.code) {
-      html += `<div style="margin-top:12px;font-weight:700">Code</div>
-               <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
-    }
-    resultOut.innerHTML = html;
-    const pre = document.getElementById('answer-pre');
-    const textOut = (typeof answer === 'string') ? answer : (()=>{ try { return JSON.stringify(answer, null, 2); } catch { return String(answer); } })();
-    pre.textContent = String(textOut);
-    document.getElementById('copy-answer')?.addEventListener('click', ()=>navigator.clipboard.writeText(pre.textContent||""));
-    if (resultDiv) resultDiv.className = "success";
+    return;
   }
   if (jobLine) jobLine.textContent = "Fertig.";
 }
