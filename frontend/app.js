@@ -1015,8 +1015,32 @@ async function handleAudioMeetingSubmit(e){
     if (apiKey) headers['x-api-key'] = apiKey;
 
     const hook = getMeetingWebhook();
-    const resp = await fetch(hook, { method: "POST", headers, body: fd });
-    const txt  = await resp.text();
+    let resp;
+    try {
+      resp = await fetch(hook, { method: "POST", headers, body: fd });
+    } catch (netErr) {
+      if (uiOut) uiOut.textContent = `❌ Netzwerkfehler: ${netErr.message}`;
+      if (uiBox) uiBox.className = "error upload-box";
+      hideSpinner();
+      return;
+    }
+
+    if (!resp) {
+      if (uiOut) uiOut.textContent = "❌ Keine Antwort vom Server erhalten (Response undefined)";
+      if (uiBox) uiBox.className = "error upload-box";
+      hideSpinner();
+      return;
+    }
+
+    let txt = "";
+    try {
+      txt = await resp.text();
+    } catch (err) {
+      if (uiOut) uiOut.textContent = "❌ Antwort konnte nicht gelesen werden.";
+      if (uiBox) uiBox.className = "error upload-box";
+      hideSpinner();
+      return;
+    }
 
     if (!resp.ok) {
       // 4xx/5xx sauber anzeigen (auch wenn HTML zurückkommt)
@@ -1061,3 +1085,5 @@ async function handleAudioMeetingSubmit(e){
 // Beide Formulare (falls vorhanden) auf den EINEN Handler legen
 bindOnce(document.getElementById("audio-form"),   "submit", handleAudioMeetingSubmit);
 bindOnce(document.getElementById("meeting-form"), "submit", handleAudioMeetingSubmit);
+bindOnce(document.getElementById("docs-form"),    "submit", handleAudioMeetingSubmit);
+
