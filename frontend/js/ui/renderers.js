@@ -244,14 +244,52 @@ export function setFinalAnswer(input, opts){
     if (artifacts == null) artifacts = opts.artifacts;
   }
 
-  const safeAnswer = (answer || '[leer]');
+  const safeAnswer = input?.summary
+    ? (typeof input.summary === "object"
+        ? input.summary.summary || ""
+        : String(input.summary))
+    : (answer || "[leer]");
 
-  let html = ''
-    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
-    +   '<div>✅ Finale Antwort:</div>'
-    +   '<button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>'
-    + '</div>'
-    + '<pre id="answer-pre" class="prewrap mono" style="margin-top:6px;"></pre>';
+  let focusList = [];
+  let questionList = [];
+
+  if (input?.summary && typeof input.summary === "object") {
+    focusList = Array.isArray(input.summary.focus) ? input.summary.focus : [];
+    questionList = Array.isArray(input.summary.questions) ? input.summary.questions : [];
+  }
+
+  // Summary-Haupttext
+  let html = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div>✅ Finale Antwort:</div>
+      <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
+    </div>
+    <div class="card" style="margin-top:8px">
+      <div class="card-head">Zusammenfassung</div>
+      <div class="card-body prewrap">${esc(safeAnswer)}</div>
+    </div>
+  `;
+
+  // Fokus (aufklappbar)
+  if (focusList.length) {
+    const focusHtml = focusList.map(f => `<li>${esc(f)}</li>`).join("");
+    html += `
+      <details class="card" open>
+        <summary class="card-head">Fokus-Themen</summary>
+        <div class="card-body"><ul class="bullet">${focusHtml}</ul></div>
+      </details>`;
+  }
+
+  // Fragen (aufklappbar)
+  if (questionList.length) {
+    const qHtml = questionList.map(q => `<li>${esc(q)}</li>`).join("");
+    html += `
+      <details class="card">
+        <summary class="card-head">Fragen</summary>
+        <div class="card-body"><ul class="bullet">${qHtml}</ul></div>
+      </details>`;
+  }
+
 
   // Moderator-/Critic-Notizen
   if (artifacts && artifacts.moderator_notes) {
