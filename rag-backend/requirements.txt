@@ -10,6 +10,7 @@ requests>=2.31.0
 git+https://github.com/deepset-ai/haystack.git@main#egg=haystack-ai[integrations,qdrant,sentence-transformers,openai]
 qdrant-client>=1.9.0
 qdrant-haystack>=9.2.0
+sentence-transformers-haystack>=3.3.0
 
 # --- Dokumentformate ---
 python-magic==0.4.27
