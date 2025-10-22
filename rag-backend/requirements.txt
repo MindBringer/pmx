@@ -6,19 +6,17 @@ python-multipart==0.0.9
 tqdm==4.66.4
 requests>=2.31.0
 
-# --- Haystack 3.x (Core + Integrations) ---
-git+https://github.com/deepset-ai/haystack.git@main#egg=haystack-ai[integrations,qdrant,sentence-transformers,openai]
-qdrant-client>=1.9.0
+# --- Haystack modern ---
+haystack-ai[integrations]>=2.18.0,<3
 qdrant-haystack>=9.2.0
-sentence-transformers-haystack>=3.3.0
 
 # --- Dokumentformate ---
 python-magic==0.4.27
-trafilatura>=1.6.3
+trafilatura
 markdown-it-py==3.0.0
-mdit_plain>=1.0.0
+mdit_plain
 beautifulsoup4==4.12.3
-lxml>=4.9.3
+lxml
 pypdf==4.2.0
 pdfminer.six>=20220524
 python-docx==1.1.2
@@ -28,7 +26,7 @@ pandas>=2.2.0
 python-pptx>=0.6.23
 mail-parser==3.15.0
 
-# --- Audio / Speech ---
+# --- Audio ---
 faster-whisper>=1.0.0
 soundfile>=0.12
 webrtcvad>=2.0.10
@@ -40,6 +38,3 @@ speechbrain>=0.5.16,<1.0.4
 torch==2.3.1 ; platform_system=="Linux"
 torchaudio==2.3.1 ; platform_system=="Linux"
 pyannote.audio>=3.1.1
-
-# --- Optional: GPU Speech/ASR ---
-# nemo_toolkit[asr]>=1.21.0

@@ -1,33 +1,48 @@
-# app/deps.py – kompatibel mit haystack-ai >= 3.3 + qdrant-haystack >= 9
+# app/deps.py
+# -------------------------------------------------
+# Zentraler Dependency-Loader für RAG-Backend
+# (Haystack 2.18+ mit Qdrant und OpenAI/vLLM Support)
+# -------------------------------------------------
+
 import os
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
-from haystack_integrations.components.embedders.sentence_transformers import SentenceTransformersTextEmbedder
+from haystack_integrations.components.embedders.sentence_transformers import SentenceTransformersTextEmbedder, SentenceTransformersDocumentEmbedder
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
-from haystack.components.generators import OpenAIGenerator
+from haystack_integrations.components.generators.openai import OpenAIGenerator
 
 
+# -------------------------------------------------
+# 🔧 ENV-Defaults
+# -------------------------------------------------
 def _int_env(name: str, default: int) -> int:
-    """Hole eine Umgebungsvariable als int, mit Default."""
+    """Hole Umgebungsvariable als int, mit Default."""
     try:
         return int(os.getenv(name, default))
-    except ValueError:
+    except Exception:
         return default
 
 
-# --- Konfiguration über ENV ---
+# Basis-Konfiguration
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "pmx_docs")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "change-me")
-EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
 QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
 
+# Embedding & Generator Modelle
+EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+EMBED_DIM = _int_env("EMBED_DIM", 384)
 
-# --- Komponenten-Factories ---
+# OpenAI-kompatible LLMs (z. B. vLLM, local LLM proxy, Mistral, etc.)
+GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
+GENERATOR_API_BASE = os.getenv("GENERATOR_API_BASE", "http://192.168.30.43:8001/v1")
+GENERATOR_API_KEY = os.getenv("GENERATOR_API_KEY", "change-me")
+
+
+# -------------------------------------------------
+# 🧠 Komponenten-Fabriken
+# -------------------------------------------------
 
 def get_document_store() -> QdrantDocumentStore:
-    """Qdrant als persistenten Document Store initialisieren."""
+    """Erzeuge Qdrant Document Store."""
     return QdrantDocumentStore(
         url=QDRANT_URL,
         index=QDRANT_COLLECTION,
@@ -38,25 +53,40 @@ def get_document_store() -> QdrantDocumentStore:
 
 
 def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
-    """Für Indexierung (Documents -> embeddings)."""
+    """Embedding für Dokumente."""
     return SentenceTransformersDocumentEmbedder(model=EMBED_MODEL)
 
 
 def get_text_embedder() -> SentenceTransformersTextEmbedder:
-    """Für Query-Embedding (Query -> Vektor)."""
+    """Embedding für Query/Text."""
     return SentenceTransformersTextEmbedder(model=EMBED_MODEL)
 
 
 def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
-    """Retriever nutzt den Qdrant Store."""
+    """Retriever: Qdrant-ähnliche Embeddings."""
     return QdrantEmbeddingRetriever(document_store=store)
 
 
 def get_generator() -> OpenAIGenerator:
-    """LLM-Generator für Antworten und Zusammenfassungen."""
+    """
+    Generator nutzt OpenAI-kompatibles API — ideal für vLLM oder lokales Gateway.
+    Erfordert:
+      - GENERATOR_API_BASE (z. B. http://192.168.30.43:8001/v1)
+      - GENERATOR_API_KEY
+    """
     return OpenAIGenerator(
-        api_key=OPENAI_API_KEY,
         model=GENERATOR_MODEL,
-        timeout=300,
-        generation_kwargs={"temperature": 0.3, "max_tokens": 1000},
+        api_key=GENERATOR_API_KEY,
+        api_base_url=GENERATOR_API_BASE,
+        generation_kwargs={"temperature": 0.3, "max_tokens": 1024},
     )
+
+
+# -------------------------------------------------
+# 🧩 Diagnoseausgabe (optional)
+# -------------------------------------------------
+if __name__ == "__main__":
+    print("✅ deps.py loaded successfully")
+    print(f"Qdrant URL: {QDRANT_URL}")
+    print(f"Embed Model: {EMBED_MODEL}")
+    print(f"Generator: {GENERATOR_MODEL} via {GENERATOR_API_BASE}")
