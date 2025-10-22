@@ -1,37 +1,33 @@
-# app/deps.py — Haystack 3.x (vLLM + SentenceTransformers + Qdrant)
-
+# app/deps.py – kompatibel mit haystack-ai >= 3.3 (main branch)
 import os
-from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
-from haystack_integrations.components.embedders.sentence_transformers import SentenceTransformersTextEmbedder
-from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
-from haystack_integrations.components.generators.openai import OpenAIGenerator
+from haystack.document_stores.qdrant import QdrantDocumentStore
+from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
+from haystack.components.retrievers import QdrantEmbeddingRetriever
+from haystack.components.generators import OpenAIGenerator
 
 
-# ---------------------------
-# Environment Defaults
-# ---------------------------
+def _int_env(name: str, default: int) -> int:
+    """Hole eine Umgebungsvariable als int, mit Default."""
+    try:
+        return int(os.getenv(name, default))
+    except ValueError:
+        return default
 
+
+# --- Konfiguration über ENV ---
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "pmx_docs")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "change-me")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))
 QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
 
-# Lokaler SentenceTransformer für Embeddings
-EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-EMBED_DIM = int(os.getenv("EMBED_DIM", "384"))  # MiniLM hat 384 Dimensionen
 
-# vLLM / OpenAI-kompatibles LLM
-LLM_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://192.168.30.43:8001/v1")
-LLM_API_KEY = os.getenv("OPENAI_API_KEY", "change-me")
-LLM_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))
-
-
-# ---------------------------
-# Komponenten-Factories
-# ---------------------------
+# --- Komponenten-Factories ---
 
 def get_document_store() -> QdrantDocumentStore:
-    """Initialisiert Qdrant Document Store."""
+    """Qdrant als persistenten Document Store initialisieren."""
     return QdrantDocumentStore(
         url=QDRANT_URL,
         index=QDRANT_COLLECTION,
@@ -41,29 +37,26 @@ def get_document_store() -> QdrantDocumentStore:
     )
 
 
-def get_doc_embedder() -> SentenceTransformersTextEmbedder:
-    """Embedder für Dokumente."""
-    return SentenceTransformersTextEmbedder(model=EMBED_MODEL)
+def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
+    """Für Indexierung (Documents -> embeddings)."""
+    return SentenceTransformersDocumentEmbedder(model=EMBED_MODEL)
 
 
 def get_text_embedder() -> SentenceTransformersTextEmbedder:
-    """Embedder für Queries."""
+    """Für Query-Embedding (Query -> Vektor)."""
     return SentenceTransformersTextEmbedder(model=EMBED_MODEL)
 
 
 def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
-    """Retriever für semantische Suche."""
+    """Retriever nutzt den Qdrant Store."""
     return QdrantEmbeddingRetriever(document_store=store)
 
 
 def get_generator() -> OpenAIGenerator:
-    """
-    Generator für Text-Antworten (vLLM/OpenAI-kompatibel).
-    Erwartet: OPENAI_BASE_URL → z. B. http://192.168.30.43:8001/v1
-    """
+    """LLM-Generator für Antworten und Zusammenfassungen."""
     return OpenAIGenerator(
-        api_key=LLM_API_KEY,
-        model=LLM_MODEL,
-        base_url=LLM_BASE_URL,
-        timeout=LLM_TIMEOUT,
+        api_key=OPENAI_API_KEY,
+        model=GENERATOR_MODEL,
+        timeout=300,
+        generation_kwargs={"temperature": 0.3, "max_tokens": 1000},
     )
