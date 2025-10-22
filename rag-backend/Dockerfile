@@ -33,8 +33,10 @@ RUN rm -rf /root/.cache/pip && \
     pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir torch==2.3.1 torchaudio==2.3.1 \
         --extra-index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir "haystack-ai[integrations,qdrant,openai,sentence-transformers]>=2.18.0,<3" && \
-    pip install --no-cache-dir -r requirements.txt
+    python -c "import haystack_integrations; print('✅ haystack_integrations installiert')"
+
 
     # --- App kopieren ---
 COPY app ./app
