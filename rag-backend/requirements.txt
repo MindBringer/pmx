@@ -6,17 +6,18 @@ python-multipart==0.0.9
 tqdm==4.66.4
 requests>=2.31.0
 
-# --- Haystack Core 3.x ---
-git+https://github.com/deepset-ai/haystack.git@main#egg=farm-haystack[integrations]
+# --- Haystack 3.x (Core + Integrations) ---
+git+https://github.com/deepset-ai/haystack.git@main#egg=farm-haystack[integrations,qdrant,sentence-transformers,openai]
 qdrant-client>=1.9.0
+qdrant-haystack>=9.2.0
 
 # --- Dokumentformate ---
 python-magic==0.4.27
-trafilatura
+trafilatura>=1.6.3
 markdown-it-py==3.0.0
-mdit_plain
+mdit_plain>=1.0.0
 beautifulsoup4==4.12.3
-lxml
+lxml>=4.9.3
 pypdf==4.2.0
 pdfminer.six>=20220524
 python-docx==1.1.2
@@ -26,7 +27,7 @@ pandas>=2.2.0
 python-pptx>=0.6.23
 mail-parser==3.15.0
 
-# --- Audio ---
+# --- Audio / Speech ---
 faster-whisper>=1.0.0
 soundfile>=0.12
 webrtcvad>=2.0.10
