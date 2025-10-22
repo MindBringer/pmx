@@ -1,9 +1,9 @@
-# app/deps.py – kompatibel mit haystack-ai >= 3.3 (main branch)
+# app/deps.py — kompatibel mit haystack-ai >= 3.3
 import os
 from haystack.document_stores.qdrant import QdrantDocumentStore
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
-from haystack.components.retrievers import QdrantEmbeddingRetriever
-from haystack.components.generators import OpenAIGenerator
+from haystack.components.retrievers.qdrant import QdrantEmbeddingRetriever
+from haystack.components.generators.openai import OpenAIGenerator
 
 
 def _int_env(name: str, default: int) -> int:
