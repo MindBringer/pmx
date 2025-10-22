@@ -1,15 +1,15 @@
 # rag-backend/app/deps.py
 # ----------------------------------------
-# Version: vLLM + SentenceTransformers (keine Ollama-Abhängigkeit)
+# Version: vLLM + SentenceTransformer (kein Ollama)
 # ----------------------------------------
 
 import os
-from haystack.document_stores.qdrant import QdrantDocumentStore
+from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 from haystack.components.embedders import (
     SentenceTransformersDocumentEmbedder,
     SentenceTransformersTextEmbedder,
 )
-from haystack.components.retrievers import QdrantEmbeddingRetriever
+from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from haystack.components.generators import OpenAIGenerator
 
 
