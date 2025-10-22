@@ -16,6 +16,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 #  - curl: Healthchecks / Tests
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    git \
     libsndfile1 \
     ffmpeg \
     curl \
