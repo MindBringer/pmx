@@ -1,10 +1,13 @@
 # app/deps.py — kompatibel mit haystack-ai >= 3.3
+# app/deps.py – kompatibel mit haystack-ai >= 3.3 + qdrant-haystack >= 9
 import os
-from haystack.document_stores.qdrant import QdrantDocumentStore
-from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
+from qdrant_haystack import QdrantDocumentStore
+from haystack.components.embedders import (
+    SentenceTransformersDocumentEmbedder,
+    SentenceTransformersTextEmbedder,
+)
 from haystack.components.retrievers.qdrant import QdrantEmbeddingRetriever
 from haystack.components.generators.openai import OpenAIGenerator
-
 
 def _int_env(name: str, default: int) -> int:
     """Hole eine Umgebungsvariable als int, mit Default."""
