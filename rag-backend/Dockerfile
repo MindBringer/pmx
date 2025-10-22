@@ -29,11 +29,14 @@ WORKDIR /app
 #   Wichtig: Torch + Torchaudio zuerst installieren (CUDA/CPU),
 #   dann Haystack + Integrationen, dann Rest.
 COPY requirements.txt /app/requirements.txt
+RUN rm -rf /root/.cache/pip
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir torch==2.3.1 torchaudio==2.3.1 --extra-index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir torch==2.3.1 torchaudio==2.3.1 \
+        --extra-index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir haystack-ai[integrations,qdrant,openai,sentence-transformers]>=2.18.0,<3 && \
     pip install --no-cache-dir -r requirements.txt
 
-# --- App kopieren ---
+    # --- App kopieren ---
 COPY app ./app
 COPY config ./config
 
