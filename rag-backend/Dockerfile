@@ -1,5 +1,5 @@
 # ------------------------------------------
-# rag-backend – vLLM + Haystack 3.x + Audio
+# rag-backend – vLLM + Haystack 2.x + Audio
 # ------------------------------------------
 FROM python:3.11-slim
 
@@ -9,11 +9,6 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
 # --- System-Pakete ---
-#  - build-essential: Kompilieren (z. B. für numpy/scipy)
-#  - libsndfile1: Soundfile
-#  - ffmpeg: Audio
-#  - libgomp1: Torch/OpenBLAS
-#  - curl: Healthchecks / Tests
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
@@ -26,18 +21,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # --- Requirements ---
-#   Wichtig: Torch + Torchaudio zuerst installieren (CUDA/CPU),
-#   dann Haystack + Integrationen, dann Rest.
 COPY requirements.txt /app/requirements.txt
+
+# Installation in logischer Reihenfolge
 RUN pip install --upgrade pip setuptools wheel && \
+    # 1. Torch CPU-Version
     pip install --no-cache-dir torch==2.3.1 torchaudio==2.3.1 \
         --extra-index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir "haystack-ai[integrations,qdrant,openai,sentence-transformers]>=2.18.0,<3" && \
+    # 2. Haystack Core
+    pip install --no-cache-dir "haystack-ai>=2.18.0,<3" && \
+    # 3. Haystack Integrationen (wichtig!)
+    pip install --no-cache-dir \
+        "qdrant-haystack>=9.2.0" \
+        "sentence-transformers-haystack>=1.2.0" && \
+    # 4. Rest der Dependencies
     pip install --no-cache-dir -r requirements.txt
 
-
-
-    # --- App kopieren ---
+# --- App kopieren ---
 COPY app ./app
 COPY config ./config
 
@@ -49,7 +49,13 @@ ENV DEVICE=${DEVICE:-cpu} \
     DIAR_ENGINE=${DIAR_ENGINE:-local} \
     DIAR_MAX_SPEAKERS=${DIAR_MAX_SPEAKERS:-0} \
     IDENTIFICATION=${IDENTIFICATION:-true} \
-    SPEAKER_STORE=${SPEAKER_STORE:-file}
+    SPEAKER_STORE=${SPEAKER_STORE:-file} \
+    QDRANT_URL=${QDRANT_URL:-http://qdrant:6333} \
+    QDRANT_COLLECTION=${QDRANT_COLLECTION:-pmx_docs} \
+    EMBED_MODEL=${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2} \
+    EMBED_DIM=${EMBED_DIM:-384} \
+    OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://vllm:8000/v1} \
+    GENERATOR_MODEL=${GENERATOR_MODEL:-meta-llama/Meta-Llama-3.1-8B-Instruct}
 
 # --- Expose & Start ---
 EXPOSE 8082

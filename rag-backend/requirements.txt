@@ -7,8 +7,9 @@ tqdm==4.66.4
 requests>=2.31.0
 
 # --- Haystack modern ---
-haystack-ai[integrations]>=2.18.0,<3
+haystack-ai>=2.18.0,<3
 qdrant-haystack>=9.2.0
+sentence-transformers-haystack>=1.2.0
 
 # --- Dokumentformate ---
 python-magic==0.4.27

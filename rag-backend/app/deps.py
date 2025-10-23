@@ -5,14 +5,14 @@ import os
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 
-# --- SentenceTransformers (lokale Embeddings) ---
-from haystack.components.embedders.sentence_transformers import (
+# --- SentenceTransformers (separate Integration) ---
+from haystack_integrations.components.embedders.sentence_transformers import (
     SentenceTransformersTextEmbedder,
     SentenceTransformersDocumentEmbedder,
 )
 
-# --- Generator (OpenAI oder vLLM-kompatibel) ---
-from haystack.components.generators.openai import OpenAIGenerator
+# --- Generator (OpenAI-kompatibel, funktioniert mit vLLM) ---
+from haystack.components.generators import OpenAIGenerator
 
 
 # --- Utility: ENV-Helper ---
@@ -30,8 +30,10 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBED_DIM = _int_env("EMBED_DIM", 384)
 QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "change-me")
-GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
+# vLLM als OpenAI-kompatibler Endpoint
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")  # vLLM braucht oft keinen echten Key
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://vllm:8000/v1")  # vLLM Endpoint
+GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
 
 
 # --- Factories ---
@@ -58,4 +60,13 @@ def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
 
 
 def get_generator() -> OpenAIGenerator:
-    return OpenAIGenerator(api_key=OPENAI_API_KEY, model=GENERATOR_MODEL)
+    """Generator für vLLM (OpenAI-kompatibel)"""
+    return OpenAIGenerator(
+        api_key=OPENAI_API_KEY,
+        api_base_url=OPENAI_BASE_URL,
+        model=GENERATOR_MODEL,
+        generation_kwargs={
+            "max_tokens": 2048,
+            "temperature": 0.7,
+        }
+    )
