@@ -13,6 +13,7 @@ from haystack.components.embedders import (
 
 # --- Generator (OpenAI-kompatibel, funktioniert mit vLLM) ---
 from haystack.components.generators import OpenAIGenerator
+from haystack.utils import Secret
 
 
 # --- Utility: ENV-Helper ---
@@ -31,8 +32,8 @@ EMBED_DIM = _int_env("EMBED_DIM", 384)
 QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
 
 # vLLM als OpenAI-kompatibler Endpoint
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")  # vLLM braucht oft keinen echten Key
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://vllm:8000/v1")  # vLLM Endpoint
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://vllm:8000/v1")
 GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
 
 
@@ -60,9 +61,16 @@ def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
 
 
 def get_generator() -> OpenAIGenerator:
-    """Generator für vLLM (OpenAI-kompatibel)"""
+    """
+    Generator für vLLM (OpenAI-kompatibel)
+    
+    Haystack 2.x benötigt Secret-Objekte statt plain strings für API-Keys.
+    """
+    # Secret-Objekt erstellen (vLLM braucht oft keinen echten Key)
+    api_key_secret = Secret.from_token(OPENAI_API_KEY)
+    
     return OpenAIGenerator(
-        api_key=OPENAI_API_KEY,
+        api_key=api_key_secret,
         api_base_url=OPENAI_BASE_URL,
         model=GENERATOR_MODEL,
         generation_kwargs={
