@@ -254,6 +254,27 @@ def build_index_pipeline():
     return pipe, store
 
 
+def postprocess_with_tags(gen, docs: List[Document], default_tags: Optional[List[str]] = None):
+    """
+    Auto-Tagging auf Chunk-Ebene: nutzt Generator und ergänzt um default_tags.
+    """
+    from .tagging import extract_tags
+    
+    for d in docs:
+        # Auto-Tags aus Content extrahieren
+        auto = extract_tags(gen, d.content)[:8] if d.content else []
+        
+        meta = d.meta or {}
+        existing_tags = meta.get("tags") or []
+        
+        # Kombiniere: existing + auto + default
+        all_tags = sorted(set(existing_tags + auto + (default_tags or [])))
+        meta["tags"] = all_tags
+        d.meta = meta
+    
+    return docs
+
+
 def build_query_pipeline(store=None):
     """Query-Pipeline: Frage -> Retrieval -> Generation mit vLLM"""
     store = store or get_document_store()
