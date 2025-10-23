@@ -23,17 +23,16 @@ WORKDIR /app
 # --- Requirements ---
 COPY requirements.txt /app/requirements.txt
 
-# Installation in logischer Reihenfolge
+# Installation in optimierter Reihenfolge
 RUN pip install --upgrade pip setuptools wheel && \
     # 1. Torch CPU-Version
     pip install --no-cache-dir torch==2.3.1 torchaudio==2.3.1 \
         --extra-index-url https://download.pytorch.org/whl/cpu && \
-    # 2. Haystack Core
+    # 2. Sentence Transformers (vor Haystack!)
+    pip install --no-cache-dir "sentence-transformers>=2.6.1" && \
+    # 3. Haystack Core mit Integrationen
     pip install --no-cache-dir "haystack-ai>=2.18.0,<3" && \
-    # 3. Haystack Integrationen (wichtig!)
-    pip install --no-cache-dir \
-        "qdrant-haystack>=9.2.0" \
-        "sentence-transformers-haystack>=1.2.0" && \
+    pip install --no-cache-dir "qdrant-haystack>=9.2.0" && \
     # 4. Rest der Dependencies
     pip install --no-cache-dir -r requirements.txt
 

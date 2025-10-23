@@ -6,10 +6,10 @@ python-multipart==0.0.9
 tqdm==4.66.4
 requests>=2.31.0
 
-# --- Haystack modern ---
+# --- Haystack modern (inkl. Sentence Transformers) ---
 haystack-ai>=2.18.0,<3
+sentence-transformers>=2.6.1
 qdrant-haystack>=9.2.0
-sentence-transformers-haystack>=1.2.0
 
 # --- Dokumentformate ---
 python-magic==0.4.27
@@ -34,7 +34,6 @@ webrtcvad>=2.0.10
 pydub>=0.25.1
 numpy>=1.26
 scipy>=1.11
-sentence-transformers>=2.6.1
 speechbrain>=0.5.16,<1.0.4
 torch==2.3.1 ; platform_system=="Linux"
 torchaudio==2.3.1 ; platform_system=="Linux"

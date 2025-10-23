@@ -5,8 +5,8 @@ import os
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 
-# --- SentenceTransformers (separate Integration) ---
-from haystack_integrations.components.embedders.sentence_transformers import (
+# --- SentenceTransformers (direkt in Haystack 2.x) ---
+from haystack.components.embedders import (
     SentenceTransformersTextEmbedder,
     SentenceTransformersDocumentEmbedder,
 )
