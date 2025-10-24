@@ -34,7 +34,8 @@
 - **RAG-Backend**: `8082` (Base-Pfad **`/rag`**)  
 - **n8n**: `5678`  
 - **Qdrant**: `6333`  
-- **Ollama**: `11434`  
+- **Ollama**: `11434`
+- **vLLM**: `8000`  
 - **Audio-API** (Transcribe/Speakers): `6080` *(optional: Diarize separat auf `6081`)*
 
 ---
