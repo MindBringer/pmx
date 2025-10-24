@@ -33,6 +33,7 @@ RUN pip install --upgrade pip setuptools wheel && \
     # 3. Haystack Core mit Integrationen
     pip install --no-cache-dir "haystack-ai>=2.18.0,<3" && \
     pip install --no-cache-dir "qdrant-haystack>=9.2.0" && \
+    pip install --no-cache-dir "ollama-haystack>=1.0.0" && \
     # 4. Rest der Dependencies
     pip install --no-cache-dir -r requirements.txt
 
@@ -51,8 +52,8 @@ ENV DEVICE=${DEVICE:-cpu} \
     SPEAKER_STORE=${SPEAKER_STORE:-file} \
     QDRANT_URL=${QDRANT_URL:-http://qdrant:6333} \
     QDRANT_COLLECTION=${QDRANT_COLLECTION:-pmx_docs} \
-    EMBED_MODEL=${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2} \
-    EMBED_DIM=${EMBED_DIM:-384} \
+    EMBED_MODEL=${EMBED_MODEL:-mixedbread-ai/mxbai-embed-large-v1} \
+    EMBED_DIM=${EMBED_DIM:-1024} \
     OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://vllm:8000/v1} \
     GENERATOR_MODEL=${GENERATOR_MODEL:-meta-llama/Meta-Llama-3.1-8B-Instruct}
 

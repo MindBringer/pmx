@@ -6,7 +6,7 @@ python-multipart==0.0.9
 tqdm==4.66.4
 requests>=2.31.0
 
-# --- Haystack modern (inkl. Sentence Transformers) ---
+# --- Haystack modern ---
 haystack-ai>=2.18.0,<3
 sentence-transformers>=2.6.1
 qdrant-haystack>=9.2.0

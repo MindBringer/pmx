@@ -5,13 +5,13 @@ import os
 from haystack_integrations.document_stores.qdrant import QdrantDocumentStore
 from haystack_integrations.components.retrievers.qdrant import QdrantEmbeddingRetriever
 
-# --- SentenceTransformers (direkt in Haystack 2.x) ---
+# --- SentenceTransformers (lokal) ---
 from haystack.components.embedders import (
     SentenceTransformersTextEmbedder,
     SentenceTransformersDocumentEmbedder,
 )
 
-# --- Generator (OpenAI-kompatibel, funktioniert mit vLLM) ---
+# --- Generator ---
 from haystack.components.generators import OpenAIGenerator
 from haystack.utils import Secret
 
@@ -27,13 +27,16 @@ def _int_env(name: str, default: int) -> int:
 # --- ENV Defaults ---
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "pmx_docs")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-EMBED_DIM = _int_env("EMBED_DIM", 384)
+QDRANT_TIMEOUT = _int_env("QDRANT_TIMEOUT", 30)
 QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
 
-# vLLM als OpenAI-kompatibler Endpoint
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")
+# Embedding Config (lokal mit SentenceTransformers)
+EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+EMBED_DIM = _int_env("EMBED_DIM", 384)
+
+# vLLM Config
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://vllm:8000/v1")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")
 GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
 
 
@@ -45,15 +48,26 @@ def get_document_store() -> QdrantDocumentStore:
         embedding_dim=EMBED_DIM,
         similarity="cosine",
         recreate_index=QDRANT_RECREATE,
+        timeout=QDRANT_TIMEOUT,
     )
 
 
 def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
-    return SentenceTransformersDocumentEmbedder(model=EMBED_MODEL)
+    """Document Embedder - lokal mit SentenceTransformers"""
+    return SentenceTransformersDocumentEmbedder(
+        model=EMBED_MODEL,
+        device="cpu",  # oder "cuda" wenn GPU verfügbar
+        normalize_embeddings=True,
+    )
 
 
 def get_text_embedder() -> SentenceTransformersTextEmbedder:
-    return SentenceTransformersTextEmbedder(model=EMBED_MODEL)
+    """Text Embedder - lokal mit SentenceTransformers"""
+    return SentenceTransformersTextEmbedder(
+        model=EMBED_MODEL,
+        device="cpu",  # oder "cuda" wenn GPU verfügbar
+        normalize_embeddings=True,
+    )
 
 
 def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
@@ -63,10 +77,7 @@ def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
 def get_generator() -> OpenAIGenerator:
     """
     Generator für vLLM (OpenAI-kompatibel)
-    
-    Haystack 2.x benötigt Secret-Objekte statt plain strings für API-Keys.
     """
-    # Secret-Objekt erstellen (vLLM braucht oft keinen echten Key)
     api_key_secret = Secret.from_token(OPENAI_API_KEY)
     
     return OpenAIGenerator(
