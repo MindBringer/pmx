@@ -1,0 +1,1157 @@
+{
+  "name": "Transcribe and Summarize V2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meetings/summarize",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true,
+          "binaryPropertyName": "file"
+        }
+      },
+      "id": "eea26a0e-ba9e-4a52-8cef-187f7d2c3ff7",
+      "name": "Webhook Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -704
+      ],
+      "webhookId": "d0ec16ef-0da6-43fa-8321-bea84e9a402a"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.43:6080/transcribe",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "beam_size",
+              "value": "5"
+            },
+            {
+              "name": "best_of",
+              "value": "5"
+            },
+            {
+              "name": "temperature",
+              "value": "0"
+            },
+            {
+              "name": "initial_prompt",
+              "value": "Steinicke, Trockner, ERP, Qdrant, n8n, vLLM"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "redirect": {
+            "redirect": {}
+          },
+          "timeout": 3600000
+        }
+      },
+      "id": "40b3d3e8-ae68-41c6-85c8-a9d769b56732",
+      "name": "Transcribe (/rag/transcribe)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1120,
+        -544
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "c7fedce3-d1cf-46b6-ab8c-393627f00003",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        6032,
+        -512
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// --- Dateiname -> Datum ---\nconst fn   = item.binary?.file?.fileName || item.json.filename || 'meeting.m4a';\nconst mIso = fn.match(/\\d{4}-\\d{2}-\\d{2}/);\nconst mDe  = fn.match(/\\b(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})\\b/);\nconst d    = mIso ? mIso[0]\n  : (mDe ? `${mDe[3]}-${String(mDe[2]).padStart(2,'0')}-${String(mDe[1]).padStart(2,'0')}`\n         : new Date().toISOString().slice(0,10));\n\n// --- Helper ---\nconst clean = v => String(v ?? '').replace(/\\r?\\n--?$/,'').replace(/\\r?\\n/g,'').trim();\nconst toBool = v => {\n  if (typeof v === 'boolean') return v;\n  const s = clean(v).toLowerCase();\n  return ['1','true','yes','on'].includes(s);\n};\n\n// --- Rohfelder säubern ---\nconst title          = clean(item.json.title);\nconst speaker_hints  = clean(item.json.speaker_hints);\nconst meeting_id_in  = clean(item.json.meeting_id);\nconst language       = clean(item.json.language);\nconst tags           = clean(item.json.tags);\nconst api_key        = clean(item.json.api_key);\n\n// Flags robust lesen (egal ob *_flag oder ohne _flag geschickt wurde)\nconst diarizeB    = toBool(item.json.diarize_flag   ?? item.json.diarize   ?? 'true');\nconst identifyB   = toBool(item.json.identify_flag  ?? item.json.identify  ?? 'true');\nconst summarizeB  = toBool(item.json.summarize_flag ?? item.json.summarize ?? 'true');\n\n// --- Endgültiges JSON (nur fertige Werte einsetzen) ---\nitem.json = {\n  meeting_id:     (meeting_id_in || `${d}-meeting`).toLowerCase(),\n  meeting_date:   d,\n  title:          title || `Sitzung ${d}`,\n\n  // echte Booleans für IF-Nodes\n  diarize_flag:   diarizeB,\n  identify_flag:  identifyB,\n  summarize_flag: summarizeB,\n\n  // optionale String-Spiegel für alte Nodes / Logging\n  diarize:        diarizeB   ? 'true' : 'false',\n  identify:       identifyB  ? 'true' : 'false',\n  summarize:      summarizeB ? 'true' : 'false',\n\n  // passthrough\n  speaker_hints,\n  language,\n  tags,\n  api_key,\n};\n\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -608
+      ],
+      "id": "7b72191e-6821-4168-bc89-149ee21d88ae",
+      "name": "Prepare Metadata"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "b40VJ560cdjZeCOR",
+          "mode": "list",
+          "cachedResultName": "RAG Router V3"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5360,
+        -608
+      ],
+      "id": "98214aa1-26f7-4339-9142-55cf249cd93f",
+      "name": "Call 'RAG Router V3'"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Purify Audio: extrahiere Datei UND Form-Felder aus einem multipart/form-data Body\n\n// Quelle bestimmen\nconst src =\n  (item.binary?.file?.mimeType === 'multipart/form-data') ? 'file' :\n  (item.binary?.data?.mimeType === 'multipart/form-data') ? 'data' :\n  null;\n\nif (!src) {\n  // Schon „sauber“? Dann nur zurückgeben.\n  return item;\n}\n\n// rohen multipart-Body holen\nconst mp = await this.helpers.getBinaryDataBuffer(0, src);\nconst s  = mp.toString('binary');\n\n// Boundary aus Header (falls vorhanden) oder aus Body\nconst ctHdr = (item.headers?.['content-type'] || item.json?.headers?.['content-type'] || '').toString();\nlet m = ctHdr.match(/boundary=([^\\s;]+)/i) || s.match(/^--([^\\r\\n]+)/);\nlet boundary = m ? (m[1].startsWith('--') ? m[1].slice(2) : m[1]) : null;\nif (!boundary) throw new Error('multipart boundary nicht gefunden');\n\nconst delim = `--${boundary}`;\nconst parts = s.split(delim).slice(1, -1); // ohne Präambel und Abschluss\n\nconst fields = {};\nfor (const p of parts) {\n  const idx = p.indexOf('\\r\\n\\r\\n');\n  if (idx < 0) continue;\n  const header = p.slice(0, idx);\n  let body    = p.slice(idx + 4);\n  // Body endet i.d.R. mit \"\\r\\n\"\n  if (body.endsWith('\\r\\n')) body = body.slice(0, -2);\n\n  const name = (header.match(/name=\"([^\"]+)\"/i) || [,''])[1];\n  const fn   = (header.match(/filename=\"([^\"]+)\"/i) || [,''])[1];\n  const ctp  = (header.match(/Content-Type:\\s*([^\\r\\n]+)/i) || [,'application/octet-stream'])[1].trim();\n\n  if (fn) {\n    // Datei-Part\n    const fileBuf = Buffer.from(body, 'binary');\n    item.binary = item.binary || {};\n    item.binary.file = {\n      data:     fileBuf.toString('base64'),\n      fileName: fn,\n      mimeType: ctp,\n    };\n  } else if (name) {\n    // normales Feld\n    fields[name] = body;\n  }\n}\n\n// Form-Felder in json mergen\nitem.json = { ...(item.json || {}), ...fields };\n\n// alten multipart-Blob entsorgen (nur falls es 'data' war)\nif (src === 'data') delete item.binary.data;\n\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -704
+      ],
+      "id": "83490acb-dcc5-4c5b-91e4-3882557ca9e0",
+      "name": "Purify Audio"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1344,
+        -608
+      ],
+      "id": "9fa14ac7-e056-48c0-9f1f-3dacd3b5bb22",
+      "name": "Combine Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Output (nach Combine Data)\n// $json enthält Metadaten + die Transcribe-Response flach in einem Objekt\n\nconst meeting = {\n  meeting_id:  $json.meeting_id,\n  meeting_date:$json.meeting_date,\n  title:       $json.title,\n};\n\nconst text = String($json.text || '').trim();\n\nconst segsRaw = Array.isArray($json.segments) ? $json.segments : [];\nconst segs = segsRaw.map(s => ({\n  start_ms: Number(s.start_ms || 0),\n  end_ms:   Number(s.end_ms   || 0),\n  text:     String(s.text || '').trim(),\n  name:     s.name || s.speaker || ($json.identify?.name || null),\n})).filter(s => s.text);\n\nconst speakers = [...new Set(segs.map(s => s.name).filter(Boolean))];\n\nreturn [{\n  json: {\n    meeting,\n    speaker_hints: $json.speaker_hints || '',\n    flags: {\n      diarize_flag: $json.diarize_flag,\n      identify:     $json.identify_flag,\n    },\n    transcribe: {\n      text,\n      segments: segs,\n      identify: $json.identify || null,\n    },\n    speaking_shares: $json.speaking_shares || $json.diarize?.speaking_shares || $json.speech_ratios || []\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        -608
+      ],
+      "id": "6be72fcb-8fd9-4dbc-ae7a-b4756cb690c2",
+      "name": "Build Output"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7820cb7a-b803-4f64-b582-6dfe5b4c795c",
+              "leftValue": "={{ $json.diarize_flag }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        -688
+      ],
+      "id": "f64b2c90-a304-474b-9be9-a6b24ce0f90c",
+      "name": "Do Diarize?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.42:8082/diarize",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "sample_rate",
+              "value": "16000"
+            },
+            {
+              "name": "frame_ms",
+              "value": "30"
+            },
+            {
+              "name": "vad_aggr",
+              "value": "2"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        -784
+      ],
+      "id": "a9a1f3fa-0310-4bae-b2af-7b7af8defbc6",
+      "name": "Diarize (/diarize)",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2a3843b4-9551-4492-8e87-755af7a3ce9b",
+              "name": "diarize",
+              "value": "={ \"segments\": [] }",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1792,
+        -592
+      ],
+      "id": "5d895001-f3a3-4524-b672-6222aaa02d34",
+      "name": "Set Empty Diarize"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2016,
+        -608
+      ],
+      "id": "a0b7065a-676f-4371-a7fa-4b8043f4410d",
+      "name": "Merge Diarize"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7820cb7a-b803-4f64-b582-6dfe5b4c795c",
+              "leftValue": "={{ $json.identify_flag }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        -688
+      ],
+      "id": "4209035f-ec5c-4541-9526-77712a8bf294",
+      "name": "Do Identify?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inputs:\n//  - Input 0: Upload/Webhook (mit Binary)\n//  - Additional Input \"Merge Diarize\": JSON mit segments\n\nconst src = $input.first();            // Binary-Quelle\nconst bin = src.binary || {};\nconst binKeys = Object.keys(bin);\nif (binKeys.length === 0) {\n  throw new Error('Kein Binary in Input 0 gefunden.');\n}\nconst firstKey = binKeys[0];\nconst outBinary = { ...bin };\nif (firstKey !== 'file') outBinary.file = bin[firstKey];  // Spiegeln auf \"file\"\n\n// Segmente vom \"Merge Diarize\"\nconst dia = $item(0, 'Merge Diarize')?.json ?? {};\nconst diaSegs = Array.isArray(dia.segments) ? dia.segments : [];\n\n// Normalisieren\nconst norm = (v) => Math.round(Number(v ?? 0));\nconst segments = (diaSegs.length ? diaSegs : ($json.segments ?? []))\n  .map(s => ({\n    start_ms: norm(s.start_ms ?? s.from ?? s.start),\n    end_ms:   norm(s.end_ms   ?? s.to   ?? s.end),\n  }))\n  .filter(s => s.end_ms > s.start_ms);\n\n// Hints robust bauen (Array + CSV)\nconst hintsRaw = $json.speaker_hints ?? $json.hints ?? '';\nconst hintsArr = String(hintsRaw)\n  .split(',')\n  .map(s => s.trim())\n  .filter(Boolean);\nconst hintsCsv = hintsArr.join(',');\n\nreturn [{\n  json: {\n    // Für Server, der JSON im multipart erwartet:\n    segments,                                    // echtes Array\n    // Für Server, der Strings erwartet:\n    segments_json: JSON.stringify({ segments }), // Kompatibilität\n    hints: hintsArr,                             // Array\n    hints_csv: hintsCsv,                         // String-Variante\n    sim_threshold: Number($json.sim_threshold ?? 0.65),\n    top_k: Number($json.top_k ?? 3),\n    api_key: $json.api_key || 'change-me'\n  },\n  binary: outBinary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        -784
+      ],
+      "id": "60329d45-57ac-4a75-8500-d44a1ca65627",
+      "name": "Build Identify Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.43:6080/identify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "segments_json",
+              "value": "={{$json.segments_json}}"
+            },
+            {
+              "name": "hints",
+              "value": "={{$json.hints_csv}}"
+            },
+            {
+              "name": "threshold",
+              "value": "={{$json.sim_threshold}}"
+            },
+            {
+              "name": "top_k",
+              "value": "={{$json.top_k}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        -784
+      ],
+      "id": "66de29f2-0c55-4460-a380-ae69d365372f",
+      "name": "Identify (/identify)",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "781f3033-7b0f-4052-ab1b-4f7729e87580",
+              "name": "identify",
+              "value": "={ \"overall\": null, \"segments\": [], \"topk_overall\": [] }",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2912,
+        -592
+      ],
+      "id": "d45a6638-e79f-4b43-a653-230948296a5a",
+      "name": "Set Empty Identify"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3136,
+        -608
+      ],
+      "id": "1f5c82dd-8cfc-457a-81ff-6d3f25a69286",
+      "name": "Merge Identify"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧩 Chunk Transcript (Tokens) – Audio & Document kompatibel\n// Ziel: Text aus Transkript oder Dokument in sinnvolle Chunks (Satzende + Länge) teilen\n\n// 1️⃣ Textquelle robust bestimmen\nconst text =\n  $json.transcribe?.text ||\n  $json.transcribe?.transcript ||\n  $json.text ||\n  $json.full_text ||\n  $json.transcript ||\n  '';\n\nconst clean = String(text).replace(/\\s+/g, ' ').trim();\nif (!clean) {\n  return [\n    {\n      json: {\n        error: 'Kein Text zum Chunken vorhanden',\n        meeting: $json.meeting || {},\n        meta: $json.meta || {},\n      },\n    },\n  ];\n}\n\n// 2️⃣ Chunks nach Satzende oder Länge (~1500 Zeichen)\nconst sentences = clean.split(/(?<=[.!?])\\s+/);\nconst chunks = [];\nlet buffer = [];\n\nfor (const sentence of sentences) {\n  const current = buffer.join(' ');\n  if ((current.length + sentence.length) > 1500) {\n    chunks.push(buffer.join(' ').trim());\n    buffer = [sentence];\n  } else {\n    buffer.push(sentence);\n  }\n}\nif (buffer.length) chunks.push(buffer.join(' ').trim());\n\n// 3️⃣ Items ausgeben\nreturn chunks.map((chunk, i) => ({\n  json: {\n    chunk_idx: i + 1,\n    chunk_text: chunk,\n    meeting: $json.meeting || {},\n    meta: $json.meta || {},\n  },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3568,
+        -880
+      ],
+      "id": "5ec79add-16d9-4072-9a2f-b1fee60b1187",
+      "name": "Chunk Transcript (Tokens)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧱 Build Chunk Summary Prompt – kompatibel mit neuen clean chunks\n\nconst hdr = [];\nconst total = $json.total_chunks ?? $json.metrics?.total_chunks ?? 0;\nconst idx = $json.chunk_idx ?? $json.chunk?.idx ?? 0;\n\nhdr.push(`📄 Chunk ${idx} / ${total}`);\nhdr.push(`🗂️ Quelle: ${$json.meta?.filename ?? 'unbekannt'}`);\nhdr.push(`📅 Datum: ${$json.meeting?.meeting_date ?? 'n/a'}`);\n\nif ($json.speaker_hints) hdr.push(`🔊 Speaker-Hinweise: ${$json.speaker_hints}`);\n\nconst text = $json.chunk_text ?? $json.chunk?.text ?? $json.text ?? $json.transcript ?? $json.full_text ?? '[kein Text]';\nconst cleanText = text.trim();\n\nreturn {\n  json: {\n    ...$json,\n    rag: false,\n    prompt: [\n      hdr.join(\"\\n\"),\n      '',\n      cleanText,\n      '',\n      '✍️ Erstelle eine inhaltliche Zusammenfassung (fokus: Kernaussagen, Themen, Kontext).',\n      'Formuliere neutral und prägnant, keine Einleitung oder Floskeln.',\n    ].filter(Boolean).join('\\n'),\n    system: 'Du bist ein strikter JSON-Generator. Keine Zusatztexte.',\n    model: 'vllm',\n    vllm_model: $env.VLLM_MODEL_ALLROUNDER ?? 'Owen/owen2.5-78b-instruct-GPTQ-int4',\n    temperature: 0.2,\n    top_p: 0.9,\n    max_tokens: 800\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4464,
+        -608
+      ],
+      "id": "f677979c-9a2e-4d0b-85de-04c724c20ee5",
+      "name": "Build Chunk Summary Prompt"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "b40VJ560cdjZeCOR",
+          "mode": "list",
+          "cachedResultName": "RAG Router V3"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4688,
+        -608
+      ],
+      "id": "da5511ac-090b-421d-b2b7-59348e929313",
+      "name": "Call 'RAG Router V3'1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧩 Normalize Chunk Result – keep summary + transcript + segments + speaking_shares\n\nfunction toJson(s) {\n  try {\n    return JSON.parse(String(s || '').replace(/^```json/i, '').replace(/```$/, '').trim());\n  } catch {\n    return null;\n  }\n}\n\nconst ans = $json.answer || $json.text || '';\nconst parsed = toJson(ans);\nlet summary = parsed || $json.summary || { summary: String(ans || '').slice(0, 800) };\n\n// --- Rückwärtskompatibel / Daten übernehmen ---\nlet transcript = '';\nlet segments = [];\nlet speaking_shares = [];\n\n// 1️⃣ Daten aus Build Chunk Summary Prompt\ntry {\n  const src = $items('Build Chunk Summary Prompt', 0)?.[0]?.json || {};\n  transcript = src.transcript || src.full_text || '';\n  segments = src.segments || [];\n  speaking_shares = src.speaking_shares || [];\n} catch {}\n\n// 2️⃣ Fallback auf globale Daten (Build Output)\nif ((!segments.length && !speaking_shares.length) || !transcript) {\n  try {\n    const global = $items('Build Output', 0)?.[0]?.json || {};\n    transcript = transcript || global.transcribe?.text || global.text || '';\n    segments = segments.length ? segments : (global.transcribe?.segments || global.segments || []);\n    speaking_shares = speaking_shares.length ? speaking_shares : (global.speaking_shares || []);\n  } catch {}\n}\n\n// 3️⃣ Letzter Fallback auf Chunk Transcript (Tokens)\nif ((!segments.length && !speaking_shares.length) || !transcript) {\n  try {\n    const ct = $items('Chunk Transcript (Tokens)', 0)?.[0]?.json || {};\n    transcript = transcript || ct.transcribe?.text || ct.text || '';\n    segments = segments.length ? segments : (ct.segments || []);\n    speaking_shares = speaking_shares.length ? speaking_shares : (ct.speaking_shares || []);\n  } catch {}\n}\n\n// 4️⃣ Normalize arrays\nsegments = Array.isArray(segments) ? segments : [];\nspeaking_shares = Array.isArray(speaking_shares) ? speaking_shares : [];\n\n// 5️⃣ Rückgabe – summary NACH Spread, damit sie nicht überschrieben wird\nreturn [\n  {\n    json: {\n      ...$json,\n      transcript,\n      segments,\n      speaking_shares,\n      summary\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4912,
+        -608
+      ],
+      "id": "aa78c138-dd50-4385-93b0-3e78395fc3d7",
+      "name": "Normalize Chunk Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧩 Build Reduce Prompt – full version (prompt + system + model + meta)\n\nconst chunkSummaries = $json.chunk_summaries || [];\nconst combined = chunkSummaries.join('\\n\\n');\n\n// Vorherige Summary (optional)\nlet previousSummary = '';\ntry {\n  const prev = $items('Normalize Chunk Result', 0)?.[0]?.json?.summary;\n  if (typeof prev === 'object' && prev.summary) previousSummary = prev.summary;\n  else if (typeof prev === 'string') previousSummary = prev;\n} catch {}\n\nconst meeting = $json.meeting || {};\nconst transcript = $json.transcript || '';\nconst segments = $json.segments || [];\nconst speaking_shares = $json.speaking_shares || [];\n\n// --- System Prompt / Model ---\nconst system = `\nDu bist ein analytischer Assistent. \nFasse mehrere Teilzusammenfassungen zu einer konsistenten Gesamtübersicht zusammen.\nGib das Ergebnis immer als gültiges JSON zurück:\n{\n  \"summary\": \"string\",\n  \"focus\": [\"string\"],\n  \"questions\": [\"string\"]\n}\n`;\n\nconst model = $json.model || 'vllm';\nconst rag = false;\n\n// --- Finale Prompt ---\nconst prompt = `\n### Einzelzusammenfassungen:\n${combined}\n\n### Vorherige Zusammenfassung:\n${previousSummary || '[keine vorherige Summary]'}\n\nErstelle eine konsolidierte JSON-Zusammenfassung mit den Feldern \"summary\", \"focus\" und \"questions\".\n`;\n\n// --- Rückgabe für RAG Router ---\nreturn [\n  {\n    json: {\n      prompt,        // Text für das LLM\n      system,        // Systemverhalten\n      model,         // Modellwahl\n      rag,           // keine Retrieval-Abfrage\n      meeting,\n      transcript,\n      segments,\n      speaking_shares\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5136,
+        -608
+      ],
+      "id": "857c1b07-a915-4e90-a06b-a9b1363fb5d5",
+      "name": "Build Reduce Prompt"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧩 Finalize Summary – include full document text for frontend rendering\n\nfunction tryJson(s) {\n  try {\n    return JSON.parse(\n      String(s || '').replace(/^```json/i, '').replace(/```$/, '').trim()\n    );\n  } catch {\n    return null;\n  }\n}\n\n// --- Parse summary ---\nconst ans = $json.answer || $json.text || '';\nconst parsed = tryJson(ans);\nlet summary = parsed || $json.summary || {};\nif (!summary.summary && !summary.focus && !summary.questions) {\n  summary = {\n    summary: String(ans || '').slice(0, 800),\n    focus: [],\n    questions: []\n  };\n}\n\n// --- Metadata / context ---\nconst meeting = $json.meeting || {};\nconst transcribe = $json.transcribe || {};\nconst segments = transcribe.segments || $json.segments || [];\nconst speaking_shares =\n  $json.speaking_shares || transcribe.speaking_shares || [];\n\n// --- Detect full text ---\nlet transcript =\n  transcribe.text ||\n  transcribe.transcript ||\n  $json.transcript ||\n  $json.full_text ||\n  $json.text ||            // 👈 Dokument-Text hier auffangen\n  '';\n\n// --- Flatten summary for frontend ---\nconst flat = {\n  summary: summary.summary ?? summary.tldr ?? '',\n  focus: summary.focus ?? [],\n  questions: summary.questions ?? []\n};\n\n// --- Determine source ---\nconst source = meeting.meeting_id ? 'audio' : 'document';\n\n// --- Unified output ---\nreturn [\n  {\n    json: {\n      meeting,\n      ...flat,\n      transcript,\n      segments,\n      speaking_shares,\n      source\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5808,
+        -608
+      ],
+      "id": "f17d6973-51b1-4d7f-a6d9-9e6af35d7755",
+      "name": "Finalize Summary"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.42:8082/index",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "value": "=={  \"collection\": \"meetings\",  \"documents\": [    {      \"id\": (        ($json.meeting?.meeting_id ?? \"unknown\") +        \"-chunk-\" +        String($json.chunk_idx ?? 0)      ),      \"text\": $json.chunk_text ?? \"\",      \"metadata\": {        \"meeting_id\": $json.meeting?.meeting_id ?? \"unknown\",        \"chunk_idx\": $json.chunk_idx ?? 0,        \"date\": $json.meeting?.meeting_date ?? null,        \"source\": $json.meta?.source ?? \"transcript\"      },      \"tags\": [\"meeting\", \"transcript\"]    }  ]}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3808,
+        -544
+      ],
+      "id": "79a001ee-c68e-4b0d-91e7-485352f03e14",
+      "name": "Embed Transcript Chunks"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.42:8082/index",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({   collection: \"meetings\",   documents: [{     id: $json.meeting?.meeting_id || 'unknown-meeting',     text: $json.summary?.summary || JSON.stringify($json.summary),     metadata: {       meeting_date: $json.meeting?.meeting_date || '',       focus: Array.isArray($json.summary?.focus) ? $json.summary.focus.join(', ') : '',       questions: Array.isArray($json.summary?.questions) ? $json.summary.questions.join(', ') : ''     }   }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6032,
+        -704
+      ],
+      "id": "b766246f-4390-4365-be52-81de7396b1ef",
+      "name": "Embed Final Summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧩 Normalize Reduce Result – fixed for documents + audio\n\nfunction toJson(s) {\n  try {\n    return JSON.parse(String(s || '').replace(/^```json/i, '').replace(/```$/, '').trim());\n  } catch {\n    return null;\n  }\n}\n\n// 1️⃣ parse LLM answer\nconst ans = $json.answer || $json.text || '';\nlet parsed = toJson(ans);\nlet summary = parsed || $json.summary || {\n  summary: String(ans || '').slice(0, 800),\n  focus: [],\n  questions: []\n};\n\n// 2️⃣ if summary.summary itself is a JSON string, parse again\nif (typeof summary.summary === 'string' && summary.summary.trim().startsWith('{')) {\n  const nested = toJson(summary.summary);\n  if (nested && typeof nested === 'object') summary = nested;\n}\n\n// 3️⃣ collect metadata and transcript\nlet meeting = $json.meeting || {};\nlet transcribe = $json.transcribe || {};\nlet segments = $json.segments || [];\nlet speaking_shares = $json.speaking_shares || [];\n\n// robust transcript extraction\nlet transcript = '';\ntry {\n  // zuerst Build Reduce Prompt abfragen (da steckt full_text noch drin)\n  const reduce = $items('Build Reduce Prompt', 0)?.[0]?.json || {};\n  transcript = reduce.transcript || reduce.full_text || '';\n} catch (e) {}\n\n// falls nichts kam, noch Standard-Fallback\ntranscript = transcript ||\n  transcribe.text ||\n  transcribe.transcript ||\n  $json.transcript ||\n  $json.full_text ||\n  $json.text ||\n  '';\n\n// create dummy meeting info for documents\nif (!meeting.meeting_id) {\n  meeting = {\n    meeting_id: `document-${new Date().toISOString().slice(0,10)}`,\n    meeting_date: new Date().toISOString().slice(0,10)\n  };\n}\n\n// determine source\nconst isAudio = Boolean(transcribe.text || transcribe.transcript);\nconst source = isAudio ? 'audio' : 'document';\n\nsegments = $json.segments || $items('Normalize Chunk Result', 0)?.[0]?.json?.segments || [];\nspeaking_shares = $json.speaking_shares || $items('Normalize Chunk Result', 0)?.[0]?.json?.speaking_shares || [];\n\n// 4️⃣ final output\nreturn [\n  {\n    json: {\n      meeting,\n      summary,\n      transcript,\n      segments,\n      speaking_shares,\n      source\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5584,
+        -608
+      ],
+      "id": "94e39c8c-f1ff-427a-8745-483a40b7793f",
+      "name": "Normalize Reduce Result"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4032,
+        -608
+      ],
+      "id": "5779c506-9bb8-483a-a172-fccfe07e45b9",
+      "name": "Merge Chunks"
+    },
+    {
+      "parameters": {
+        "jsCode": "const segs = $json.transcribe?.segments || $json.segments || [];\nconst totals = {};\nfor (const s of segs) {\n  const dur = Math.max(0, (s.end_ms ?? 0) - (s.start_ms ?? 0));\n  const name = s.name || s.speaker || 'Unbekannt';\n  totals[name] = (totals[name] || 0) + dur;\n}\nconst sum = Object.values(totals).reduce((a,b)=>a+b,0) || 1;\nconst speaking_shares = Object.entries(totals).map(([name, ms]) => ({\n  name,\n  sekunden: Math.round(ms/1000),\n  anteil_prozent: +(ms/sum*100).toFixed(1)\n}));\nreturn [{ json: { ...$json, speaking_shares } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        -784
+      ],
+      "id": "6b3c70d6-37f9-4b69-a690-c478464e679d",
+      "name": "Compute Speaking Shares"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Detect File Type (n8n Code-Node) — Run Once per Item\n\nconst file = item.binary?.file || {};\nconst mime = (file.mimeType || '').toLowerCase();\nconst name = (file.fileName || '').toLowerCase();\n\nconst audio = mime.startsWith('audio/') || /\\.(m4a|mp3|wav|ogg|flac)$/i.test(name);\nconst document = !audio && (\n  mime.startsWith('application/pdf') ||\n  mime.startsWith('text/') ||\n  /\\.(pdf|docx?|odt|xlsx?|csv|txt|pptx?|eml|html?)$/i.test(name)\n);\n\nitem.json.is_audio = audio;\nitem.json.is_document = document;\nitem.json.file_ext = name.split('.').pop() || '';\n\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -704
+      ],
+      "id": "99b2f16b-00b8-49c3-86ea-1b955674cd76",
+      "name": "Detect File Type"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e835b41d-c81c-4f3a-b715-8e9b06125a28",
+              "leftValue": "={{ $json.is_document }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        -704
+      ],
+      "id": "b3cbf7f4-4987-4ac6-a0ad-738382935df7",
+      "name": "Is Document?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.30.42:8082/parse/document",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key || 'change-me' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "tags",
+              "value": "={{ $json.tags || 'document' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        -880
+      ],
+      "id": "d13e09db-d812-41f1-a529-4e2a2084a833",
+      "name": "Parse Document"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const now = new Date().toISOString().slice(0, 10);\nconst fn = item.binary?.file?.fileName || `document_${now}`;\nconst base = fn.replace(/\\.[^.]+$/, '');\n\nitem.json.meeting = item.json.meeting || {\n  meeting_id: base.toLowerCase(),\n  meeting_date: now,\n  title: item.json.title || base,\n};\n\nitem.json.speaking_shares = item.json.speaking_shares || [];\nitem.json.transcribe = { text: item.json.text || '' };\n\n// gleiche Flags wie bei Audio\nitem.json.summarize_flag = Boolean(item.json.summarize_flag ?? item.json.summarize ?? false);\nitem.json.tags = item.json.tags || 'document';\n\nreturn item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -880
+      ],
+      "id": "bad5fd32-1ba1-4e88-9975-9098e4103e8b",
+      "name": "Prepare Doc Meta"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🧩 Merge Chunks (Full Text) – intelligent handling for documents vs audio\n\nconst items = $input.all();\nif (!items.length) return [];\n\n//\n// 1️⃣ Prüfen, ob es sich um Audio-Chunks handelt (Segmentdaten vorhanden)\n//\nconst looksLikeAudio = items.some(\n  i =>\n    i.json?.segment_start !== undefined ||\n    i.json?.segment_end !== undefined ||\n    (i.json?.chunk_text && /speaker|segment|utterance/i.test(JSON.stringify(i.json)))\n);\n\n//\n// 2️⃣ AUDIO → Original-Chunks unverändert durchreichen\n//\nif (looksLikeAudio) {\n  // Übergib einfach alle Items weiter\n  return items.map(i => ({\n    json: {\n      ...i.json,\n      source: 'audio'\n    }\n  }));\n}\n\n//\n// 3️⃣ DOKUMENT → Volltext zusammenführen\n//\nconst chunks = items\n  .map(i => i.json.chunk_text || i.json.text || '')\n  .filter(Boolean);\n\nconst fullText = chunks.join('\\n\\n').trim();\n\nconst meta = items[0]?.json?.meta || {};\nconst meeting = items[0]?.json?.meeting || {};\n\nreturn [\n  {\n    json: {\n      source: 'document',\n      meeting,\n      meta,\n      transcript: fullText,\n      full_text: fullText,\n      chunks_total: chunks.length\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4240,
+        -608
+      ],
+      "id": "998fb228-9882-4e32-9514-dc87e5b10453",
+      "name": "Merge Chunks (Full Text)"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Start": {
+      "main": [
+        [
+          {
+            "node": "Purify Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Metadata": {
+      "main": [
+        [
+          {
+            "node": "Transcribe (/rag/transcribe)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe (/rag/transcribe)": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Call 'RAG Router V3'": {
+      "main": [
+        [
+          {
+            "node": "Normalize Reduce Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Purify Audio": {
+      "main": [
+        [
+          {
+            "node": "Detect File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Do Diarize?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Diarize",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Build Output": {
+      "main": [
+        [
+          {
+            "node": "Chunk Transcript (Tokens)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Do Diarize?": {
+      "main": [
+        [
+          {
+            "node": "Diarize (/diarize)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Empty Diarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diarize (/diarize)": {
+      "main": [
+        [
+          {
+            "node": "Merge Diarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Empty Diarize": {
+      "main": [
+        [
+          {
+            "node": "Merge Diarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Diarize": {
+      "main": [
+        [
+          {
+            "node": "Do Identify?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Identify",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Do Identify?": {
+      "main": [
+        [
+          {
+            "node": "Build Identify Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Empty Identify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Identify Payload": {
+      "main": [
+        [
+          {
+            "node": "Identify (/identify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify (/identify)": {
+      "main": [
+        [
+          {
+            "node": "Compute Speaking Shares",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Empty Identify": {
+      "main": [
+        [
+          {
+            "node": "Merge Identify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Identify": {
+      "main": [
+        [
+          {
+            "node": "Build Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Transcript (Tokens)": {
+      "main": [
+        [
+          {
+            "node": "Embed Transcript Chunks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Chunk Summary Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call 'RAG Router V3'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'RAG Router V3'1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Chunk Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Chunk Result": {
+      "main": [
+        [
+          {
+            "node": "Build Reduce Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reduce Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call 'RAG Router V3'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Summary": {
+      "main": [
+        [
+          {
+            "node": "Embed Final Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Transcript Chunks": {
+      "main": [
+        [
+          {
+            "node": "Merge Chunks",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Embed Final Summary": {
+      "main": [
+        []
+      ]
+    },
+    "Normalize Reduce Result": {
+      "main": [
+        [
+          {
+            "node": "Finalize Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Chunks": {
+      "main": [
+        [
+          {
+            "node": "Merge Chunks (Full Text)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Speaking Shares": {
+      "main": [
+        [
+          {
+            "node": "Merge Identify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect File Type": {
+      "main": [
+        [
+          {
+            "node": "Is Document?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Document?": {
+      "main": [
+        [
+          {
+            "node": "Parse Document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Document": {
+      "main": [
+        [
+          {
+            "node": "Prepare Doc Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Doc Meta": {
+      "main": [
+        [
+          {
+            "node": "Chunk Transcript (Tokens)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Chunks (Full Text)": {
+      "main": [
+        [
+          {
+            "node": "Build Chunk Summary Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e590a183-f042-4dd4-9594-07f9b5f9d7d9",
+  "meta": {
+    "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
+  },
+  "id": "p5g5JRVxeDyey6uq",
+  "tags": []
+}

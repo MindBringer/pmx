@@ -156,7 +156,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://rag-backend:8082/query",
+        "url": "http://192.168.30.42:8082/query",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -166,7 +166,7 @@
             },
             {
               "name": "x-api-key",
-              "value": "={{ $('Context (original fields)').item.json.rag_api_key }}"
+              "value": "={{ $json.api_key || 'change-me' }}"
             }
           ]
         },
@@ -743,7 +743,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const reqCtx = ($items('Context (original fields)', 0)?.[0]?.json) || {};\nconst res = $json || {};\n\n// Text extrahieren\nlet out = '';\nif (Array.isArray(res.choices) && res.choices[0]) {\n  const c = res.choices[0];\n  out = (c.message?.content) || c.text || '';\n}\n\n// Denk-Abschnitte entfernen\nout = String(out||'')\n  .replace(/<think>[\\s\\S]*?<\\/think>\\s*/gi,'')\n  .replace(/```(?:think|thinking|reasoning)[\\t ]*\\n[\\s\\S]*?```/gi,'')\n  .trim();\n\n// *** EINZELNES OBJEKT zurückgeben ***\nreturn {\n  json: {\n    provider: 'vllm',\n    model_used: res.model || reqCtx.vLLM_model_allround || reqCtx.model || 'vllm',\n    answer: out,\n    usage: res.usage || undefined,\n    raw: res\n  }\n};"
+        "jsCode": "const reqCtx = ($items('Context (original fields)', 0)?.[0]?.json) || {};\nconst res = $json || {};\n\n// Text extrahieren\nlet out = '';\nif (Array.isArray(res.choices) && res.choices[0]) {\n  const c = res.choices[0];\n  out = (c.message?.content) || c.text || '';\n}\n\n// Denk-Abschnitte entfernen\nout = String(out || '')\n  .replace(/<think>[\\s\\S]*?<\\/think>\\s*/gi, '')\n  .replace(/```(?:think|thinking|reasoning)[\\t ]*\\n[\\s\\S]*?```/gi, '')\n  .trim();\n\n// --- conversation_id aus Kontext übernehmen ---\nconst cid =\n  $json.conversation_id ||\n  reqCtx.conversation_id ||\n  $json.body?.conversation_id ||\n  $json.headers?.['x-conversation-id'] ||\n  '';\n\n// *** EINZELNES OBJEKT zurückgeben ***\nreturn {\n  json: {\n    provider: 'vllm',\n    model_used: res.model || reqCtx.vLLM_model_allround || reqCtx.model || 'vllm',\n    answer: out,\n    usage: res.usage || undefined,\n    raw: res,\n    // 🧠 wichtig: ID und Kontext zurückgeben\n    conversation_id: cid,\n    memory: reqCtx.memory || {},\n    prompt: reqCtx.prompt || '',\n  }\n};\n"
       },
       "id": "6547267d-83ab-4ab1-8161-df3c9fbfb31d",
       "name": "Format vLLM Result",
@@ -1197,7 +1197,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "2a2eff67-0618-49d2-8e6b-3dc3bf7574cb",
+  "versionId": "89285430-a9f4-47c6-b151-da6c5b245442",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "561919f222f248fefb13e03c84adfc7356dad806feb0489acfa0f3688a2a1852"
