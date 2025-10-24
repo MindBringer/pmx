@@ -296,7 +296,10 @@ Antwort:"""
     pipe = Pipeline()
     pipe.add_component("embed_query", qembed)
     pipe.add_component("retrieve", retriever)
-    pipe.add_component("prompt_builder", PromptBuilder(template=template))
+    pipe.add_component("prompt_builder", PromptBuilder(
+        template=template,
+        required_variables=["query", "documents"]  # ← FIX: Explizit angeben
+    ))
     pipe.add_component("generate", gen)
 
     # Query-Text -> Embedder -> Retriever

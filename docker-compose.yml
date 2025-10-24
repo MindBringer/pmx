@@ -172,6 +172,8 @@ services:
 volumes:
   ollama-data:
   ollama-models:
+  huggingface-cache:
+    driver: local
   vllm-models:
   vllm-cache:
   n8n-data:

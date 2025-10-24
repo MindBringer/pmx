@@ -52,8 +52,8 @@ ENV DEVICE=${DEVICE:-cpu} \
     SPEAKER_STORE=${SPEAKER_STORE:-file} \
     QDRANT_URL=${QDRANT_URL:-http://qdrant:6333} \
     QDRANT_COLLECTION=${QDRANT_COLLECTION:-pmx_docs} \
-    EMBED_MODEL=${EMBED_MODEL:-mixedbread-ai/mxbai-embed-large-v1} \
-    EMBED_DIM=${EMBED_DIM:-1024} \
+    EMBED_MODEL=${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2} \
+    EMBED_DIM=${EMBED_DIM:-384} \
     OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://vllm:8000/v1} \
     GENERATOR_MODEL=${GENERATOR_MODEL:-meta-llama/Meta-Llama-3.1-8B-Instruct}
 
