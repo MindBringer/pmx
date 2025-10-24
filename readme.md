@@ -321,8 +321,8 @@ proxy_send_timeout 600s;
 **GPU-VM:**
 ```bash
 cd /opt/pmx
-docker compose --profile ai build
-docker compose --profile ai up -d
+docker compose --profile ai-vllm build
+docker compose --profile ai-vllm up -d
 ```
 
 **Services-VM:**
