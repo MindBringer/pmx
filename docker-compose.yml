@@ -28,7 +28,7 @@ services:
     networks: [ai-net]
 
   audio-api:
-    profiles: ["ai"]
+    profiles: ["ai", "ai-vllm"]
     build:
       context: .
       dockerfile: rag-backend/Dockerfile.audio
