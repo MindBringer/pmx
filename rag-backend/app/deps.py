@@ -10,6 +10,7 @@ from haystack.components.embedders import (
     SentenceTransformersTextEmbedder,
     SentenceTransformersDocumentEmbedder,
 )
+from haystack.utils import ComponentDevice
 
 # --- Generator ---
 from haystack.components.generators import OpenAIGenerator
@@ -33,6 +34,7 @@ QDRANT_RECREATE = os.getenv("QDRANT_RECREATE", "false").lower() == "true"
 # Embedding Config (lokal mit SentenceTransformers)
 EMBED_MODEL = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBED_DIM = _int_env("EMBED_DIM", 384)
+EMBED_DEVICE = os.getenv("DEVICE", "cpu")  # cpu oder cuda:0
 
 # vLLM Config
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://vllm:8000/v1")
@@ -56,7 +58,7 @@ def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
     """Document Embedder - lokal mit SentenceTransformers"""
     return SentenceTransformersDocumentEmbedder(
         model=EMBED_MODEL,
-        device="cpu",  # oder "cuda" wenn GPU verfügbar
+        device=ComponentDevice.from_str(EMBED_DEVICE),
         normalize_embeddings=True,
     )
 
@@ -65,7 +67,7 @@ def get_text_embedder() -> SentenceTransformersTextEmbedder:
     """Text Embedder - lokal mit SentenceTransformers"""
     return SentenceTransformersTextEmbedder(
         model=EMBED_MODEL,
-        device="cpu",  # oder "cuda" wenn GPU verfügbar
+        device=ComponentDevice.from_str(EMBED_DEVICE),
         normalize_embeddings=True,
     )
 
