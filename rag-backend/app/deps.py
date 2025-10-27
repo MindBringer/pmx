@@ -65,41 +65,33 @@ def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
 
 
 # =====================================================
-# Embedders mit automatischer Initialisierung
+# Embedders – neue Instanz je Pipeline, mit internem Cache
 # =====================================================
 
-_doc_embedder_instance = None
-_text_embedder_instance = None
-
+# Hinweis: SentenceTransformers cached das Modell intern automatisch.
+# Wir erzeugen hier nur neue Haystack-Komponenten, um Pipeline-Konflikte zu vermeiden.
 
 def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
-    """Document Embedder – lokal mit SentenceTransformers (warm_up beim ersten Aufruf)."""
-    global _doc_embedder_instance
-    if _doc_embedder_instance is None:
-        print(f"[init] Lade SentenceTransformersDocumentEmbedder: {EMBED_MODEL} ({EMBED_DEVICE}) …")
-        embedder = SentenceTransformersDocumentEmbedder(
-            model=EMBED_MODEL,
-            device=ComponentDevice.from_str(EMBED_DEVICE),
-            normalize_embeddings=True,
-        )
-        embedder.warm_up()
-        _doc_embedder_instance = embedder
-    return _doc_embedder_instance
+    """Document Embedder – lokale Instanz mit SentenceTransformers."""
+    embedder = SentenceTransformersDocumentEmbedder(
+        model=EMBED_MODEL,
+        device=ComponentDevice.from_str(EMBED_DEVICE),
+        normalize_embeddings=True,
+    )
+    # Nur beim ersten Load zieht HF das Modell wirklich neu (danach aus Cache)
+    print(f"[init] Erzeuge neue SentenceTransformersDocumentEmbedder-Instanz: {EMBED_MODEL} ({EMBED_DEVICE})")
+    return embedder
 
 
 def get_text_embedder() -> SentenceTransformersTextEmbedder:
-    """Text Embedder – lokal mit SentenceTransformers (warm_up beim ersten Aufruf)."""
-    global _text_embedder_instance
-    if _text_embedder_instance is None:
-        print(f"[init] Lade SentenceTransformersTextEmbedder: {EMBED_MODEL} ({EMBED_DEVICE}) …")
-        embedder = SentenceTransformersTextEmbedder(
-            model=EMBED_MODEL,
-            device=ComponentDevice.from_str(EMBED_DEVICE),
-            normalize_embeddings=True,
-        )
-        embedder.warm_up()
-        _text_embedder_instance = embedder
-    return _text_embedder_instance
+    """Text Embedder – lokale Instanz mit SentenceTransformers."""
+    embedder = SentenceTransformersTextEmbedder(
+        model=EMBED_MODEL,
+        device=ComponentDevice.from_str(EMBED_DEVICE),
+        normalize_embeddings=True,
+    )
+    print(f"[init] Erzeuge neue SentenceTransformersTextEmbedder-Instanz: {EMBED_MODEL} ({EMBED_DEVICE})")
+    return embedder
 
 
 # =====================================================
