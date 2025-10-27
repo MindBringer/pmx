@@ -63,47 +63,39 @@ def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
     """Retriever für semantische Suche in Qdrant."""
     return QdrantEmbeddingRetriever(document_store=store)
 
-
 # =====================================================
-# Embedders – neue Instanz je Pipeline, mit einmaligem Warm-Up
+# Embedders – neue Instanz je Pipeline, aber jedes Mal warm_up()
 # =====================================================
 
-# Globale Flags, um Warmup nur einmal auszuführen
-_doc_model_warmed_up = False
-_text_model_warmed_up = False
+from time import perf_counter
+
+def _warmup(embedder, kind: str):
+    """Hilfsfunktion mit Timer-Log."""
+    t0 = perf_counter()
+    embedder.warm_up()
+    dt = perf_counter() - t0
+    print(f"[warmup] {kind} ready in {dt:.2f}s")
 
 
 def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
-    """Document Embedder – lokale Instanz mit SentenceTransformers (warm_up beim ersten Aufruf)."""
-    global _doc_model_warmed_up
+    """Document Embedder – neue Instanz, warm_up() bei jeder Erzeugung."""
     embedder = SentenceTransformersDocumentEmbedder(
         model=EMBED_MODEL,
         device=ComponentDevice.from_str(EMBED_DEVICE),
         normalize_embeddings=True,
     )
-    if not _doc_model_warmed_up:
-        print(f"[init] Warm-Up DocumentEmbedder: {EMBED_MODEL} ({EMBED_DEVICE}) …")
-        embedder.warm_up()
-        _doc_model_warmed_up = True
-    else:
-        print(f"[init] Neue DocumentEmbedder-Instanz (cached model): {EMBED_MODEL}")
+    _warmup(embedder, f"DocumentEmbedder {EMBED_MODEL}")
     return embedder
 
 
 def get_text_embedder() -> SentenceTransformersTextEmbedder:
-    """Text Embedder – lokale Instanz mit SentenceTransformers (warm_up beim ersten Aufruf)."""
-    global _text_model_warmed_up
+    """Text Embedder – neue Instanz, warm_up() bei jeder Erzeugung."""
     embedder = SentenceTransformersTextEmbedder(
         model=EMBED_MODEL,
         device=ComponentDevice.from_str(EMBED_DEVICE),
         normalize_embeddings=True,
     )
-    if not _text_model_warmed_up:
-        print(f"[init] Warm-Up TextEmbedder: {EMBED_MODEL} ({EMBED_DEVICE}) …")
-        embedder.warm_up()
-        _text_model_warmed_up = True
-    else:
-        print(f"[init] Neue TextEmbedder-Instanz (cached model): {EMBED_MODEL}")
+    _warmup(embedder, f"TextEmbedder {EMBED_MODEL}")
     return embedder
 
 
