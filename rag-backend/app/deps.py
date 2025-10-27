@@ -65,32 +65,45 @@ def get_retriever(store: QdrantDocumentStore) -> QdrantEmbeddingRetriever:
 
 
 # =====================================================
-# Embedders – neue Instanz je Pipeline, mit internem Cache
+# Embedders – neue Instanz je Pipeline, mit einmaligem Warm-Up
 # =====================================================
 
-# Hinweis: SentenceTransformers cached das Modell intern automatisch.
-# Wir erzeugen hier nur neue Haystack-Komponenten, um Pipeline-Konflikte zu vermeiden.
+# Globale Flags, um Warmup nur einmal auszuführen
+_doc_model_warmed_up = False
+_text_model_warmed_up = False
+
 
 def get_doc_embedder() -> SentenceTransformersDocumentEmbedder:
-    """Document Embedder – lokale Instanz mit SentenceTransformers."""
+    """Document Embedder – lokale Instanz mit SentenceTransformers (warm_up beim ersten Aufruf)."""
+    global _doc_model_warmed_up
     embedder = SentenceTransformersDocumentEmbedder(
         model=EMBED_MODEL,
         device=ComponentDevice.from_str(EMBED_DEVICE),
         normalize_embeddings=True,
     )
-    # Nur beim ersten Load zieht HF das Modell wirklich neu (danach aus Cache)
-    print(f"[init] Erzeuge neue SentenceTransformersDocumentEmbedder-Instanz: {EMBED_MODEL} ({EMBED_DEVICE})")
+    if not _doc_model_warmed_up:
+        print(f"[init] Warm-Up DocumentEmbedder: {EMBED_MODEL} ({EMBED_DEVICE}) …")
+        embedder.warm_up()
+        _doc_model_warmed_up = True
+    else:
+        print(f"[init] Neue DocumentEmbedder-Instanz (cached model): {EMBED_MODEL}")
     return embedder
 
 
 def get_text_embedder() -> SentenceTransformersTextEmbedder:
-    """Text Embedder – lokale Instanz mit SentenceTransformers."""
+    """Text Embedder – lokale Instanz mit SentenceTransformers (warm_up beim ersten Aufruf)."""
+    global _text_model_warmed_up
     embedder = SentenceTransformersTextEmbedder(
         model=EMBED_MODEL,
         device=ComponentDevice.from_str(EMBED_DEVICE),
         normalize_embeddings=True,
     )
-    print(f"[init] Erzeuge neue SentenceTransformersTextEmbedder-Instanz: {EMBED_MODEL} ({EMBED_DEVICE})")
+    if not _text_model_warmed_up:
+        print(f"[init] Warm-Up TextEmbedder: {EMBED_MODEL} ({EMBED_DEVICE}) …")
+        embedder.warm_up()
+        _text_model_warmed_up = True
+    else:
+        print(f"[init] Neue TextEmbedder-Instanz (cached model): {EMBED_MODEL}")
     return embedder
 
 
