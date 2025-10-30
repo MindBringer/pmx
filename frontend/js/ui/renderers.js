@@ -221,7 +221,62 @@ export function appendSseEvent(jobTitle, evt){
   appendIntermediate({ title: label || 'Zwischenergebnis', text: text, sources: evt.sources, artifacts: evt.artifacts });
 }
 
-// --- Finale Antwort ---
+// --- Hilfsfunktionen für Markdown + Sections ---
+function mdToHtmlLite(str) {
+  if (!str) return '';
+  // sichere Escape-Konvertierung zuerst
+  const safe = escapeHtml(String(str));
+  // einfache Markdown-Ersatzregeln
+  return safe
+    // Fettdruck **text**
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    // Listenpunkte - text oder * text
+    .replace(/(^|\n)[\-\*]\s+(.+)/g, '$1<li>$2</li>')
+    // Nummerierte Listen 1. text
+    .replace(/(^|\n)\d+\.\s+(.+)/g, '$1<li>$2</li>')
+    // Zeilenumbrüche in <br> für flache Textteile
+    .replace(/\n{2,}/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+}
+
+function renderMarkdownSections(text) {
+  if (!text) return '<div class="inline-help">[leer]</div>';
+
+  const lines = String(text).split(/\r?\n/);
+  const parts = [];
+  let current = { title: null, body: [] };
+
+  for (const line of lines) {
+    const match = line.match(/^#{2,6}\s*(.+)$/); // Überschrift ### ...
+    if (match) {
+      if (current.title) parts.push({ ...current });
+      current = { title: match[1].trim(), body: [] };
+    } else {
+      current.body.push(line);
+    }
+  }
+  if (current.title) parts.push(current);
+
+  // kein ### gefunden → als reinen Text anzeigen
+  if (!parts.length) {
+    return '<pre class="prewrap mono">' + mdToHtmlLite(text) + '</pre>';
+  }
+
+  // jede Section als <details>-Block rendern
+  return parts.map((p, i) => {
+    const bodyHtml = mdToHtmlLite(p.body.join('\n').trim());
+    return `
+      <details class="card"${i === 0 ? ' open' : ''}>
+        <summary class="card-head">${escapeHtml(p.title)}</summary>
+        <div class="card-body prewrap">${bodyHtml}</div>
+      </details>
+    `;
+  }).join('\n');
+}
+
+// ==============================
+// setFinalAnswer – komplett überarbeitet
+// ==============================
 export function setFinalAnswer(input, opts){
   if (!resultOut || !resultDiv) {
     console.warn('setFinalAnswer: #result or #result-output nicht gefunden.');
@@ -244,12 +299,14 @@ export function setFinalAnswer(input, opts){
     if (artifacts == null) artifacts = opts.artifacts;
   }
 
+  // Fallback auf summary-Objekt (wenn vorhanden)
   const safeAnswer = input?.summary
     ? (typeof input.summary === "object"
         ? input.summary.summary || ""
         : String(input.summary))
     : (answer || "[leer]");
 
+  // --- Fokus + Fragen für spezielle Agenten-Ergebnisse ---
   let focusList = [];
   let questionList = [];
 
@@ -258,21 +315,21 @@ export function setFinalAnswer(input, opts){
     questionList = Array.isArray(input.summary.questions) ? input.summary.questions : [];
   }
 
-  // Summary-Haupttext
+  // --- Markdown / Section Rendering ---
+  const renderedSections = renderMarkdownSections(safeAnswer);
+
+  // --- Grundlayout ---
   let html = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <div>✅ Finale Antwort:</div>
       <button type="button" id="copy-answer" class="secondary" style="width:auto">kopieren</button>
     </div>
-    <div class="card" style="margin-top:8px">
-      <div class="card-head">Zusammenfassung</div>
-      <div class="card-body prewrap">${esc(safeAnswer)}</div>
-    </div>
+    ${renderedSections}
   `;
 
   // Fokus (aufklappbar)
   if (focusList.length) {
-    const focusHtml = focusList.map(f => `<li>${esc(f)}</li>`).join("");
+    const focusHtml = focusList.map(f => `<li>${escapeHtml(f)}</li>`).join("");
     html += `
       <details class="card" open>
         <summary class="card-head">Fokus-Themen</summary>
@@ -282,7 +339,7 @@ export function setFinalAnswer(input, opts){
 
   // Fragen (aufklappbar)
   if (questionList.length) {
-    const qHtml = questionList.map(q => `<li>${esc(q)}</li>`).join("");
+    const qHtml = questionList.map(q => `<li>${escapeHtml(q)}</li>`).join("");
     html += `
       <details class="card">
         <summary class="card-head">Fragen</summary>
@@ -290,20 +347,19 @@ export function setFinalAnswer(input, opts){
       </details>`;
   }
 
-
-  // Moderator-/Critic-Notizen
+  // --- Moderator Notes ---
   if (artifacts && artifacts.moderator_notes) {
     const notes = String(artifacts.moderator_notes).trim();
     if (notes) {
-      html += ''
-        + '<details style="margin-top:12px">'
-        +   '<summary style="cursor:pointer;font-weight:700">Moderator (Critic): Fokus & Fragen</summary>'
-        +   '<pre class="prewrap mono" style="margin-top:6px;">' + escapeHtml(notes) + '</pre>'
-        + '</details>';
+      html += `
+        <details style="margin-top:12px" open>
+          <summary style="cursor:pointer;font-weight:700">Moderator (Critic): Fokus & Fragen</summary>
+          <pre class="prewrap mono" style="margin-top:6px;">${escapeHtml(notes)}</pre>
+        </details>`;
     }
   }
 
-  // Rationale (zusammengefasst)
+  // --- Rationale Summary ---
   if (artifacts && artifacts.rationale_summary) {
     const rs = artifacts.rationale_summary || {};
     const persona = Array.isArray(rs.persona) ? rs.persona : [];
@@ -329,23 +385,24 @@ export function setFinalAnswer(input, opts){
     }
 
     if (rsHtml) {
-      html += ''
-        + '<details style="margin-top:12px">'
-        +   '<summary style="cursor:pointer;font-weight:700">Rationale (zusammengefasst)</summary>'
-        +   '<div class="inline-help" style="margin-top:6px">' + rsHtml + '</div>'
-        + '</details>';
+      html += `
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-weight:700">Rationale (zusammengefasst)</summary>
+          <div class="inline-help" style="margin-top:6px">${rsHtml}</div>
+        </details>`;
     }
   }
 
-  // Quellen
+  // --- Quellen + Dateien ---
   const srcHtml = renderSources(sources);
   if (srcHtml) html += srcHtml;
 
-  // Artifacts
   if (artifacts && artifacts.code) {
-    html += '<div style="margin-top:12px;font-weight:700">Code</div>'
-         +  '<pre class="prewrap mono">' + escapeHtml(String(artifacts.code)) + '</pre>';
+    html += `
+      <div style="margin-top:12px;font-weight:700">Code</div>
+      <pre class="prewrap mono">${escapeHtml(String(artifacts.code))}</pre>`;
   }
+
   if (artifacts && Array.isArray(artifacts.files) && artifacts.files.length){
     html += '<div style="margin-top:12px;font-weight:700">Dateien</div><ul>';
     html += artifacts.files.map(f=>{
@@ -360,24 +417,25 @@ export function setFinalAnswer(input, opts){
     }).join('') + '</ul>';
   }
 
+  // --- Render in UI ---
   if (resultOut) resultOut.innerHTML = html;
-
-  const pre = document.getElementById('answer-pre');
-  if (pre) pre.textContent = safeAnswer;
-
-  const copyBtn = document.getElementById('copy-answer');
-  if (copyBtn && pre) {
-    copyBtn.addEventListener('click', ()=>{
-      navigator.clipboard.writeText(pre.textContent || "");
-    });
-  }
-
   if (resultDiv) {
     resultDiv.className = "success";
     resultDiv.style.display = '';
   }
   if (jobLine) jobLine.textContent = "Fertig.";
+
+  const pre = document.getElementById('answer-pre');
+  if (pre) pre.textContent = safeAnswer;
+
+  const copyBtn = document.getElementById('copy-answer');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', ()=>{
+      navigator.clipboard.writeText(pre?.textContent || safeAnswer || "");
+    });
+  }
 }
+
 
 export function setError(msg){
   if (resultOut) resultOut.textContent = "❌ Fehler: " + msg;
