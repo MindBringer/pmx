@@ -322,7 +322,7 @@ async function startAsyncRun(job_title, payload){
   let backoff = 1000;
   let final = null;
   const t0 = Date.now();
-  const MAX = 300000; // 5 min Timeout
+  const MAX = 3600000; // 1 Std Timeout
 
   while (Date.now() - t0 < MAX) {
     const r = await fetch(resultUrl, { headers: { "Accept": "application/json" } });
