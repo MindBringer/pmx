@@ -1,22 +1,8 @@
-# ============================================
-# rag-backend/app/main.py  (korrigierte Version)
-# ============================================
-
+# rag-backend/app/main.py
 import os
 import time
 from typing import List, Optional
-from fastapi import (
-    FastAPI,
-    UploadFile,
-    File,
-    Depends,
-    Header,
-    HTTPException,
-    Form,
-    Request,
-    Body,
-)
-from pydantic import BaseModel
+from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Request
 from haystack import Document
 
 from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
@@ -28,7 +14,6 @@ from .pipelines import (
     convert_bytes_to_documents,
 )
 
-# Router imports
 from app.routers.transcribe import router as transcribe_router
 from app.routers.diarize import router as diarize_router
 from app.routers.identify import router as identify_router
@@ -39,15 +24,15 @@ from app.parse_document import router as parse_router
 from .jobs import router as jobs_router
 
 
-# ====================================================
-# Settings & App Init
-# ====================================================
+# -----------------------------
+# Settings & App
+# -----------------------------
 API_KEY = os.getenv("API_KEY", "")
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
-app = FastAPI(title="pmx-rag-backend", version="1.1.0")
+app = FastAPI(title="pmx-rag-backend", version="1.0.1")
 
-# Router-Registrierung
+# Router registrieren
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 app.include_router(diarize_router, prefix="", tags=["audio"])
 app.include_router(identify_router, prefix="", tags=["audio"])
@@ -58,84 +43,113 @@ app.include_router(parse_router)
 app.include_router(jobs_router, prefix="/rag")
 
 
-# ====================================================
-# Utility: Header-API-Key prüfen
-# ====================================================
+# -----------------------------
+# Header-Schutz
+# -----------------------------
 def require_key(x_api_key: Optional[str] = Header(None)):
+    """Einfacher Header-Check."""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
-# ====================================================
-# Health Endpoint
-# ====================================================
+# -----------------------------
+# Health
+# -----------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-# ====================================================
-# Index – unterstützt JSON + Datei-Uploads
-# ====================================================
-
-class InlineDoc(BaseModel):
-    id: Optional[str] = None
-    text: str
-    metadata: Optional[dict] = None
-
-
-class InlineIndexRequest(BaseModel):
-    collection: Optional[str] = "pmx_docs"
-    documents: List[InlineDoc]
-
-
+# -----------------------------
+# Index – Upload & JSON-Direkt
+# -----------------------------
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
     request: Request,
     files: List[UploadFile] = File(default=[]),
-    inline: Optional[InlineIndexRequest] = Body(default=None),
 ):
     """
-    Unterstützt:
-    - multipart/form-data (Dateiupload)
-    - application/json (direktes Dokument-Indexing)
+    Indexiert Dokumente aus Datei-Upload oder JSON-Body.
+    - Uploads (multipart/form-data): werden geparst, gechunkt, eingebettet
+    - JSON (application/json): werden direkt in Qdrant gespeichert
     """
+    content_type = request.headers.get("content-type", "").lower()
+    is_json = "application/json" in content_type
 
-    # === JSON-Modus (z. B. aus n8n / API) ===
-    if inline and inline.documents:
-        collection = inline.collection or "pmx_docs"
+    # =============================
+    # JSON-Upload (z. B. aus n8n)
+    # =============================
+    if is_json:
+        try:
+            payload = await request.json()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
+        collection = payload.get("collection", "pmx_docs")
+        docs_raw = payload.get("documents") or []
+        if not isinstance(docs_raw, list) or not docs_raw:
+            return {
+                "indexed": 0,
+                "collection": collection,
+                "files": [],
+                "tags": [],
+                "metrics": {"elapsed_ms": 0, "pipeline_ms": 0, "total_chunks": 0, "files_count": 0},
+            }
+
         store = get_document_store()
         store.index = collection
 
-        docs = [
-            Document(
-                id=d.id or None,
-                content=d.text,
-                meta=(d.metadata or {}),
+        docs = []
+        for d in docs_raw:
+            if not isinstance(d, dict):
+                continue
+            text = d.get("text") or d.get("content") or ""
+            if not text.strip():
+                continue
+            doc = Document(
+                id=d.get("id"),
+                content=text,
+                meta=d.get("metadata") or d.get("meta") or {},
             )
-            for d in inline.documents
-        ]
+            docs.append(doc)
 
-        pipe, _store = build_index_pipeline(store)
+        if not docs:
+            return {
+                "indexed": 0,
+                "collection": collection,
+                "files": [],
+                "tags": [],
+                "metrics": {"elapsed_ms": 0, "pipeline_ms": 0, "total_chunks": 0, "files_count": 0},
+            }
+
+        # --- Direkt speichern, kein Pipeline-Overhead ---
         t0 = time.perf_counter()
-        pipe.run({"clean": {"documents": docs}})
-        elapsed = round((time.perf_counter() - t0) * 1000)
+        store.write_documents(docs)
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        print(f"[index] Direkt gespeichert: {len(docs)} docs in {collection}")
 
         return {
             "indexed": len(docs),
             "collection": collection,
-            "elapsed_ms": elapsed,
             "files": [],
             "tags": [],
+            "metrics": {
+                "elapsed_ms": elapsed_ms,
+                "pipeline_ms": 0,
+                "total_chunks": len(docs),
+                "files_count": 0,
+            },
         }
 
-    # === FormData-Modus (z. B. Upload aus UI) ===
+    # =============================
+    # Datei-Upload (Standardmodus)
+    # =============================
     form = await request.form()
     raw_list = form.getlist("tags")
     tags: List[str] = []
     if raw_list:
         for item in raw_list:
-            if isinstance(item, str) and ("," in item):
+            if isinstance(item, str) and "," in item:
                 tags.extend([t.strip() for t in item.split(",") if t.strip()])
             elif isinstance(item, str) and item.strip():
                 tags.append(item.strip())
@@ -144,9 +158,7 @@ async def index(
         if isinstance(raw, str) and raw.strip():
             tags = [t.strip() for t in raw.split(",")] if "," in raw else [raw.strip()]
 
-    collection = form.get("collection", "pmx_docs")
     pipe, _store = build_index_pipeline()
-    _store.index = collection
     gen = get_generator()
 
     t0 = time.perf_counter()
@@ -165,7 +177,6 @@ async def index(
             data=data,
             default_meta={"source": "upload"},
         )
-        # Auto-Tagging
         docs = postprocess_with_tags(gen, docs, tags or [])
         conv_ms = round((time.perf_counter() - t_conv0) * 1000)
 
@@ -184,11 +195,10 @@ async def index(
         _ = pipe.run({"clean": {"documents": all_docs}})
     pipeline_ms = round((time.perf_counter() - t_idx0) * 1000)
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
-
     total_chunks = len(all_docs)
+
     return {
         "indexed": total_chunks,
-        "collection": collection,
         "files": file_stats,
         "tags": tags,
         "metrics": {
@@ -200,23 +210,14 @@ async def index(
     }
 
 
-# ====================================================
-# Query
-# ====================================================
-
+# -----------------------------
+# Query (semantische Suche)
+# -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
-    """
-    Semantische Suche + Generierung.
-    Optional: Tag-Filter oder alternative Collection.
-    """
-    collection = getattr(payload, "collection", None) or "pmx_docs"
     store = get_document_store()
-    store.index = collection
-
     pipe = build_query_pipeline(store)
 
-    # Filter
     flt = None
     if payload.tags_all or payload.tags_any:
         flt = {"operator": "AND", "conditions": []}
@@ -236,12 +237,10 @@ def query(payload: QueryRequest):
         "generate": {},
     })
 
-    # Antwort extrahieren
     gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-    # Quellen separat ermitteln
     retriever = get_retriever(store)
     qembed = get_text_embedder()
     emb = qembed.run(text=payload.query)["embedding"]
@@ -253,7 +252,6 @@ def query(payload: QueryRequest):
     )
     docs = ret_docs.get("documents", []) or []
 
-    # Quellen strukturieren
     srcs = []
     used_tags = []
     for d in docs:
@@ -273,16 +271,13 @@ def query(payload: QueryRequest):
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
 
 
-# ====================================================
-# Tags: Listen + Patch
-# ====================================================
-
+# -----------------------------
+# Tags
+# -----------------------------
 @app.get("/tags", dependencies=[Depends(require_key)])
 def list_tags(limit: int = 1000):
-    """Aggregiert alle bekannten Tags."""
     store = get_document_store()
     docs = store.filter_documents(filters=None, top_k=limit)
-
     from collections import Counter
     c = Counter()
     for d in docs:
@@ -291,9 +286,11 @@ def list_tags(limit: int = 1000):
     return [{"tag": k, "count": v} for k, v in c.most_common()]
 
 
+# -----------------------------
+# Tags patchen
+# -----------------------------
 @app.patch("/docs/{doc_id}/tags", dependencies=[Depends(require_key)])
 def patch_tags(doc_id: str, patch: TagPatch):
-    """Manuelles Hinzufügen/Entfernen von Tags."""
     store = get_document_store()
     docs = store.filter_documents(
         filters={"operator": "AND", "conditions": [{"field": "id", "operator": "==", "value": doc_id}]},
