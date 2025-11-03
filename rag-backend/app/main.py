@@ -27,14 +27,15 @@ from app.parse_document import router as parse_router
 from .jobs import router as jobs_router
 
 
-# -----------------------------
+# =====================================================
 # Settings & App
-# -----------------------------
+# =====================================================
 API_KEY = os.getenv("API_KEY", "")
-SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
-app = FastAPI(title="pmx-rag-backend", version="1.0.5")
+app = FastAPI(title="pmx-rag-backend", version="1.0.6")
 
+# Router
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 app.include_router(diarize_router, prefix="", tags=["audio"])
 app.include_router(identify_router, prefix="", tags=["audio"])
@@ -45,27 +46,40 @@ app.include_router(parse_router)
 app.include_router(jobs_router, prefix="/rag")
 
 
-# -----------------------------
+# =====================================================
 # Header-Schutz
-# -----------------------------
+# =====================================================
 def require_key(x_api_key: Optional[str] = Header(None)):
+    """Einfacher Header-Check."""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
-# -----------------------------
+# =====================================================
 # Health
-# -----------------------------
+# =====================================================
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-# -----------------------------
-# Gemeinsame Enrichment-Logik
-# -----------------------------
+# =====================================================
+# Hilfsfunktion: eindeutige Dokument-ID
+# =====================================================
+def make_unique_doc_id(base: str = "document") -> str:
+    """
+    Erzeugt garantiert eindeutige Dokument-IDs:
+    <base>-YYYYMMDD-HHMMSS-ffffff-xxxxxx
+    """
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")  # Mikrosekunden-Auflösung
+    rand = uuid4().hex[:6]
+    return f"{base}-{ts}-{rand}"
+
+
+# =====================================================
+# Gemeinsames Enrichment: Auto-Tagging & Meta
+# =====================================================
 def enrich_documents(docs: List[Document], generator, default_source="upload"):
-    """Auto-Tagging & Standard-Metadaten anreichern"""
     enriched = []
     for d in docs:
         auto_tags = extract_tags(generator, d.content or "")[:8] if d.content else []
@@ -80,9 +94,9 @@ def enrich_documents(docs: List[Document], generator, default_source="upload"):
     return enriched
 
 
-# -----------------------------
-# Index – Datei & JSON
-# -----------------------------
+# =====================================================
+# INDEX (Datei & JSON)
+# =====================================================
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
     request: Request,
@@ -93,7 +107,7 @@ async def index(
     gen = get_generator()
 
     # --------------------------
-    # JSON-Direktpfad
+    # JSON-Direktpfad (Meetings, API)
     # --------------------------
     if is_json:
         try:
@@ -117,20 +131,21 @@ async def index(
             if not text.strip():
                 continue
 
-            # ID immer eindeutig
+            # ID-Erzeugung (immer eindeutig)
             if d.get("id"):
                 doc_id = str(d["id"])
             else:
                 base = d.get("base_name") or d.get("meta", {}).get("source") or "document"
-                ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-                rand = uuid4().hex[:6]
-                doc_id = f"{base}-{ts}-{rand}"
+                doc_id = make_unique_doc_id(base)
 
             meta = d.get("metadata") or d.get("meta") or {}
+            meta.setdefault("created_at", datetime.utcnow().isoformat())
+            meta.setdefault("source", "json-upload")
+
             doc = Document(id=doc_id, content=text, meta=meta)
             docs.append(doc)
 
-        # Auto-Tags + Metadaten
+        # Enrichment + Auto-Tags
         docs = enrich_documents(docs, gen, default_source="json-upload")
 
         # Embedding + Speichern
@@ -143,7 +158,9 @@ async def index(
         store.write_documents(embedded, policy="skip")
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
-        print(f"[index] {len(docs)} JSON-Dokumente in {collection} gespeichert")
+        for d in docs:
+            print(f"[index] ✅ Gespeichert: {d.id} ({len(d.content)} chars, {collection})")
+
         return {
             "indexed": len(docs),
             "collection": collection,
@@ -151,7 +168,7 @@ async def index(
         }
 
     # --------------------------
-    # Datei-Upload
+    # Datei-Upload (Frontend)
     # --------------------------
     form = await request.form()
     tags: List[str] = []
@@ -183,7 +200,12 @@ async def index(
         docs = postprocess_with_tags(gen, docs, tags)
         conv_ms = round((time.perf_counter() - t_conv0) * 1000)
 
+        # Einzigartige IDs + Enrichment
+        for d in docs:
+            if not getattr(d, "id", None):
+                d.id = make_unique_doc_id("document")
         all_docs.extend(enrich_documents(docs, gen, default_source="upload"))
+
         file_stats.append({
             "filename": f.filename,
             "mime": mime,
@@ -199,6 +221,9 @@ async def index(
     pipeline_ms = round((time.perf_counter() - t_idx0) * 1000)
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
+    for d in all_docs:
+        print(f"[index] ✅ Gespeichert: {d.id} ({len(d.content)} chars, upload)")
+
     return {
         "indexed": len(all_docs),
         "files": file_stats,
@@ -212,9 +237,9 @@ async def index(
     }
 
 
-# -----------------------------
-# Query
-# -----------------------------
+# =====================================================
+# QUERY (Semantische Suche)
+# =====================================================
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
     collection = getattr(payload, "collection", None) or getattr(payload, "collection_name", None) or "pmx_docs"
