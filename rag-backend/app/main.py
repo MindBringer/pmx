@@ -108,11 +108,15 @@ async def index(
             if d.get("id"):
                 doc_id = str(d["id"])
             else:
-                # Basis: Datumszeit + kurze UUID (z. B. document-20251103-153045-a1b2c3)
+                base = d.get("base_name") or d.get("meta", {}).get("source") or "document"
                 ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-                doc_id = f"document-{ts}-{uuid4().hex[:6]}"
+                rand = uuid4().hex[:6]
+                doc_id = f"{base}-{ts}-{rand}"
 
             meta = d.get("metadata") or d.get("meta") or {}
+            meta.setdefault("created_at", datetime.utcnow().isoformat())
+            meta.setdefault("source", "json-upload")
+
             doc = Document(id=doc_id, content=text, meta=meta)
             docs.append(doc)
 
@@ -125,12 +129,12 @@ async def index(
         embedded = embedder.run(documents=docs)["documents"]
         emb_ms = round((time.perf_counter() - t_emb0) * 1000)
 
-        # 🔹 In Qdrant schreiben (Overwrite erlaubt)
+        # 🔹 In Qdrant schreiben (kein Überschreiben!)
         t0 = time.perf_counter()
-        store.write_documents(embedded, policy="overwrite")
+        store.write_documents(embedded, policy="skip")  # "skip" = keine Doubletten überschreiben
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
-        print(f"[index] Direkt gespeichert: {len(docs)} docs in {collection} mit Embeddings")
+        print(f"[index] {len(docs)} neue Dokumente in {collection} mit Embeddings gespeichert")
 
         return {
             "indexed": len(docs),
@@ -209,7 +213,6 @@ async def index(
             "files_count": len(file_stats),
         },
     }
-
 
 # -----------------------------
 # Query (semantische Suche)
