@@ -6,7 +6,7 @@ from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, R
 from haystack import Document
 
 from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
-from .deps import get_document_store, get_generator, get_retriever, get_text_embedder
+from .deps import get_document_store, get_generator, get_retriever, get_text_embedder, get_doc_embedder
 from .pipelines import (
     build_index_pipeline,
     build_query_pipeline,
@@ -30,7 +30,7 @@ from .jobs import router as jobs_router
 API_KEY = os.getenv("API_KEY", "")
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
-app = FastAPI(title="pmx-rag-backend", version="1.0.1")
+app = FastAPI(title="pmx-rag-backend", version="1.0.2")
 
 # Router registrieren
 app.include_router(transcribe_router, prefix="", tags=["audio"])
@@ -71,7 +71,7 @@ async def index(
     """
     Indexiert Dokumente aus Datei-Upload oder JSON-Body.
     - Uploads (multipart/form-data): werden geparst, gechunkt, eingebettet
-    - JSON (application/json): werden direkt in Qdrant gespeichert
+    - JSON (application/json): werden direkt mit Embeddings in Qdrant gespeichert
     """
     content_type = request.headers.get("content-type", "").lower()
     is_json = "application/json" in content_type
@@ -88,13 +88,7 @@ async def index(
         collection = payload.get("collection", "pmx_docs")
         docs_raw = payload.get("documents") or []
         if not isinstance(docs_raw, list) or not docs_raw:
-            return {
-                "indexed": 0,
-                "collection": collection,
-                "files": [],
-                "tags": [],
-                "metrics": {"elapsed_ms": 0, "pipeline_ms": 0, "total_chunks": 0, "files_count": 0},
-            }
+            return {"indexed": 0, "collection": collection}
 
         store = get_document_store()
         store.index = collection
@@ -114,30 +108,28 @@ async def index(
             docs.append(doc)
 
         if not docs:
-            return {
-                "indexed": 0,
-                "collection": collection,
-                "files": [],
-                "tags": [],
-                "metrics": {"elapsed_ms": 0, "pipeline_ms": 0, "total_chunks": 0, "files_count": 0},
-            }
+            return {"indexed": 0, "collection": collection}
 
-        # --- Direkt speichern, kein Pipeline-Overhead ---
+        # 🔹 Embeddings erzeugen
+        embedder = get_doc_embedder()
+        t_emb0 = time.perf_counter()
+        embedded = embedder.run(documents=docs)["documents"]
+        emb_ms = round((time.perf_counter() - t_emb0) * 1000)
+
+        # 🔹 In Qdrant schreiben
         t0 = time.perf_counter()
-        store.write_documents(docs)
+        store.write_documents(embedded)
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
-        print(f"[index] Direkt gespeichert: {len(docs)} docs in {collection}")
+
+        print(f"[index] Direkt gespeichert: {len(docs)} docs in {collection} mit Embeddings")
 
         return {
             "indexed": len(docs),
             "collection": collection,
-            "files": [],
-            "tags": [],
             "metrics": {
                 "elapsed_ms": elapsed_ms,
-                "pipeline_ms": 0,
+                "embed_ms": emb_ms,
                 "total_chunks": len(docs),
-                "files_count": 0,
             },
         }
 
@@ -219,7 +211,7 @@ def query(payload: QueryRequest):
     collection = getattr(payload, "collection", None) or getattr(payload, "collection_name", None) or "pmx_docs"
 
     store = get_document_store()
-    store.index = collection  # 🔹 HIER: gezielt dieselbe Collection nutzen
+    store.index = collection  # 🔹 gezielt dieselbe Collection
     pipe = build_query_pipeline(store)
 
     # Optional: Tag-Filter
@@ -277,6 +269,7 @@ def query(payload: QueryRequest):
     used_tags = [t for t in used_tags if not (t in seen or seen.add(t))]
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
+
 
 # -----------------------------
 # Tags
