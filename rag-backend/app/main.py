@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Request
 from haystack import Document
 
-from .models import IndexRequest, QueryRequest, QueryResponse, TagPatch
+from .models import QueryRequest, QueryResponse, TagPatch
 from .deps import get_document_store, get_generator, get_retriever, get_text_embedder, get_doc_embedder
 from .pipelines import (
     build_index_pipeline,
@@ -15,6 +15,7 @@ from .pipelines import (
     postprocess_with_tags,
     convert_bytes_to_documents,
 )
+from .tagging import extract_tags
 
 from app.routers.transcribe import router as transcribe_router
 from app.routers.diarize import router as diarize_router
@@ -30,11 +31,10 @@ from .jobs import router as jobs_router
 # Settings & App
 # -----------------------------
 API_KEY = os.getenv("API_KEY", "")
-SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
+SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))
 
-app = FastAPI(title="pmx-rag-backend", version="1.0.3")
+app = FastAPI(title="pmx-rag-backend", version="1.0.5")
 
-# Router registrieren
 app.include_router(transcribe_router, prefix="", tags=["audio"])
 app.include_router(diarize_router, prefix="", tags=["audio"])
 app.include_router(identify_router, prefix="", tags=["audio"])
@@ -49,7 +49,6 @@ app.include_router(jobs_router, prefix="/rag")
 # Header-Schutz
 # -----------------------------
 def require_key(x_api_key: Optional[str] = Header(None)):
-    """Einfacher Header-Check."""
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -63,24 +62,39 @@ def health():
 
 
 # -----------------------------
-# Index – Upload & JSON-Direkt
+# Gemeinsame Enrichment-Logik
+# -----------------------------
+def enrich_documents(docs: List[Document], generator, default_source="upload"):
+    """Auto-Tagging & Standard-Metadaten anreichern"""
+    enriched = []
+    for d in docs:
+        auto_tags = extract_tags(generator, d.content or "")[:8] if d.content else []
+        meta = dict(d.meta or {})
+        meta.setdefault("filename", meta.get("filename") or f"{d.id}.txt")
+        meta.setdefault("mime", meta.get("mime") or "text/plain")
+        meta.setdefault("source", meta.get("source") or default_source)
+        meta.setdefault("created_at", datetime.utcnow().isoformat())
+        meta["tags"] = sorted(set(meta.get("tags", []) + auto_tags))
+        d.meta = meta
+        enriched.append(d)
+    return enriched
+
+
+# -----------------------------
+# Index – Datei & JSON
 # -----------------------------
 @app.post("/index", dependencies=[Depends(require_key)])
 async def index(
     request: Request,
     files: List[UploadFile] = File(default=[]),
 ):
-    """
-    Indexiert Dokumente aus Datei-Upload oder JSON-Body.
-    - Uploads (multipart/form-data): werden geparst, gechunkt, eingebettet
-    - JSON (application/json): werden direkt mit Embeddings in Qdrant gespeichert
-    """
     content_type = request.headers.get("content-type", "").lower()
     is_json = "application/json" in content_type
+    gen = get_generator()
 
-    # =============================
-    # JSON-Upload (z. B. aus n8n)
-    # =============================
+    # --------------------------
+    # JSON-Direktpfad
+    # --------------------------
     if is_json:
         try:
             payload = await request.json()
@@ -94,17 +108,16 @@ async def index(
 
         store = get_document_store()
         store.index = collection
-
         docs = []
+
         for d in docs_raw:
             if not isinstance(d, dict):
                 continue
-
             text = d.get("text") or d.get("content") or ""
             if not text.strip():
                 continue
 
-            # --- Automatische eindeutige ID-Vergabe ---
+            # ID immer eindeutig
             if d.get("id"):
                 doc_id = str(d["id"])
             else:
@@ -114,44 +127,35 @@ async def index(
                 doc_id = f"{base}-{ts}-{rand}"
 
             meta = d.get("metadata") or d.get("meta") or {}
-            meta.setdefault("created_at", datetime.utcnow().isoformat())
-            meta.setdefault("source", "json-upload")
-
             doc = Document(id=doc_id, content=text, meta=meta)
             docs.append(doc)
 
-        if not docs:
-            return {"indexed": 0, "collection": collection}
+        # Auto-Tags + Metadaten
+        docs = enrich_documents(docs, gen, default_source="json-upload")
 
-        # 🔹 Embeddings erzeugen
+        # Embedding + Speichern
         embedder = get_doc_embedder()
         t_emb0 = time.perf_counter()
         embedded = embedder.run(documents=docs)["documents"]
         emb_ms = round((time.perf_counter() - t_emb0) * 1000)
 
-        # 🔹 In Qdrant schreiben (kein Überschreiben!)
         t0 = time.perf_counter()
-        store.write_documents(embedded, policy="skip")  # "skip" = keine Doubletten überschreiben
+        store.write_documents(embedded, policy="skip")
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
-        print(f"[index] {len(docs)} neue Dokumente in {collection} mit Embeddings gespeichert")
-
+        print(f"[index] {len(docs)} JSON-Dokumente in {collection} gespeichert")
         return {
             "indexed": len(docs),
             "collection": collection,
-            "metrics": {
-                "elapsed_ms": elapsed_ms,
-                "embed_ms": emb_ms,
-                "total_chunks": len(docs),
-            },
+            "metrics": {"elapsed_ms": elapsed_ms, "embed_ms": emb_ms, "total_chunks": len(docs)},
         }
 
-    # =============================
-    # Datei-Upload (Standardmodus)
-    # =============================
+    # --------------------------
+    # Datei-Upload
+    # --------------------------
     form = await request.form()
-    raw_list = form.getlist("tags")
     tags: List[str] = []
+    raw_list = form.getlist("tags")
     if raw_list:
         for item in raw_list:
             if isinstance(item, str) and "," in item:
@@ -164,7 +168,6 @@ async def index(
             tags = [t.strip() for t in raw.split(",")] if "," in raw else [raw.strip()]
 
     pipe, _store = build_index_pipeline()
-    gen = get_generator()
 
     t0 = time.perf_counter()
     all_docs: List[Document] = []
@@ -176,16 +179,11 @@ async def index(
         size_bytes = len(data)
 
         t_conv0 = time.perf_counter()
-        docs = convert_bytes_to_documents(
-            filename=f.filename,
-            mime=mime,
-            data=data,
-            default_meta={"source": "upload"},
-        )
-        docs = postprocess_with_tags(gen, docs, tags or [])
+        docs = convert_bytes_to_documents(f.filename, mime, data, default_meta={"source": "upload"})
+        docs = postprocess_with_tags(gen, docs, tags)
         conv_ms = round((time.perf_counter() - t_conv0) * 1000)
 
-        all_docs.extend(docs)
+        all_docs.extend(enrich_documents(docs, gen, default_source="upload"))
         file_stats.append({
             "filename": f.filename,
             "mime": mime,
@@ -200,27 +198,26 @@ async def index(
         _ = pipe.run({"clean": {"documents": all_docs}})
     pipeline_ms = round((time.perf_counter() - t_idx0) * 1000)
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
-    total_chunks = len(all_docs)
 
     return {
-        "indexed": total_chunks,
+        "indexed": len(all_docs),
         "files": file_stats,
         "tags": tags,
         "metrics": {
             "elapsed_ms": elapsed_ms,
             "pipeline_ms": pipeline_ms,
-            "total_chunks": total_chunks,
+            "total_chunks": len(all_docs),
             "files_count": len(file_stats),
         },
     }
 
+
 # -----------------------------
-# Query (semantische Suche)
+# Query
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
     collection = getattr(payload, "collection", None) or getattr(payload, "collection_name", None) or "pmx_docs"
-
     store = get_document_store()
     store.index = collection
     pipe = build_query_pipeline(store)
@@ -229,13 +226,9 @@ def query(payload: QueryRequest):
     if payload.tags_all or payload.tags_any:
         flt = {"operator": "AND", "conditions": []}
         if payload.tags_all:
-            flt["conditions"].append(
-                {"field": "meta.tags", "operator": "contains_all", "value": payload.tags_all}
-            )
+            flt["conditions"].append({"field": "meta.tags", "operator": "contains_all", "value": payload.tags_all})
         if payload.tags_any:
-            flt["conditions"].append(
-                {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
-            )
+            flt["conditions"].append({"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any})
 
     ret = pipe.run({
         "embed_query": {"text": payload.query},
@@ -245,8 +238,7 @@ def query(payload: QueryRequest):
     })
 
     gen_out = ret.get("generate", {}) if isinstance(ret, dict) else {}
-    answer_list = gen_out.get("replies") or []
-    answer = answer_list[0] if answer_list else ""
+    answer = (gen_out.get("replies") or [""])[0]
 
     retriever = get_retriever(store)
     qembed = get_text_embedder()
@@ -259,8 +251,7 @@ def query(payload: QueryRequest):
     )
     docs = ret_docs.get("documents", []) or []
 
-    srcs = []
-    used_tags = []
+    srcs, used_tags, seen = [], [], set()
     for d in docs:
         meta = d.meta or {}
         srcs.append({
@@ -272,47 +263,6 @@ def query(payload: QueryRequest):
             "snippet": d.content[:400] + ("…" if d.content and len(d.content) > 400 else ""),
         })
         used_tags.extend(meta.get("tags", []))
-    seen = set()
     used_tags = [t for t in used_tags if not (t in seen or seen.add(t))]
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
-
-
-# -----------------------------
-# Tags
-# -----------------------------
-@app.get("/tags", dependencies=[Depends(require_key)])
-def list_tags(limit: int = 1000):
-    store = get_document_store()
-    docs = store.filter_documents(filters=None, top_k=limit)
-    from collections import Counter
-    c = Counter()
-    for d in docs:
-        for t in (d.meta or {}).get("tags", []):
-            c[t] += 1
-    return [{"tag": k, "count": v} for k, v in c.most_common()]
-
-
-# -----------------------------
-# Tags patchen
-# -----------------------------
-@app.patch("/docs/{doc_id}/tags", dependencies=[Depends(require_key)])
-def patch_tags(doc_id: str, patch: TagPatch):
-    store = get_document_store()
-    docs = store.filter_documents(
-        filters={"operator": "AND", "conditions": [{"field": "id", "operator": "==", "value": doc_id}]},
-        top_k=1,
-    )
-    if not docs:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    d = docs[0]
-    tags = set((d.meta or {}).get("tags", []))
-    if patch.add:
-        tags |= set(patch.add)
-    if patch.remove:
-        tags -= set(patch.remove)
-
-    d.meta = dict(d.meta or {}, tags=sorted(tags))
-    store.write_documents([d])
-    return {"doc_id": doc_id, "tags": d.meta["tags"]}
