@@ -94,17 +94,27 @@ async def index(
         store.index = collection
 
         docs = []
+        from datetime import datetime
+        from uuid import uuid4
+
         for d in docs_raw:
             if not isinstance(d, dict):
                 continue
+
             text = d.get("text") or d.get("content") or ""
             if not text.strip():
                 continue
-            doc = Document(
-                id=d.get("id"),
-                content=text,
-                meta=d.get("metadata") or d.get("meta") or {},
-            )
+
+            # --- Automatische eindeutige ID-Vergabe ---
+            if d.get("id"):
+                doc_id = str(d["id"])
+            else:
+                # Basis: Datumszeit + kurze UUID
+                ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+                doc_id = f"document-{ts}-{uuid4().hex[:6]}"
+
+            meta = d.get("metadata") or d.get("meta") or {}
+            doc = Document(id=doc_id, content=text, meta=meta)
             docs.append(doc)
 
         if not docs:
