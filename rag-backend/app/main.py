@@ -1,6 +1,8 @@
 # rag-backend/app/main.py
 import os
 import time
+from datetime import datetime
+from uuid import uuid4
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Depends, Header, HTTPException, Request
 from haystack import Document
@@ -30,7 +32,7 @@ from .jobs import router as jobs_router
 API_KEY = os.getenv("API_KEY", "")
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0"))  # 0 = aus
 
-app = FastAPI(title="pmx-rag-backend", version="1.0.2")
+app = FastAPI(title="pmx-rag-backend", version="1.0.3")
 
 # Router registrieren
 app.include_router(transcribe_router, prefix="", tags=["audio"])
@@ -94,9 +96,6 @@ async def index(
         store.index = collection
 
         docs = []
-        from datetime import datetime
-        from uuid import uuid4
-
         for d in docs_raw:
             if not isinstance(d, dict):
                 continue
@@ -109,7 +108,7 @@ async def index(
             if d.get("id"):
                 doc_id = str(d["id"])
             else:
-                # Basis: Datumszeit + kurze UUID
+                # Basis: Datumszeit + kurze UUID (z. B. document-20251103-153045-a1b2c3)
                 ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
                 doc_id = f"document-{ts}-{uuid4().hex[:6]}"
 
@@ -126,9 +125,9 @@ async def index(
         embedded = embedder.run(documents=docs)["documents"]
         emb_ms = round((time.perf_counter() - t_emb0) * 1000)
 
-        # 🔹 In Qdrant schreiben
+        # 🔹 In Qdrant schreiben (Overwrite erlaubt)
         t0 = time.perf_counter()
-        store.write_documents(embedded)
+        store.write_documents(embedded, policy="overwrite")
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
         print(f"[index] Direkt gespeichert: {len(docs)} docs in {collection} mit Embeddings")
@@ -217,14 +216,12 @@ async def index(
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
-    # Collection aus Payload oder Fallback
     collection = getattr(payload, "collection", None) or getattr(payload, "collection_name", None) or "pmx_docs"
 
     store = get_document_store()
-    store.index = collection  # 🔹 gezielt dieselbe Collection
+    store.index = collection
     pipe = build_query_pipeline(store)
 
-    # Optional: Tag-Filter
     flt = None
     if payload.tags_all or payload.tags_any:
         flt = {"operator": "AND", "conditions": []}
@@ -237,7 +234,6 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
-    # Pipeline ausführen
     ret = pipe.run({
         "embed_query": {"text": payload.query},
         "retrieve": {"filters": flt, "top_k": payload.top_k or 5},
@@ -249,7 +245,6 @@ def query(payload: QueryRequest):
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
-    # Direkt-Retrieval (zurückgegebene Dokumente)
     retriever = get_retriever(store)
     qembed = get_text_embedder()
     emb = qembed.run(text=payload.query)["embedding"]
@@ -261,7 +256,6 @@ def query(payload: QueryRequest):
     )
     docs = ret_docs.get("documents", []) or []
 
-    # Quellen + Tags
     srcs = []
     used_tags = []
     for d in docs:
