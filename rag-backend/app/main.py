@@ -215,9 +215,14 @@ async def index(
 # -----------------------------
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_key)])
 def query(payload: QueryRequest):
+    # Collection aus Payload oder Fallback
+    collection = getattr(payload, "collection", None) or getattr(payload, "collection_name", None) or "pmx_docs"
+
     store = get_document_store()
+    store.index = collection  # 🔹 HIER: gezielt dieselbe Collection nutzen
     pipe = build_query_pipeline(store)
 
+    # Optional: Tag-Filter
     flt = None
     if payload.tags_all or payload.tags_any:
         flt = {"operator": "AND", "conditions": []}
@@ -230,6 +235,7 @@ def query(payload: QueryRequest):
                 {"field": "meta.tags", "operator": "contains_any", "value": payload.tags_any}
             )
 
+    # Pipeline ausführen
     ret = pipe.run({
         "embed_query": {"text": payload.query},
         "retrieve": {"filters": flt, "top_k": payload.top_k or 5},
@@ -241,6 +247,7 @@ def query(payload: QueryRequest):
     answer_list = gen_out.get("replies") or []
     answer = answer_list[0] if answer_list else ""
 
+    # Direkt-Retrieval (zurückgegebene Dokumente)
     retriever = get_retriever(store)
     qembed = get_text_embedder()
     emb = qembed.run(text=payload.query)["embedding"]
@@ -252,6 +259,7 @@ def query(payload: QueryRequest):
     )
     docs = ret_docs.get("documents", []) or []
 
+    # Quellen + Tags
     srcs = []
     used_tags = []
     for d in docs:
@@ -269,7 +277,6 @@ def query(payload: QueryRequest):
     used_tags = [t for t in used_tags if not (t in seen or seen.add(t))]
 
     return QueryResponse(answer=answer, sources=srcs, used_tags=used_tags)
-
 
 # -----------------------------
 # Tags
