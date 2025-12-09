@@ -848,40 +848,48 @@ async function saveFileFromInput(fileInput, statusEl){
     return;
   }
 
-  const blob = file; // File *ist* schon ein Blob
+  const blob  = file; // File *ist* ein Blob
   const fname = file.name || "aufnahme.webm";
 
   try {
-    // Moderner Weg: File System Access API (Chrome, Edge, einige andere)
-    if ('showSaveFilePicker' in window) {
+    // MIME-Type für showSaveFilePicker bereinigen (ohne ";codecs=...")
+    const rawType  = file.type || "audio/webm";
+    const safeType = (rawType.split(";")[0] || "audio/webm"); // z.B. "audio/webm"
+
+    if ("showSaveFilePicker" in window) {
       const handle = await window.showSaveFilePicker({
         suggestedName: fname,
         types: [
           {
-            description: 'Audio',
-            accept: { [file.type || 'audio/webm']: ['.webm', '.ogg', '.wav'] }
-          }
-        ]
+            description: "Audio",
+            // WICHTIG: kein "audio/webm;codecs=opus", nur "audio/webm" o.ä.
+            accept: {
+              [safeType]: [".webm", ".ogg", ".wav"],
+            },
+          },
+        ],
       });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
     } else {
-      // Fallback: klassischer Download → Browser zeigt Download/„Speichern“-Dialog
+      // Fallback: klassischer Download → landet meist in "Downloads"
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = fname;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(()=>URL.revokeObjectURL(url), 10_000);
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     }
 
-    if (statusEl) statusEl.textContent = `✅ Aufnahme gespeichert (${(blob.size/1024).toFixed(1)} KB)`;
+    if (statusEl)
+      statusEl.textContent = `✅ Aufnahme gespeichert (${(blob.size / 1024).toFixed(1)} KB)`;
   } catch (err) {
     console.error("Speichern fehlgeschlagen:", err);
-    if (statusEl) statusEl.textContent = `⚠️ Speichern abgebrochen: ${err.message || err}`;
+    if (statusEl)
+      statusEl.textContent = `⚠️ Speichern abgebrochen: ${err.message || err}`;
   }
 }
 
