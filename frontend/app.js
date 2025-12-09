@@ -840,6 +840,50 @@ async function stopRecording(statusEl, meterEl, timerEl, fileInput){
     }
   });
 }
+// NEU: generischer "Speichern unter" Helper für ein <input type="file">
+async function saveFileFromInput(fileInput, statusEl){
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    if (statusEl) statusEl.textContent = "⚠️ Keine Aufnahme zum Speichern vorhanden.";
+    return;
+  }
+
+  const blob = file; // File *ist* schon ein Blob
+  const fname = file.name || "aufnahme.webm";
+
+  try {
+    // Moderner Weg: File System Access API (Chrome, Edge, einige andere)
+    if ('showSaveFilePicker' in window) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fname,
+        types: [
+          {
+            description: 'Audio',
+            accept: { [file.type || 'audio/webm']: ['.webm', '.ogg', '.wav'] }
+          }
+        ]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } else {
+      // Fallback: klassischer Download → Browser zeigt Download/„Speichern“-Dialog
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url), 10_000);
+    }
+
+    if (statusEl) statusEl.textContent = `✅ Aufnahme gespeichert (${(blob.size/1024).toFixed(1)} KB)`;
+  } catch (err) {
+    console.error("Speichern fehlgeschlagen:", err);
+    if (statusEl) statusEl.textContent = `⚠️ Speichern abgebrochen: ${err.message || err}`;
+  }
+}
 
 // Wire up Transcribe mic controls
 const micSelectTrans  = document.getElementById('micSelectTrans');
@@ -850,19 +894,42 @@ const micStopTrans    = document.getElementById('micStopTrans');
 const micTimerTrans   = document.getElementById('micTimerTrans');
 const micMeterTrans   = document.getElementById('micMeterTrans');
 const audioFileInput  = document.getElementById('audioFile');
+const micSaveTrans    = document.getElementById('micSaveTrans');
 
 micCheckTrans?.addEventListener('click', ()=>checkHardware(micStatusTrans, micSelectTrans));
 micStartTrans?.addEventListener('click', async ()=>{
-  if (await startRecording(micSelectTrans, micStatusTrans, micMeterTrans, micTimerTrans, audioFileInput, "transcribe_mic.webm")){
-    micStartTrans.disabled = true; micStopTrans.disabled = false;
+  if (await startRecording(
+    micSelectTrans,
+    micStatusTrans,
+    micMeterTrans,
+    micTimerTrans,
+    audioFileInput,
+    "transcribe_mic.webm"
+  )){
+    micStartTrans.disabled = true;
+    micStopTrans.disabled  = false;
+    if (micSaveTrans) micSaveTrans.disabled = true; // NEU: während Aufnahme nicht speichern
   }
 });
 micStopTrans?.addEventListener('click', async ()=>{
-  if (await stopRecording(micStatusTrans, micMeterTrans, micTimerTrans, audioFileInput)){
-    micStartTrans.disabled = false; micStopTrans.disabled = true;
+  if (await stopRecording(
+    micStatusTrans,
+    micMeterTrans,
+    micTimerTrans,
+    audioFileInput
+  )){
+    micStartTrans.disabled = false;
+    micStopTrans.disabled  = true;
+
+    // NEU: wenn eine Aufnahme im Input steckt, Speichern-Button freischalten
+    if (micSaveTrans && audioFileInput?.files?.length) {
+      micSaveTrans.disabled = false;
+    }
   }
 });
-
+micSaveTrans?.addEventListener('click', async ()=>{
+  await saveFileFromInput(audioFileInput, micStatusTrans);
+});
 // Wire up Enroll mic controls
 const micSelectEnroll = document.getElementById('micSelectEnroll');
 const micStatusEnroll = document.getElementById('micStatusEnroll');
