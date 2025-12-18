@@ -44,8 +44,8 @@ server {
     proxy_set_header   X-Forwarded-Proto  $scheme;
 
     client_max_body_size 200m;
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_send_timeout 10800s;
     proxy_connect_timeout 60s;
   }
 
@@ -85,9 +85,9 @@ server {
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
 
-    proxy_read_timeout 600s;
-    proxy_connect_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 10800s;
 
     # CORS optional
     add_header Access-Control-Allow-Origin  *;
@@ -120,8 +120,8 @@ server {
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
 
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_send_timeout 10800s;
     proxy_connect_timeout 60s;
 
     add_header Access-Control-Allow-Origin  *;
@@ -140,9 +140,9 @@ server {
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
 
-    proxy_read_timeout 600s;
-    proxy_connect_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 10800s;
 
     # CORS optional
     add_header Access-Control-Allow-Origin  *;
@@ -161,8 +161,8 @@ server {
     proxy_set_header   X-Real-IP         $remote_addr;
     proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto $scheme;
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_send_timeout 10800s;
   }
 
   # vLLM LoRA-Basis → /v1/base/...
@@ -173,8 +173,8 @@ server {
     proxy_set_header   X-Real-IP         $remote_addr;
     proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto $scheme;
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_send_timeout 10800s;
   }
 
   # 2) Restliche /rag/*-Routen (index, query, tags, docs, …):
@@ -189,9 +189,9 @@ server {
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
 
-    proxy_read_timeout 600s;
-    proxy_connect_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 10800s;
 
     # CORS optional
     add_header Access-Control-Allow-Origin  *;
@@ -217,9 +217,9 @@ server {
     proxy_set_header   X-Real-IP          $remote_addr;
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
-    proxy_read_timeout 600s;
-    proxy_connect_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 10800s;
   }
 
   # 5) n8n UI als Fallback
@@ -232,9 +232,9 @@ server {
     proxy_set_header   X-Real-IP          $remote_addr;
     proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto  $scheme;
-    proxy_read_timeout 600s;
-    proxy_connect_timeout 600s;
-    proxy_send_timeout 600s;
+    proxy_read_timeout 10800s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 10800s;
   }
 }
 
